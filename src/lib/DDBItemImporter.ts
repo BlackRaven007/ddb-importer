@@ -89,7 +89,7 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
   type: TDDBImporterTypes;
   recursive: boolean | null;
   currentImportRunId: string | null = null;
-  currentImportItemKeyMap: Map<string, string> = new Map();
+  currentImportItemKeyMap: Map<string, string> = new Map<string, string>();
   maxOperationRetries = 2;
   retryBaseDelayMs = 300;
   operationTimeoutMs = 60000;
