@@ -1,0 +1,28 @@
+// import { utils } from "../../../../lib/_module";
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class ForceBlade extends DDBEnricherData {
+  get activity(): IDDBActivityData {
+    return {
+      data: {
+        attack: {
+          critical: {
+            threshold: 18,
+          },
+        },
+        damage: {
+          critical: {
+            bonus: "8d12",
+          },
+          parts: [
+            DDBEnricherData.basicDamagePart({
+              number: 4,
+              denomination: 12,
+              types: ["force"],
+            }),
+          ],
+        },
+      },
+    };
+  }
+}

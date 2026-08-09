@@ -1,0 +1,61 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class VitalityOfTheTree extends DDBEnricherData {
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.HEAL;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Vitality Surge",
+      targetType: "self",
+      rangeSelf: true,
+      activationType: "special",
+      activationCondition: "You enter a rage.",
+      data: {
+        healing: DDBEnricherData.basicDamagePart({
+          customFormula: "@classes.barbarian.levels",
+          types: ["temphp"],
+        }),
+      },
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Life-Giving Force",
+          type: DDBEnricherData.ACTIVITY_TYPES.HEAL,
+        },
+        build: {
+          generateConsumption: true,
+          generateTarget: true,
+          generateHealing: true,
+          generateActivation: true,
+          generateRange: true,
+          rangeOverride: {
+            value: "10",
+            units: "ft",
+          },
+          activationOverride: {
+            type: "turnStart",
+            value: 1,
+            condition: "At the start of each of your turns (whilst raging)",
+          },
+          targetOverride: {
+            affects: {
+              count: "1",
+              type: "ally",
+            },
+          },
+          healingPart: DDBEnricherData.basicDamagePart({
+            customFormula: "(@scale.barbarian.rage-damage)d6",
+            type: "temphp",
+          }),
+        },
+      },
+    ];
+  }
+
+}

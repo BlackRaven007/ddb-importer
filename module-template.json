@@ -1,0 +1,59 @@
+{
+  "id": "ddb-importer",
+  "title": "DDB-Importer: A D&D Beyond Integrator",
+  "license": "MIT License",
+  "description": "Import your dndbeyond.com characters, spells, items, monsters, encounters, and adventures!",
+  "version": "VERSION",
+  "download": "https://github.com/BlackRaven007/ddb-importer/releases/download/VERSION/ddb-importer.zip",
+  "manifest": "https://github.com/BlackRaven007/ddb-importer/releases/download/latest/module.json",
+  "readme": "https://github.com/BlackRaven007/ddb-importer/blob/main/README.md",
+  "changelog": "https://github.com/BlackRaven007/ddb-importer/blob/main/CHANGELOG.md",
+  "url": "https://docs.ddb.blackraven007.co.uk",
+  "compatibility": {
+    "minimum": "14.359",
+    "verified": "14.359",
+    "maximum": 14
+  },
+  "authors": [
+    {
+      "name": "BlackRaven007",
+      "email": "admin@blackraven007.co.uk",
+      "url": "https://docs.ddb.blackraven007.co.uk",
+      "patreon": "https://www.patreon.com/BlackRaven007",
+      "discord": "https://discord.gg/WzPuRuDJVP"
+    }
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "relationships": {
+    "systems": [{
+      "id": "dnd5e",
+      "type": "system",
+      "compatibility": {
+        "minimum": "5.3.0",
+        "verified": "5.3.1",
+        "maximum": "5.3.99"
+      }
+    }]
+  },
+  "scripts": [
+    "./vendor/zipjs/zip-fs.js"
+  ],
+  "esmodules": ["dist/main.mjs"],
+  "styles": [
+    "./css/default.css",
+    "./css/import.css",
+    "./css/journal.css",
+    "./css/notifications.css",
+    "./css/adventure.css",
+    "./css/maps.css"
+  ],
+  "packs": [],
+  "socket": true,
+  "persistentStorage": true
+}

@@ -1,0 +1,252 @@
+// A modified version of the spell scroll code from the 5e system
+
+import CreateSpellwroughtTattooDialog from "../../apps/CreateSpellwroughtTattooDialog";
+import { logger, utils } from "../../lib/_module";
+import CompendiumHelper from "../../lib/CompendiumHelper";
+
+async function getBaseTattooData(level: number): Promise<I5eConsumableItem | undefined> {
+  const spellWroughtIdentity = CONFIG.DDBI.SPELLWROUGHT_TATTOO?.[level]?.identity;
+
+  let tattooUuid;
+
+  // check for munched spell wrought item
+  if (spellWroughtIdentity) {
+    const ddbCompendium = CompendiumHelper.getCompendiumType("items");
+    await CompendiumHelper.loadCompendiumIndex("items", {
+      fields: ["name", "system.identifier"],
+    });
+    const indexMatch = ddbCompendium?.index.find((i) => (foundry.utils.getProperty(i, "system.identifier") as string)?.startsWith(spellWroughtIdentity));
+    if (indexMatch) tattooUuid = indexMatch.uuid;
+  }
+  // fallback to scroll item
+  if (!tattooUuid) {
+    const id = CONFIG.DND5E.spellScrollIds[level];
+    if (foundry.data.validators.isValidId(id)) {
+      tattooUuid = game.packs.get(CONFIG.DND5E.sourcePacks.ITEMS)?.index.get(id)?.uuid;
+    } else {
+      tattooUuid = id;
+    }
+  }
+  const tattooItem = await fromUuid(tattooUuid) as unknown as TImporterItem | undefined;
+  if (!tattooItem) return undefined;
+  const tattooData = game.items.fromCompendium(tattooItem as Item.Implementation);
+  return tattooData as unknown as I5eConsumableItem;
+}
+
+/**
+ * Create a consumable spell tattoo Item from a spell Item.
+ * @param {string} uuid                           UUID of the spell to add to the tattoo.
+ * @param {SpellTattooConfiguration} [config={}]  Configuration options for tattoo creation.
+ * @returns {Promise<TImporterItem|void>}   The created tattoo consumable item.
+ */
+async function createTattooFromSpellUuid(uuid: string, config: SpellTattooConfiguration = {}) {
+  const spell = await fromUuid(uuid) as unknown as I5eSpellItem | undefined;
+  if (!spell) return undefined;
+
+  const tattooConfigs = CONFIG.DDBI.SPELLWROUGHT_TATTOO;
+  if (!tattooConfigs) {
+    logger.warn("Spellwrought tattoo configuration is not registered, unable to create tattoo");
+    return undefined;
+  }
+
+  const values = tattooConfigs[spell.system.level];
+
+  config = foundry.utils.mergeObject({
+    level: spell.system.level,
+    values,
+  }, config);
+
+  if (config.dialog !== false) {
+    const result = await CreateSpellwroughtTattooDialog.create(spell as unknown as TImporterItem, config);
+    if (!result) return undefined;
+    foundry.utils.mergeObject(config, result as object);
+  }
+
+  /**
+   * A hook event that fires before the item data for a tattoo is created for a compendium spell.
+   * @function dnd5e.preCreateTattooFromCompendiumSpell
+   * @memberof hookEvents
+   * @param {TImporterItem} spell        Spell to add to the tattoo.
+   * @param {SpellTattooConfiguration} config  Configuration options for tattoo creation.
+   * @returns {boolean}                        Explicitly return `false` to prevent the tattoo to be created.
+   */
+  if (Hooks.call("ddb-importer.preCreateTattooFromSpell", spell as unknown as TImporterItem, config) === false) return undefined;
+
+  if (config.level === undefined || !config.values) {
+    logger.warn("Spellwrought tattoo configuration is missing level or values, unable to create tattoo", { config });
+    return undefined;
+  }
+
+  // Get tattoo data
+  const tattooData = await getBaseTattooData(config.level);
+  if (!tattooData) {
+    logger.warn("Unable to find base tattoo item data, unable to create tattoo", { config });
+    return undefined;
+  }
+
+  for (const level of Array.fromRange(config.level + 1).reverse()) {
+    const values = CONFIG.DDBI.SPELLWROUGHT_TATTOO?.[level];
+    if (values) {
+      config.values.bonus ??= values.bonus;
+      config.values.dc ??= values.dc;
+      config.values.abilityMod ??= values.abilityMod;
+      config.name ??= values.name;
+      break;
+    }
+  }
+
+  // If this is spell scroll fallback then clear description
+  if (tattooData.system.type.value === "scroll") {
+    tattooData.system.description.value = `
+<p>The tattoo casts ${spell.name} as a ${config.name} spell with the following properties:</p>
+
+<p>
+<strong>Ability Modifier</strong>: ${utils.intSigner(config.values.abilityMod)}<br>
+<strong>Save DC</strong>: ${config.values.dc}<br>
+<strong>Attack Bonus</strong>: ${utils.intSigner(config.values.bonus)}
+</p>
+`;
+  }
+  const tattooSpellActivityId = dnd5e.utils.staticID("ddbitattoospell");
+  const activity: I5eCastActivity = {
+    _id: tattooSpellActivityId,
+    type: "cast",
+    consumption: {
+      targets: [{ type: "itemUses", value: "1", target: "" }],
+    },
+    spell: {
+      challenge: {
+        attack: config.values.bonus,
+        save: config.values.dc,
+        override: true,
+      },
+      level: config.level,
+      uuid: spell.uuid,
+      properties: ["material"],
+    },
+  };
+
+  // Create the spell tattoo data
+  const tattooOverrideData: DeepPartial<I5eConsumableItem> = {
+    name: `Spellwrought Tattoo: ${spell.name} (${config.name ?? config.values?.name})`,
+    img: "icons/tools/scribal/ink-quill-red.webp",
+    system: {
+      uses: { spent: 0, max: "1", autoDestroy: true },
+      activities: { ...(tattooData.system.activities ?? {}), [tattooSpellActivityId]: activity },
+      properties: ["mgc"],
+      type: { value: "tattoo" },
+    },
+  };
+  const spellTattooData = foundry.utils.mergeObject(tattooData, tattooOverrideData) as unknown as I5eConsumableItem;
+
+  /**
+   * A hook event that fires after the item data for a tattoo is created but before the item is returned.
+   * @function dnd5e.createTattooFromSpell
+   * @memberof hookEvents
+   * @param {TImporterItem} spell        The spell or item data to be made into a tattoo.
+   * @param {object} spellTattooData           The final item data used to make the tattoo.
+   * @param {SpellTattooConfiguration} config  Configuration options for tattoo creation.
+   */
+  Hooks.callAll("ddb-importer.createTattooFromSpell", spell as unknown as TImporterItem, spellTattooData, config);
+
+  return new (Item.implementation as any)(spellTattooData);
+}
+
+
+async function compendiumContext(app: any, options: Record<string, any>[]) {
+  if (!game.user.hasPermission("ITEM_CREATE")) return;
+
+  const collectionType = foundry.documents?.collections?.CompendiumCollection ?? CompendiumCollection;
+
+  if (app.collection instanceof collectionType) {
+    await app.collection.getIndex({
+      fields: ["name", "system.level", "system.identifier"],
+    });
+  }
+
+  const getSpellDetailsFromLi = (li: any) => {
+    const id = li.dataset.documentId ?? li.dataset.entryId;
+    let spell = game.items.get(id) as unknown as I5eSpellItem | undefined;
+    if (app.collection instanceof collectionType) {
+      const indexSpell = app.collection.index.get(id);
+      if (!indexSpell) return null;
+      spell = fromUuidSync(indexSpell.uuid) as unknown as I5eSpellItem | undefined;
+      if (!spell) return null;
+    }
+    return spell;
+  };
+
+  options.push({
+    name: "Create Spellwrought Tattoo",
+    icon: "<i class=\"fa-solid fa-user-pen\"></i>",
+    callback: async (li: any) => {
+      const spell = getSpellDetailsFromLi(li);
+      if (!spell?.uuid) return;
+      const tattoo = await createTattooFromSpellUuid(spell.uuid);
+      if (tattoo) dnd5e.documents.Item5e.create(tattoo);
+    },
+    condition: (li: any) => {
+      const spell = getSpellDetailsFromLi(li);
+      if (!spell) return false;
+      return spell.type === "spell"
+        && spell.system.level <= 5;
+    },
+    group: "system",
+  });
+
+}
+
+function addCharacterSheetContext(doc: any, buttons: Record<string, any>[]) {
+  if (doc.type !== "spell") return;
+  if (doc.system.level > 5) return;
+  buttons.push({
+    name: "Create Spellwrought Tattoo",
+    icon: "<i class='fa-solid fa-user-pen'></i>",
+    callback: async () => {
+      const tattoo = await createTattooFromSpellUuid(doc.uuid);
+      if (tattoo) doc.actor.createEmbeddedDocuments("Item", [tattoo]);
+    },
+    condition: () => doc.actor?.isOwner,
+    group: "action",
+  });
+}
+
+/**
+ * Registers a new consumable type "tattoo" to the DND5E configuration with specific levels, rarity, ability modifiers, DC values, and bonuses.
+ * This function also registers hooks to add context options for items and character sheets.
+ * The tattoo consumable type is defined as a spellwrought tattoo, which is a consumable that grants a bonus to spellcasting.
+ * @returns {void}
+ */
+export function addTattooConsumable() {
+  if (game.modules.get("dnd-tashas-cauldron")?.active) return;
+  if (utils.getSetting<boolean>("disable-tattoo-type")) return;
+  CONFIG.DND5E.consumableTypes["tattoo"] = {
+    label: "Spellwrought Tattoo",
+  };
+
+  CONFIG.DDBI.SPELLWROUGHT_TATTOO = [
+    { level: 0, rarity: "common", abilityMod: 3, dc: 13, bonus: 5, identity: "spellwrought-tattoo-cantrip", name: "Cantrip" },
+    { level: 1, rarity: "common", abilityMod: 3, dc: 13, bonus: 5, identity: "spellwrought-tattoo-1st-level", name: "1st Level" },
+    { level: 2, rarity: "uncommon", abilityMod: 3, dc: 13, bonus: 5, identity: "spellwrought-tattoo-2nd-level", name: "2nd Level" },
+    { level: 3, rarity: "uncommon", abilityMod: 4, dc: 15, bonus: 7, identity: "spellwrought-tattoo-3rd-level", name: "3rd Level" },
+    { level: 4, rarity: "rare", abilityMod: 4, dc: 15, bonus: 7, identity: "spellwrought-tattoo-4th-level", name: "4th Level" },
+    { level: 5, rarity: "rare", abilityMod: 5, dc: 17, bonus: 9, identity: "spellwrought-tattoo-5th-level", name: "5th Level" },
+  ];
+
+  // game.modules.get("ddb-importer").api.libWrapper.register(
+  //   "ddb-importer",
+  //   "dnd5e.dataModels.item.ConsumableData.prototype.validProperties",
+  //   wrappedValidProperties,
+  //   "WRAPPER",
+  // );
+
+  // v13hooks
+  Hooks.on("getItemContextOptions", compendiumContext);
+  // v12 hooks
+  Hooks.on("getCompendiumEntryContext", compendiumContext);
+  Hooks.on("getItemDirectoryEntryContext", compendiumContext);
+
+  // character sheet option
+  Hooks.on("dnd5e.getItemContextOptions", addCharacterSheetContext);
+
+}

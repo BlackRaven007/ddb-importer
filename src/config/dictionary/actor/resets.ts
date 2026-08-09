@@ -1,0 +1,26 @@
+export interface IResetType {
+  id: string | number | null;
+  value: TLimitedUsePeriod;
+  isCharges?: boolean;
+}
+
+export const RESETS = [
+  { id: 1, value: "sr" },
+  { id: "ShortRest", value: "sr" },
+  { id: "Short", value: "sr" },
+  { id: "short", value: "sr" },
+  { id: 2, value: "lr" },
+  { id: "LongRest", value: "lr" },
+  { id: "Long", value: "lr" },
+  { id: "long", value: "lr" },
+  { id: "Day", value: "day" },
+  { id: "day", value: "day" },
+  { id: "Dawn", value: "dawn" },
+  { id: "dusk", value: "dusk" },
+  { id: "Consumable", value: "", isCharges: true },
+  { id: "Other", value: "", isCharges: true },
+  { id: "", value: "" },
+  { id: null, value: "" },
+  { id: 3, value: "day" },
+  { id: 4, value: "", isCharges: true },
+] as IResetType[];

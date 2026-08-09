@@ -1,0 +1,330 @@
+import { DeepPartial } from "fvtt-types/utils";
+import { DICTIONARY } from "../config/_module";
+import {
+  logger,
+} from "../lib/_module";
+
+import { DDBReferenceLinker } from "../parser/lib/_module";
+
+const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+
+
+// tab contexts here are deep nested partials, wider than the base Tab record
+export default abstract class DDBAppV2 extends HandlebarsApplicationMixin(ApplicationV2)<DDBAppV2Context> {
+
+  static override get PARTS(): Record<string, DDBApplicationPart> {
+    return super.PARTS;
+  }
+
+  // primary: current phase, secondary: current item, overall: the whole run
+  static PROGRESS_BAR_SELECTORS: Record<string, string> = {
+    primary: ".munching-progress-primary",
+    secondary: ".munching-progress-secondary",
+    overall: ".munching-progress-overall",
+  };
+
+  notifier: NotifierV1;
+
+  // subclasses pass app options for typing purposes; ApplicationV2 configuration
+  // comes from static DEFAULT_OPTIONS, so they are not forwarded
+  constructor(_options: Record<string, any> = {}) {
+    super();
+    this.notifier = this.munchNote;
+  }
+
+  /** @override */
+  tabGroups: Record<string, string> = {};
+
+  _markTabs(tabs: IDDBTabs): IDDBTabs {
+    for (const v of Object.values(tabs)) {
+      v.active = v.group ? this.tabGroups[v.group] === v.id : false;
+      v.cssClass = v.active ? "active" : "";
+      if (v.tabs) this._markTabs(v.tabs as IDDBTabs);
+    }
+    return tabs;
+  }
+
+  // override this
+  abstract _getTabs(): IDDBTabs;
+
+  /**
+   * Expanded states for additional settings sections.
+   * @type {Map<string, boolean>}
+   */
+  #expandedSections = new Map();
+
+  get expandedSections() {
+    return this.#expandedSections;
+  }
+
+  _toggleNestedTabs() {
+    const primary = this.element.querySelector(".window-content > [data-application-part=\"tabs\"]");
+    const active = this.element.querySelector(".tab.active[data-group=\"sheet\"]");
+    if (!primary || !active) return;
+    primary.classList.toggle("nested-tabs", !!active.querySelector(`:scope > .sheet-tabs`));
+  }
+
+  /* -------------------------------------------- */
+  /*  Life-Cycle Handlers                         */
+  /* -------------------------------------------- */
+
+  static getMultiSelectValues(event: Event): string[] {
+    const target = event.currentTarget as (EventTarget & { _value?: Set<string> | string[] }) | null;
+    // Foundry's <multi-select> element stores its selection in `_value` (a Set).
+    if (target?._value instanceof Set) return Array.from(target._value);
+    if (target && Array.isArray(target._value)) return target._value;
+
+    const select = event.currentTarget as HTMLSelectElement | null;
+    return select?.selectedOptions ? Array.from(select.selectedOptions).map((o) => o.value) : [];
+  }
+
+  /** @inheritDoc */
+  async _onRender(context: DeepPartial<foundry.applications.api.Application.RenderContext>, options: foundry.applications.api.Application.RenderOptions) {
+    await super._onRender(context, options);
+    // Allow multi-select tags to be removed when the whole tag is clicked.
+    this.element.querySelectorAll<HTMLSelectElement>("multi-select").forEach((select) => {
+      if (select.disabled) return;
+      select.querySelectorAll(".tag").forEach((tag) => {
+        tag.classList.add("remove");
+        tag.querySelector(":scope > span")?.classList.add("remove");
+      });
+    });
+
+    // Add special styling for label-top hints.
+    this.element.querySelectorAll<HTMLElement>(".label-top > p.hint").forEach((hint) => {
+      const label = hint.parentElement?.querySelector(":scope > label");
+      if (!label) return;
+      hint.ariaLabel = hint.innerText;
+      hint.dataset.tooltip = hint.innerHTML;
+      hint.innerHTML = "";
+      label.insertAdjacentElement("beforeend", hint);
+    });
+    for (const element of this.element.querySelectorAll("[data-expand-id]") as NodeListOf<HTMLElement>) {
+      element.querySelector(".collapsible")?.classList
+        .toggle("collapsed", !this.#expandedSections.get(element.dataset.expandId));
+    }
+
+    // custom listeners
+    this._toggleNestedTabs();
+  }
+
+
+  /* -------------------------------------------- */
+  /*  Event Listeners and Handlers                */
+  /* -------------------------------------------- */
+
+  /** @inheritDoc */
+  changeTab(tab: any, group: any, options: any) {
+    super.changeTab(tab, group, options);
+    if (["sheet"].includes(group)) {
+      this._toggleNestedTabs();
+    }
+  }
+
+  async _prepareContext(options: any): Promise<DDBAppV2Context> {
+    const noCacheLoad = options?.noCacheLoad ?? false;
+    if (!noCacheLoad) await DDBReferenceLinker.importCacheLoad();
+    const context = foundry.utils.mergeObject(await super._prepareContext(options), {}, { inplace: false }) as DDBAppV2Context;
+    context.tabs = this._getTabs() as Record<string, IDDBTab>;
+    logger.debug("DDBAppV2: _prepareContext", context);
+    return context;
+  }
+
+  /** @override */
+
+  async _preparePartContext(_partId: string, context: any) {
+    return context;
+  }
+
+  /* -------------------------------------------- */
+  /*  Rendering                                   */
+  /* -------------------------------------------- */
+
+  /** @inheritDoc */
+  _configureRenderOptions(options: any) {
+    super._configureRenderOptions(options);
+    if (options.isFirstRender && this.hasFrame) {
+      options.window ||= {};
+    }
+  }
+
+  /* -------------------------------------------- */
+
+  /** @inheritDoc */
+  async _onFirstRender(context: any, options: any) {
+    await super._onFirstRender(context, options);
+    const containers: Record<string, HTMLElement> = {};
+    const ctor = this.constructor as typeof DDBAppV2;
+    for (const [part, config] of Object.entries(ctor.PARTS)) {
+      if (!config.container?.id) continue;
+      const element = this.element.querySelector(`[data-application-part="${part}"]`);
+      if (!element) continue;
+      if (!containers[config.container.id]) {
+        const div = document.createElement("div");
+        div.dataset.containerId = config.container.id;
+        div.classList.add(...config.container.classes ?? []);
+        containers[config.container.id] = div;
+        element.replaceWith(div);
+      }
+      containers[config.container.id].append(element);
+    }
+  }
+
+  /**
+   * Display information when Munching
+   * @param {string} note
+   * @param {{ nameField: boolean, monsterNote: boolean, isError: boolean, message: string }} [options]
+   * @description
+   * Updates the text content of the appropriate HTML element:
+   *   - `#munching-task-name` if `options.nameField` is true
+   *   - `#munching-task-monster` if `options.monsterNote` is true
+   *   - `#munching-task-notes` otherwise
+   */
+  munchNote(note: string, { nameField = false, monsterNote = false, isError = false, message = null }: { nameField?: boolean; monsterNote?: boolean; isError?: boolean; message?: string | boolean | null } = {}) {
+    if (!this.element) {
+      logger.info("PreRenderNote:", { note, nameField, monsterNote, message, isError });
+      return;
+    }
+    const taskName = this.element.querySelector("#munching-task-name") as HTMLElement;
+    const taskMonster = this.element.querySelector("#munching-task-monster") as HTMLElement;
+    const taskNotes = this.element.querySelector("#munching-task-notes") as HTMLElement;
+
+    if (nameField) {
+      taskName.textContent = note;
+      taskMonster.style.height = "auto";
+    } else if (monsterNote) {
+      taskMonster.textContent = note;
+      taskMonster.style.height = "auto";
+    } else {
+      taskNotes.textContent = note;
+      taskMonster.style.height = "auto";
+    }
+
+    logger.debug(`Munching: ${note}`, { message, isError, monsterNote, nameField });
+  }
+
+
+  getMessageClass(section: any) {
+    let messageClass;
+    switch (section) {
+      case "level4":
+      case "import":
+        messageClass = "munching-task-import";
+        break;
+      case "level5":
+      case "overall":
+        messageClass = "munching-task-overall";
+        break;
+      case "level3":
+      case "note":
+        messageClass = "munching-task-notes";
+        break;
+      case "level2":
+      case "monster":
+        messageClass = "munching-task-monster";
+        break;
+      case "level1":
+      case "name":
+        messageClass = "munching-task-name";
+        break;
+      // no default
+    }
+    return messageClass;
+  }
+
+  notifierV2({ progress, section = "note", message = "", suppress = false, isError = false,
+    clear = false, progressBar = "primary" }: NotifierV2Props,
+  ) {
+    const builtMessage = progress ? `${progress.current}/${progress.total} : ${message}` : message;
+    if (!suppress) logger.info(builtMessage);
+    if (!this.element) {
+      logger.info("PreRenderNote:", { progress, section, message, suppress, isError });
+      return;
+    }
+
+    const barSelector = DDBAppV2.PROGRESS_BAR_SELECTORS[progressBar] ?? DDBAppV2.PROGRESS_BAR_SELECTORS.primary;
+    const importProgressElement = this.element.querySelector(barSelector) as HTMLElement | null;
+    const barElement = importProgressElement?.querySelector(".munching-progress-bar") as HTMLElement | null;
+    const messageClass = this.getMessageClass(section);
+
+    const messageElement = this.element.querySelector(`#${messageClass}`) as HTMLElement;
+    if (messageElement) {
+      messageElement.textContent = builtMessage;
+      messageElement.style.height = "auto";
+    }
+
+    if (progress && importProgressElement && barElement) {
+      importProgressElement.classList.remove("munching-hidden");
+      const pct = progress.total > 0 ? Math.trunc((progress.current / progress.total) * 100) : 0;
+      barElement.style.width = `${pct}%`;
+
+      if (clear) {
+        importProgressElement.classList.add("munching-hidden");
+      }
+    }
+
+  }
+
+  /**
+   * Hides every progress bar in the import details pane and resets it to zero,
+   * so a finished run does not leave a stale bar behind for the next one.
+   */
+  clearProgressBars() {
+    if (!this.element) return;
+    this.element.querySelectorAll<HTMLElement>(".munching-progress").forEach((progressElement) => {
+      progressElement.classList.add("munching-hidden");
+      const bar = progressElement.querySelector(".munching-progress-bar") as HTMLElement | null;
+      if (bar) bar.style.width = "0%";
+    });
+    // this row only captions the overall bar, so it goes with it
+    const overallMessage = this.element.querySelector("#munching-task-overall") as HTMLElement | null;
+    if (overallMessage) overallMessage.textContent = "";
+  }
+
+  intervalId: any = null;
+
+  autoRotateMessage(category: keyof typeof DICTIONARY.messages.loading, subcategory: string | null = null, intervalMs = 5000) {
+    if (this.intervalId) this.stopAutoRotateMessage();
+    let messages: string[] | undefined;
+
+    const categoryMessages = DICTIONARY.messages.loading[category];
+    if (subcategory) {
+      messages = Array.isArray(categoryMessages) ? undefined : categoryMessages?.[subcategory];
+    } else if (Array.isArray(categoryMessages)) {
+      messages = categoryMessages;
+    }
+    if (!messages || !messages.length) {
+      messages = DICTIONARY.messages.loading["default"];
+    }
+
+    this.notifierV2({
+      section: "level2",
+      message: "This is going to take a significant amount of time...",
+      suppress: true,
+    });
+
+    // Rotate messages at interval
+    const intervalId = setInterval(() => {
+      const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+      this.notifierV2({
+        section: "level2",
+        message: randomMessage,
+        suppress: true,
+      });
+    }, intervalMs);
+
+    // Return interval ID so you can stop it later
+    this.intervalId = intervalId;
+    return intervalId;
+  }
+
+  stopAutoRotateMessage() {
+    logger.debug("Stopping auto rotate message");
+    if (!this.intervalId) return;
+    clearInterval(this.intervalId);
+    logger.info("Stopped auto rotate message");
+    this.notifierV2({ section: "level2", message: "", suppress: true, clear: true });
+    this.intervalId = null;
+  }
+
+}

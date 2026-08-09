@@ -1,0 +1,33 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class HexWarrior extends DDBEnricherData {
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.ENCHANT;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      activationType: "special",
+      data: {
+        name: "Bond With Weapon",
+        restrictions: {
+          type: "weapon",
+          allowMagical: true,
+        },
+      },
+    };
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        type: "enchant",
+        ignoreTransfer: true,
+        changes: [
+          DDBEnricherData.ChangeHelper.overrideChange(`{} [Hex Weapon]`, 20, "name"),
+          DDBEnricherData.ChangeHelper.overrideChange("cha", 20, "system.ability"),
+        ],
+      },
+    ];
+  }
+}

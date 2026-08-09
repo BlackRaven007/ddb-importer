@@ -1,0 +1,100 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class FuryOfTheSmall extends DDBEnricherData {
+
+
+  get useProfDamage() {
+    const description = this.ddbParser.ddbDefinition.description ?? this.ddbParser.ddbDefinition.snippet ?? "";
+    return description.toLowerCase().includes("once per turn");
+  }
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Bonus Damage",
+      targetType: "creature",
+      activationType: "special",
+      addItemConsume: true,
+      data: {
+        damage: {
+          parts: [DDBEnricherData.basicDamagePart({
+            customFormula: this.useProfDamage ? "@prof" : "@details.level",
+            types: DDBEnricherData.allDamageTypes(),
+          })],
+        },
+      },
+    };
+  }
+
+  get override(): IDDBOverrideData {
+    const uses = this._getGeneratedUses({
+      type: "race",
+      name: this.data.name,
+    });
+    return {
+      uses,
+    };
+  }
+
+  get effects(): IDDBEffectHint[] {
+    const midiOptionalChanges = this.useProfDamage
+      ? [{
+        name: "furyOfTheSmall",
+        data: {
+          label: `${this.ddbParser.name} (Only use on targets larger than you)`,
+          count: "turn",
+          "damage.all": "(@prof)",
+          countAlt: `ItemUses.${this.data.name}`,
+        },
+      }]
+      : [{
+        name: "furyOfTheSmall",
+        data: {
+          label: `${this.ddbParser.name} (Only use on targets larger than you)`,
+          "damage.all": "(@details.level)",
+          countAlt: `ItemUses.${this.data.name}`,
+        },
+      }];
+
+    return [
+      {
+        midiOnly: true,
+        options: {
+          transfer: true,
+        },
+        name: "Fury of the Small (Automation)",
+        midiOptionalChanges,
+        data: {
+          duration: {
+            value: null,
+            expiry: null,
+            expired: undefined,
+          },
+        },
+      },
+    ];
+  }
+
+  // get useDefaultAdditionalActivities() {
+  //   return true;
+  // }
+
+  get itemMacro(): IDDBItemMacro {
+    return {
+      type: "feat",
+      name: "furyOfTheSmall.js",
+    };
+  }
+
+  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
+    return {
+      type: "feat",
+      name: "furyOfTheSmall.js",
+      triggerPoints: ["preDamageRoll"],
+    };
+  }
+
+}

@@ -1,0 +1,18 @@
+export const ACTIVITY_TYPES = {
+  ATTACK: "attack",
+  CAST: "cast",
+  CHECK: "check",
+  DAMAGE: "damage",
+  ENCHANT: "enchant",
+  FORWARD: "forward",
+  HEAL: "heal",
+  HEALING: "heal",
+  NONE: "none",
+  ORDER: "order",
+  SAVE: "save",
+  SUMMON: "summon",
+  TRANSFORM: "transform",
+  UTILITY: "utility",
+  USE: "utility",
+  DDBMACRO: "ddbmacro",
+} as const;

@@ -1,0 +1,39 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class TotemSpiritElk extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      targetType: "self",
+      name: "Activate",
+      activationType: "special",
+      data: {
+        duration: this.is2014
+          ? { units: "minute", value: "1" }
+          : { units: "minute", value: "10" },
+      },
+    };
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Totem Spirit: Elk",
+        options: {
+          transfer: true,
+          disabled: true,
+          durationSeconds: this.is2014 ? 60 : 600,
+        },
+        activityMatch: "Activate",
+        changes: [
+          DDBEnricherData.ChangeHelper.unsignedAddChange("15", 20, "system.attributes.movement.walk"),
+        ],
+      },
+    ];
+  }
+
+}

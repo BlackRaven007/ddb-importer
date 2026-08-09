@@ -1,0 +1,40 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class TotemicAttunementEagle extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      targetType: "self",
+      name: "Activate",
+      activationType: "special",
+      data: {
+        duration: this.is2014
+          ? { units: "minute", value: "1" }
+          : { units: "minute", value: "10" },
+      },
+    };
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Totemic Attunement: Eagle",
+        options: {
+          transfer: true,
+          disabled: true,
+          durationSeconds: this.is2014 ? 60 : 600,
+          description: this.ddbEnricher.data.system.description?.value,
+        },
+        activityMatch: "Activate",
+        changes: [
+          DDBEnricherData.ChangeHelper.upgradeChange("@attributes.movement.walk", 20, "system.attributes.movement.fly"),
+        ],
+      },
+    ];
+  }
+
+}

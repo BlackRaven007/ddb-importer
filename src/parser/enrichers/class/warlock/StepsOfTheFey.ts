@@ -1,0 +1,72 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class StepsOfTheFey extends DDBEnricherData {
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.HEAL;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      targetType: "creature",
+      activationType: "special",
+      data: {
+        name: "Refreshing Step",
+        healing: DDBEnricherData.basicDamagePart({
+          number: 1,
+          denomination: 10,
+          types: ["temphp"],
+        }),
+      },
+    };
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        options: {
+          durationSeconds: 6,
+          description:
+            "Disadvantage on attack rolls against creatures other than caster until the start of the casters next turn",
+        },
+        name: "Taunted",
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.unsignedAddChange("!workflow.target.getName('@token.name')", 20, "flags.midi-qol.disadvantage.attack.all"),
+        ],
+        daeSpecialDurations: ["turnStartSource"],
+      },
+    ];
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Taunting Step",
+          type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
+        },
+        build: {
+          generateSave: true,
+          generateDamage: false,
+          generateTarget: true,
+          generateActivation: true,
+          activationOverride: {
+            type: "special",
+          },
+          targetOverride: {
+            affects: {
+              type: "creature",
+            },
+            template: {
+              contiguous: false,
+              type: "radius",
+              size: "5",
+              width: "",
+              height: "",
+              units: "ft",
+            },
+          },
+        },
+      },
+    ];
+  }
+}

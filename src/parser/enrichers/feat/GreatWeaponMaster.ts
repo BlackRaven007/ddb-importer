@@ -1,0 +1,97 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class GreatWeaponMaster extends DDBEnricherData {
+
+  get type() {
+    if (this.is2014) return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+    return null;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Toggle Effect",
+      activationType: "special",
+      targetType: "self",
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Damage",
+          type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
+        },
+        build: {
+          noeffect: true,
+          generateDamage: true,
+          generateTarget: true,
+          generateActivation: true,
+          damageParts: [
+            DDBEnricherData.basicDamagePart({
+              bonus: this.is2014 ? "10" : "@prof",
+              types: DDBEnricherData.allDamageTypes(),
+            }),
+          ],
+        },
+        overrides: {
+          targetType: "creature",
+          activationType: "special",
+        },
+      },
+    ];
+  }
+
+  get effects(): IDDBEffectHint[] {
+
+    if (this.is2014) {
+      return [
+        {
+          options: {
+            transfer: true,
+            disabled: true,
+            showIcon: 2,
+          },
+          changes: [
+            DDBEnricherData.ChangeHelper.unsignedAddChange("-5", 20, "system.bonuses.mwak.attack"),
+            DDBEnricherData.ChangeHelper.unsignedAddChange("+10", 20, "system.bonuses.mwak.damage"),
+          ],
+        },
+      ];
+    } else {
+      return [];
+    }
+
+  }
+
+  get override(): IDDBOverrideData {
+    const description = this.is2014
+      ? `
+<section class="secret ddbSecret" id="secret-ddbGreatWeaponMaster">
+<p><strong>Implementation Details</strong></p>
+
+An effect is provided that can be toggled to enable or disable the Melee Weapon attack penalty and damage bonus.
+
+</section>`
+      : `
+<section class="secret ddbSecret" id="secret-ddbGreatWeaponMaster">
+<p><strong>Implementation Details</strong></p>
+<p>DDB Importer will automated the proficiency bonus damage for weapons with the Heavy property if you have this feat. A damage action is provided for situations where this might not be applied.</p>
+</section>`;
+    return {
+      descriptionSuffix: description,
+      data: {
+        flags: {
+          "midi-qol": {
+            effectActivation: false,
+            removeAttackDamageButtons: false,
+          },
+          midiProperties: {
+            toggleEffect: true,
+          },
+        },
+      },
+    };
+  }
+
+}

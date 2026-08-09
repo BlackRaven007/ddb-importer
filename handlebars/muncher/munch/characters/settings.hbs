@@ -1,0 +1,77 @@
+<section id="ddb-importer-muncher-characters-settings" class="tab ddb-muncher {{ tab.cssClass }} {{#if tab.active}} active{{/if}}" data-group="{{tab.group}}" data-tab="{{tab.id}}">
+  <fieldset>
+    <legend>Character Import</legend>
+    <p>Characters can be imported using the DDB button on the character tab. Find out details <a href="https://docs.ddb.blackraven007.co.uk/docs/ddb-importer/character">here</a>.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Details</legend>
+    <p>Character Options/Features Import is available for {{#if characterMunch}}{{else}}<strong>{{/if}}Undying and God Tier Patreon Supporters{{#if characterMunch}}{{else}}</strong>{{/if}}.</p>
+  </fieldset>
+
+  {{#if characterMunch}}
+  <fieldset>
+    <legend>Character URL</legend>
+    To import character features and classes you need to sacrifice a character to the Old Gods.<br />
+    <strong style="color: red">This character will be adjusted wiped and left in an empty state.</strong><br />
+    Please don't use a beloved character.<br />
+    If you wish to import content from a Shared Campaign, please ensure the character is part of that campaign before you munch.
+    <div class="form-caption">
+      URL <span class="dndbeyond-url-status">{{#if muleURL}}<i
+          class="fas fa-check-circle" style="color: green"></i>{{else}}<i></i>{{/if}}</span>
+    </div>
+    <div class="form-content" style="display: flex">
+      <input type="text" name="muncher-character-url" style="flex: 0 1 auto" ;
+        value="{{#if muleURL}}{{muleURL}}{{/if}}" />
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Options</legend>
+    <div class="character-munch-options">
+      <div class="character-homebrew-options">
+        <div class="character-option-control">
+          <label for="munching-policy-character-fetch-homebrew">Include Homebrew?</label>
+          <dnd5e-checkbox name="munching-policy-character-fetch-homebrew" id="munching-policy-character-fetch-homebrew"
+          {{#if this.useCharacterHomebrew}}checked{{/if}} data-section="munching-policy-character-fetch-homebrew" ></dnd5e-checkbox>
+        </div>
+        <p class="hint">Also fetch homebrew content you have access to on D&amp;D Beyond, alongside official sources.</p>
+      </div>
+      <div class="character-homebrew-options">
+        <div class="character-option-control">
+          <label for="munching-policy-character-only-homebrew">Homebrew only?</label>
+          <dnd5e-checkbox name="munching-policy-character-only-homebrew" id="munching-policy-character-only-homebrew"
+          {{#if this.onlyCharacterHomebrew}}checked{{/if}} data-section="munching-policy-character-only-homebrew" ></dnd5e-checkbox>
+        </div>
+        <p class="hint">Skip official sources entirely and munch only your homebrew content.</p>
+      </div>
+      <div class="character-homebrew-options">
+        <div class="character-option-control">
+          <label for="munching-policy-character-optional-class-features">Import Optional Class Features?</label>
+          <dnd5e-checkbox name="munching-policy-character-optional-class-features"
+          id="munching-policy-character-optional-class-features"
+          {{#if this.characterOptionalClassFeatures}}checked{{/if}}
+          data-section="munching-policy-character-optional-class-features" ></dnd5e-checkbox>
+        </div>
+        <p class="hint">Optional class features (e.g. those from Tasha's Cauldron of Everything), filtered by the
+          source categories and books selected in Settings.</p>
+      </div>
+      <div class="character-homebrew-options">
+        <div class="character-option-control">
+          <label for="munching-policy-character-dont-grab-existing">Don't grab existing things?</label>
+          <dnd5e-checkbox name="munching-policy-character-dont-grab-existing"
+          id="munching-policy-character-dont-grab-existing"
+          {{#if this.dontGrabExistingCharacterThings}}checked{{/if}}
+          data-section="munching-policy-character-dont-grab-existing" ></dnd5e-checkbox>
+        </div>
+        <p class="hint">Species, subclasses, feats and backgrounds already in your compendiums are hidden from the
+          pickers and skipped during munching, so only missing content is fetched.</p>
+      </div>
+    </div>
+  </fieldset>
+  {{/if}}
+
+  <div style="text-align:center">
+    <a href="https://docs.ddb.blackraven007.co.uk/docs/faqs/ddb-importer#things-i-own-on-ddb-dont-import">All my things are not importing?</a>
+  </div>
+</section>

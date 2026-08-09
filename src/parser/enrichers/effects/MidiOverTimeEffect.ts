@@ -1,0 +1,297 @@
+import DDBEffectHelper from "../../../effects/DDBEffectHelper";
+import { logger } from "../../../lib/_module";
+import DDBDescriptions from "../../lib/DDBDescriptions";
+import AutoEffects from "./AutoEffects";
+import ChangeHelper from "./ChangeHelper";
+
+interface IGenerateDamageOverTimeEffectOptions {
+  startTurn?: boolean;
+  endTurn?: boolean;
+  durationSeconds?: number;
+  damage?: string;
+  damageType?: string;
+  saveAbility?: string | string[];
+  saveRemove?: boolean;
+  saveDamage?: string;
+  dc?: number | string;
+}
+
+interface IMidiOverTimeEffectOptions {
+  document: TAll5eItemDocuments;
+  actor: I5eActorData;
+  otherDescription?: string | null;
+  flags?: Record<string, any>;
+  addToMonster?: boolean;
+}
+
+export default class MidiOverTimeEffect {
+  parsedDescription: IFeatureBasicsResult;
+  document: TAll5eItemDocuments;
+  actor: I5eActorData;
+  effect: TAutoEffect;
+  conditionStatus: ReturnType<typeof DDBDescriptions.parseStatusCondition>;
+  conditionEffect: ReturnType<typeof AutoEffects.getStatusConditionEffect> | null;
+  description: string;
+  flags: Record<string, any>;
+  addToMonster: boolean;
+
+  constructor({ document, actor, otherDescription = null, flags = {}, addToMonster = true }: IMidiOverTimeEffectOptions) {
+    this.document = document;
+    this.actor = actor;
+    this.effect = AutoEffects.MonsterFeatureEffect(document, `${document.name}`);
+    this.description = otherDescription ?? document.system.description?.value ?? "";
+    this.conditionStatus = DDBDescriptions.parseStatusCondition({ text: this.description });
+    this.conditionEffect = this.conditionStatus.success
+      ? AutoEffects.getStatusConditionEffect({ status: this.conditionStatus, flags })
+      : null;
+    this.parsedDescription = DDBDescriptions.featureBasics({ text: this.description });
+    this.flags = flags;
+    this.addToMonster = addToMonster;
+    // console.warn(`MidiOvertimeEffect for ${this.document.name} on ${this.actor.name}`, {
+    //   this: this,
+    //   conditionStatus: deepClone(this.conditionStatus),
+    //   conditionEffect: deepClone(this.conditionEffect),
+    //   parsedDescription: this.parsedDescription,
+    //   effect: deepClone(this.effect),
+    // });
+  }
+
+  // The DC parsers (dcParser/parseStatusCondition/featureBasics) produce an
+  // activity-save DC object { formula, calculation }. The midi overtime change
+  // string needs a scalar saveDC: a number when the stat block gives a literal
+  // DC, otherwise a rollData reference so the actor computes it at runtime.
+  static resolveOverTimeDc(save: { dc?: { formula?: string; calculation?: string } } | null | undefined): number | string | null {
+    const dc = save?.dc;
+    const numeric = Number.parseInt(String(dc?.formula ?? ""));
+    if (Number.isInteger(numeric)) return numeric;
+    const calc = dc?.calculation;
+    if (calc === "spellcasting") return "@attributes.spell.dc";
+    if (typeof calc === "string" && (/^(?:str|dex|con|int|wis|cha)$/).test(calc)) return `@abilities.${calc}.dc`;
+    return null;
+  }
+
+  static getOverTimeSaveEndChange({ document, save, text }:{
+    document: TAll5eItemDocuments;
+    text: string;
+    // parseStatusCondition produces a save whose ability may be null
+    save: Omit<I5eActivitySave, "ability"> & { ability?: string[] | null };
+  }) {
+    const dc = MidiOverTimeEffect.resolveOverTimeDc(save);
+    if (dc === null) return null;
+    const saveSearch = /repeat the saving throw at the (end|start) of each/;
+    const match = text.match(saveSearch);
+    if (match) {
+      return ChangeHelper.overTimeSaveChange({ document, turn: match[1], saveAbility: save.ability, dc });
+    } else {
+      const actionSaveSearch = /can use its action to repeat the saving throw/;
+      const actionSaveMatch = text.match(actionSaveSearch);
+      if (actionSaveMatch) {
+        return ChangeHelper.overTimeSaveChange({ document, turn: "action", saveAbility: save.ability, dc });
+      }
+    }
+    return null;
+  }
+
+  // AE duration.units (plural) -> dnd5e system.duration (singular). Items have no
+  // "seconds" unit, so whole-minute seconds collapse to minutes, else fall back to rounds.
+  static effectToItemDuration(duration: { units?: string | null; value?: number | null }) {
+    const value = duration.value ?? null;
+    switch (duration.units) {
+      case "turns": return { units: "turn", value };
+      case "rounds": return { units: "round", value };
+      case "minutes": return { units: "minute", value };
+      case "hours": return { units: "hour", value };
+      case "days": return { units: "day", value };
+      case "seconds":
+        if (value !== null && value % 60 === 0) return { units: "minute", value: value / 60 };
+        if (value !== null) return { units: "round", value: Math.round(value / 6) };
+        return { units: "round", value };
+      default: return { units: "round", value };
+    }
+  }
+
+  effectCleanup() {
+    if (!this.addToMonster) return;
+    if (this.effect.system.changes.length > 0 || this.effect.statuses.length > 0) {
+      (this.document.effects ??= []).push(this.effect);
+      const overTimeFlags: string[] = foundry.utils.hasProperty(this.actor, "flags.monsterMunch.overTime")
+        ? foundry.utils.getProperty(this.actor, "flags.monsterMunch.overTime") as string[]
+        : [];
+      overTimeFlags.push(this.document.name);
+      foundry.utils.setProperty(this.actor, "flags.monsterMunch.overTime", overTimeFlags);
+      // console.warn(`ITEM OVER TIME EFFECT: ${actor.name}, ${document.name}`);
+      if (foundry.utils.getProperty(this.document, "system.duration.units") === "inst") {
+        foundry.utils.setProperty(
+          this.document,
+          "system.duration",
+          MidiOverTimeEffect.effectToItemDuration(this.effect.duration),
+        );
+      }
+      logger.debug(`Cleanup of over time effect for ${this.actor.name}, ${this.actor.name} for ${this.document.name}`, this.effect);
+    }
+  }
+
+  generateOverTimeEffect() {
+    logger.debug(`Checking for over time effects for ${this.document.name} on ${this.actor.name}`);
+    if (!this.document.effects) this.document.effects = [];
+    // add any condition effects
+    if (this.conditionEffect) {
+      this.effect.system.changes.push(...this.conditionEffect.system.changes);
+      this.effect.statuses.push(...this.conditionEffect.statuses);
+      if (this.conditionEffect.name) this.effect.name = this.conditionEffect.name;
+      this.effect.flags = foundry.utils.mergeObject(this.effect.flags, this.conditionEffect.flags);
+      foundry.utils.setProperty(this.document, "flags.midiProperties.fulldam", true);
+      const change = MidiOverTimeEffect.getOverTimeSaveEndChange({ document: this.document, save: this.conditionStatus.save, text: this.description });
+      if (change) this.effect.system.changes.push(change);
+    }
+
+    const duration = this.conditionStatus.duration;
+    if (duration.units === "rounds" && duration.value) {
+      foundry.utils.setProperty(this.effect, "duration.value", duration.value);
+      foundry.utils.setProperty(this.effect, "duration.units", "rounds");
+    } else if (duration.units === "seconds" && duration.value) {
+      foundry.utils.setProperty(this.effect, "duration.value", duration.value);
+      foundry.utils.setProperty(this.effect, "duration.units", "seconds");
+    } else if (duration.value && duration.units && ["minutes", "hours", "days"].includes(duration.units)) {
+      const multipliers: Record<string, number> = { minutes: 60, hours: 3600, days: 86400 };
+      foundry.utils.setProperty(this.effect, "duration.value", Number(duration.value) * multipliers[duration.units]);
+      foundry.utils.setProperty(this.effect, "duration.units", "seconds");
+    } else {
+      const duration = DDBDescriptions.getDuration(this.description);
+      if (duration.rounds) {
+        foundry.utils.setProperty(this.effect, "duration.value", duration.rounds);
+        foundry.utils.setProperty(this.effect, "duration.units", "rounds");
+      } else if (duration.seconds) {
+        foundry.utils.setProperty(this.effect, "duration.value", duration.seconds);
+        foundry.utils.setProperty(this.effect, "duration.units", "seconds");
+      }
+    }
+
+    const turn = DDBDescriptions.startOrEnd(this.description);
+    if (!turn) {
+      logger.debug(`No turn over time effect for ${this.document.name} on ${this.actor.name}`);
+      this.effectCleanup();
+      return;
+    }
+
+    const save = this.parsedDescription.save;
+    const dc = MidiOverTimeEffect.resolveOverTimeDc(save);
+    if (dc === null) {
+      this.effectCleanup();
+      return;
+    }
+
+    const saveAbility = save.ability;
+
+    const dmg = DDBEffectHelper.getOvertimeDamage(this.description, this.document);
+    if (!dmg) {
+      logger.debug(`Adding non damage Overtime effect for ${this.document.name} on ${this.actor.name}`);
+      this.effectCleanup();
+      return;
+    }
+
+    // overtime damage, revert any full damage flag, reset to default on save
+    foundry.utils.setProperty(this.document, "flags.midiProperties.fulldam", false);
+
+    const damage: string = foundry.utils.getProperty(this.document.flags, "monsterMunch.overTime.damage") as string
+      ?? foundry.utils.getProperty(this.document.flags, "ddbimporter.overTime.damage") as string
+      ?? dmg
+        .map((dp) => {
+          const type = dp.damageTypes[0];
+          return type ? `${dp.damageString}[${type}]` : dp.damageString;
+        })
+        .join(" + ");
+
+    const damageType: string = foundry.utils.getProperty(this.document.flags, "monsterMunch.overTime.damageType") as string
+      ?? foundry.utils.getProperty(this.document.flags, "ddbimporter.overTime.damageType") as string
+      ?? (dmg.length > 0
+        ? dmg[0].damageTypes[0]
+        : "");
+
+    const saveRemove: boolean = foundry.utils.getProperty(this.document.flags, "monsterMunch.overTime.saveRemove") as boolean
+      ?? foundry.utils.getProperty(this.document.flags, "ddbimporter.overTime.saveRemove") as boolean
+      ?? true;
+
+    const saveDamage: string = foundry.utils.getProperty(this.document.flags, "monsterMunch.overTime.saveDamage") as string
+      ?? foundry.utils.getProperty(this.document.flags, "ddbimporter.overTime.saveDamage") as string
+      ?? "nodamage";
+
+    logger.debug(`generateOverTimeEffect: Generated over time effect for ${this.actor.name}, ${this.document.name}`);
+    this.effect.system.changes.push(ChangeHelper.overTimeDamageChange({
+      document: this.document,
+      turn,
+      damage,
+      damageType,
+      saveAbility,
+      saveRemove,
+      saveDamage,
+      dc,
+    }));
+
+    this.effectCleanup();
+  }
+
+  generateConditionOnlyEffect() {
+    logger.debug(`Checking for condition effects for ${this.document.name} on ${this.actor.name}`);
+    if (!this.document.effects) this.document.effects = [];
+    this.effect._id = foundry.utils.randomID();
+    // add any condition effects
+    if (!this.conditionEffect) {
+      return;
+    }
+    this.effect.system.changes.push(...this.conditionEffect.system.changes);
+    this.effect.statuses.push(...this.conditionEffect.statuses);
+    if (this.conditionEffect.name && this.conditionEffect.name !== "") this.effect.name = this.conditionEffect.name;
+    this.effect.flags = foundry.utils.mergeObject(this.effect.flags, this.conditionEffect.flags);
+
+    const duration = this.conditionEffect.duration;
+    if (duration.units === "rounds") {
+      foundry.utils.setProperty(this.effect, "duration.value", duration.value);
+      foundry.utils.setProperty(this.effect, "duration.units", "rounds");
+    } else if (duration.units === "seconds") {
+      foundry.utils.setProperty(this.effect, "duration.value", duration.value);
+      foundry.utils.setProperty(this.effect, "duration.units", "seconds");
+    } else if (duration.value && duration.units && ["minutes", "hours", "days"].includes(duration.units)) {
+      const multipliers: Record<string, number> = { minutes: 60, hours: 3600, days: 86400 };
+      foundry.utils.setProperty(this.effect, "duration.value", Number(duration.value) * multipliers[duration.units]);
+      foundry.utils.setProperty(this.effect, "duration.units", "seconds");
+    }
+
+    // Object.keys(this.document.system.activities).forEach((id) => {
+    //   this.document.system.activities[id].effects.push(
+    //     {
+    //       "_id": this.effect._id,
+    //       "onSave": false,
+    //     },
+    //   );
+    // });
+
+    this.effectCleanup();
+
+  }
+
+  generateDamageOverTimeEffect({ startTurn = false, endTurn = false, durationSeconds, damage,
+    damageType, saveAbility, saveRemove = true, saveDamage = "nodamage", dc }: IGenerateDamageOverTimeEffectOptions,
+  ) {
+    if (!startTurn && !endTurn) return;
+
+    if (startTurn) {
+      logger.debug(`damageOverTimeEffect: Generating damage over time effect START for ${this.document.name}`);
+      this.effect.system.changes.push(
+        ChangeHelper.overTimeDamageChange({ document: this.document, turn: "start", damage, damageType, saveAbility, saveRemove, saveDamage, dc }),
+      );
+    }
+    if (endTurn) {
+      logger.debug(`damageOverTimeEffect: Generating damage over time effect END for ${this.document.name}`);
+      this.effect.system.changes.push(
+        ChangeHelper.overTimeDamageChange({ document: this.document, turn: "end", damage, damageType, saveAbility, saveRemove, saveDamage, dc }),
+      );
+    }
+
+    foundry.utils.setProperty(this.effect, "duration.value", durationSeconds);
+    foundry.utils.setProperty(this.effect, "duration.units", "seconds");
+
+    (this.document.effects ??= []).push(this.effect);
+  }
+
+}

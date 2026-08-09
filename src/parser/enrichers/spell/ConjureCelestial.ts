@@ -1,0 +1,66 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class ConjureCelestial extends DDBEnricherData {
+
+  get useDefaultAdditionalActivities() {
+    return true;
+  }
+
+  get addToDefaultAdditionalActivities() {
+    return true;
+  }
+
+  get activity(): IDDBActivityData | null {
+    if (this.is2014) return null;
+    if (!["save", "heal"].includes(this.ddbEnricher?._originalActivity?.type ?? "")) return null;
+    return {
+      name: this.ddbEnricher?._originalActivity?.type === "save" ? "Searing Light" : "Healing Light",
+      noSpellslot: true,
+      noTemplate: true,
+      overrideTemplate: true,
+      data: {
+        sort: 10000,
+        healing: {
+          scaling: {
+            mode: "whole",
+            number: 1,
+          },
+        },
+        damage: {
+          parts: [
+            DDBEnricherData.basicDamagePart({
+              number: 6,
+              denomination: 12,
+              types: ["radiant"],
+              scalingMode: "whole",
+              scalingNumber: 1,
+            }),
+          ],
+        },
+      },
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] | null {
+    if (this.is2014) return null;
+    return [
+      {
+        init: {
+          name: "Cast",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateConsumption: true,
+          generateTarget: true,
+          generateRange: true,
+        },
+        overrides: {
+          data: {
+            sort: 1,
+          },
+        },
+      },
+    ];
+  }
+
+}

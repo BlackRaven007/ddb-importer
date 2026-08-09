@@ -1,0 +1,663 @@
+import { DICTIONARY } from "../../../config/_module";
+import { logger } from "../../../lib/_module";
+import DDBEnricherFactoryMixin from "../../enrichers/mixins/DDBEnricherFactoryMixin";
+import SystemHelpers from "../../../lib/SystemHelpers";
+
+const ACTIVITY_TYPES =  DICTIONARY.parsing.activity.types;
+
+interface IDDBActivityFactoryMixin<TDoc extends string = TAFMDocTypes> {
+  enricher?: any;
+  activityGenerator?: any;
+  documentType?: TDoc | null;
+  notifier?: NotifierV1 | null;
+  useMidiAutomations?: boolean;
+  usesOnActivity?: boolean;
+}
+
+export default abstract class DDBActivityFactoryMixin<TDoc extends string = TAFMDocTypes> {
+
+  abstract name: string | null;
+  abstract isAction: boolean | null;
+  abstract legacy: boolean;
+  abstract is2014: boolean;
+  abstract is2024: boolean;
+  abstract originalName: string;
+  abstract rawCharacter: I5ePCData | I5eMonsterData | null;
+  enricher: DDBEnricherFactoryMixin<any>;
+  activityGenerator: new (...args: any[]) => TDDBActivityTypes;
+  additionalActivities: IAdditionalActivityOutline[] = [];
+  documentType: TDoc | null = null;
+  useMidiAutomations = false;
+  usesOnActivity = false;
+  ignoreActivityGeneration = false;
+  forceDefaultActionBuild = false;
+  // assigned by subclass constructors (data stub generation) before any read
+  data!: I5ePCItem | I5eFeatureItem | I5eMonsterItem | I5eVehicleItem;
+  notifier: NotifierV1 | null;
+
+  // These properties are used throughout the class but defined in subclasses,
+  // whose constructors assign them before any read here.
+  // Subclasses use narrower unions (IActionTypes, TDDBMonsterActionType, "spell", ...)
+  type!: string;
+  activityType!: IDDBActivityType;
+  activityTypes: string[] = [];
+  ddbDefinition!: IDDBCommonDefinition;
+  ddbData!: IDDBData;
+  activities: TDDBActivityTypes[] = [];
+
+  constructor({
+    enricher = null, activityGenerator, documentType = null, notifier = null, useMidiAutomations = false,
+    usesOnActivity = false,
+  }: IDDBActivityFactoryMixin = {}) {
+    this.enricher = enricher;
+    this.activityGenerator = activityGenerator;
+    this.documentType = documentType as TDoc;
+    this.notifier = notifier;
+    this.useMidiAutomations = useMidiAutomations;
+    this.usesOnActivity = usesOnActivity;
+  }
+
+  async loadEnricher(): Promise<void> {
+    await this.enricher.init();
+    await this.enricher.load({
+      ddbParser: this as unknown as TDDBParsers,
+    });
+  }
+
+  cleanup(): void {
+    if (this.usesOnActivity) {
+      foundry.utils.setProperty(this.data, "system.uses", {
+        spent: null,
+        max: null,
+        recovery: [],
+      });
+    }
+  }
+
+  _getSaveActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.SAVE,
+      ddbParent: this,
+      nameIdPrefix: "save",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    activity.build(foundry.utils.mergeObject({
+      generateSave: true,
+      generateDamage: !["weapon"].includes(this.documentType!),
+      generateRange: !["spell", "weapon"].includes(this.documentType!),
+    }, options));
+
+    return activity;
+  }
+
+  _getAttackActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.ATTACK,
+      ddbParent: this,
+      nameIdPrefix: "attack",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    const mergedOptions: TDDBActivityBuildOptions = foundry.utils.mergeObject({
+      generateAttack: true,
+      generateDamage: !["weapon"].includes(this.documentType!),
+      generateRange: !["spell", "weapon"].includes(this.documentType!),
+    }, options);
+
+    activity.build(mergedOptions);
+    return activity;
+  }
+
+  _getUtilityActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.UTILITY,
+      ddbParent: this,
+      nameIdPrefix: "utility",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    activity.build(foundry.utils.mergeObject({
+      generateDamage: false,
+      generateRange: !["spell", "weapon"].includes(this.documentType!),
+    }, options));
+
+    return activity;
+  }
+
+  _getRollActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.UTILITY,
+      ddbParent: this,
+      nameIdPrefix: "roll",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    activity.build(foundry.utils.mergeObject({
+      generateRoll: true,
+      generateDamage: false,
+      generateRange: !["spell", "weapon"].includes(this.documentType!),
+    }, options));
+
+    return activity;
+  }
+
+  _getForwardActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.FORWARD,
+      ddbParent: this,
+      nameIdPrefix: "forward",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    activity.build(foundry.utils.mergeObject(options));
+
+    return activity;
+  }
+
+  _getHealActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.HEAL,
+      ddbParent: this,
+      nameIdPrefix: "heal",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    activity.build(foundry.utils.mergeObject({
+      generateActivation: true,
+      generateDamage: false,
+      generateHealing: true,
+      generateRange: !["spell"].includes(this.documentType!),
+    }, options));
+
+    return activity;
+  }
+
+  _getDamageActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.DAMAGE,
+      ddbParent: this,
+      nameIdPrefix: "damage",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    activity.build(foundry.utils.mergeObject({
+      generateAttack: false,
+      generateDamage: !["weapon"].includes(this.documentType!),
+      generateRange: !["spell", "weapon"].includes(this.documentType!),
+    }, options));
+    return activity;
+  }
+
+  _getEnchantActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.ENCHANT,
+      ddbParent: this,
+      nameIdPrefix: "enchant",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    activity.build(foundry.utils.mergeObject({
+      generateAttack: false,
+      generateRange: !["spell"].includes(this.documentType!),
+      generateDamage: false,
+    }, options));
+    return activity;
+  }
+
+  _getSummonActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.SUMMON,
+      ddbParent: this,
+      nameIdPrefix: "summon",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    activity.build(foundry.utils.mergeObject({
+      generateAttack: false,
+      generateRange: !["spell"].includes(this.documentType!),
+      generateDamage: false,
+    }, options));
+    return activity;
+  }
+
+  _getCheckActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.CHECK,
+      ddbParent: this,
+      nameIdPrefix: "check",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    activity.build(foundry.utils.mergeObject({
+      generateAttack: false,
+      generateRange: false,
+      generateDamage: false,
+      generateCheck: true,
+      generateActivation: true,
+    }, options));
+    return activity;
+  }
+
+  _getDDBMacroActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.DDBMACRO,
+      ddbParent: this,
+      nameIdPrefix: "mac",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    activity.build(foundry.utils.mergeObject({
+      generateAttack: false,
+      generateRange: false,
+      generateDamage: false,
+      generateCheck: false,
+      generateActivation: true,
+      generateTarget: true,
+      generateDDBMacro: true,
+      targetOverride: {
+        override: true,
+        template: {
+          contiguous: false,
+          type: "",
+          size: "",
+          units: "ft",
+        },
+        affects: {},
+      },
+    }, options));
+    return activity;
+  }
+
+  _getCastActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.CAST,
+      ddbParent: this,
+      nameIdPrefix: "cast",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    const buildOptions = foundry.utils.mergeObject({
+      generateAttack: false,
+      generateRange: false,
+      generateDamage: false,
+      generateSpell: true,
+      generateActivation: true,
+    }, options);
+
+    activity.build(buildOptions);
+    return activity;
+  }
+
+  _getActivitiesType(): any {
+    logger.error(`This method should be over ridden`, {
+      this: this,
+    });
+    return null;
+  }
+
+  _getTransformActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const activity = new this.activityGenerator({
+      name,
+      type: ACTIVITY_TYPES.TRANSFORM,
+      ddbParent: this,
+      nameIdPrefix: "tran",
+      nameIdPostfix: nameIdPostfix ?? this.type,
+    });
+
+    const buildOptions = foundry.utils.mergeObject({
+      generateAttack: false,
+      generateRange: true,
+      generateDamage: false,
+      generateSpell: false,
+      generateActivation: true,
+    }, options);
+
+    activity.build(buildOptions);
+    return activity;
+  }
+
+  getActivity({ typeOverride = null, typeFallback = null, name = null, nameIdPostfix = null }: { typeOverride?: string | null; typeFallback?: string | null; name?: string | null; nameIdPostfix?: any } = {}, options: TDDBActivityBuildOptions = {}): any {
+    const type = typeOverride ?? this._getActivitiesType();
+    this.activityTypes.push(type);
+    const data = { name, nameIdPostfix };
+    switch (type) {
+      case "save":
+        return this._getSaveActivity(data, options);
+      case "attack":
+        return this._getAttackActivity(data, options);
+      case "damage":
+        return this._getDamageActivity(data, options);
+      case "heal":
+        return this._getHealActivity(data, options);
+      case "utility":
+        return this._getUtilityActivity(data, options);
+      case "enchant":
+        return this._getEnchantActivity(data, options);
+      case "summon":
+        return this._getSummonActivity(data, options);
+      case "check":
+        return this._getCheckActivity(data, options);
+      case "ddbmacro":
+        return this._getDDBMacroActivity(data, options);
+      case "forward":
+        return this._getForwardActivity(data, options);
+      case "cast":
+        return this._getCastActivity(data, options);
+      case "transform":
+        return this._getTransformActivity(data, options);
+      case "roll":
+        return this._getRollActivity(data, options);
+      case "teleport":
+      default:
+        if (typeFallback) return this.getActivity({ typeOverride: typeFallback, name, nameIdPostfix }, options);
+        return undefined;
+    }
+  }
+
+  async _generateActivity({
+    hintsOnly = false, name = null, nameIdPostfix = null, typeOverride = null, typeFallback = null,
+  }: {
+    hintsOnly?: boolean;
+    name?: string | null;
+    nameIdPostfix?: any;
+    typeOverride?: string | null;
+    typeFallback?: string | null;
+  } = {}, optionsOverride: TDDBActivityBuildOptions = {},
+  ): Promise<string | undefined> {
+    if (this.ignoreActivityGeneration) return undefined;
+    if (hintsOnly && !this.enricher.activity) return undefined;
+    if (this.enricher.type === "none" || this.enricher.activity?.type === "none") return undefined;
+
+    const activityOptions: TDDBActivityBuildOptions = (foundry.utils.getProperty(this.enricher, "activity.options") ?? {}) as TDDBActivityBuildOptions;
+    const options: TDDBActivityBuildOptions = foundry.utils.mergeObject(
+      foundry.utils.deepClone(optionsOverride),
+      foundry.utils.deepClone(activityOptions),
+    ) as TDDBActivityBuildOptions;
+
+    if (this.usesOnActivity || this.enricher.usesOnActivity) {
+      const uses = foundry.utils.getProperty(this.data, "system.uses") as I5eSystemLimitedUses | I5eConsumableUses | undefined;
+      if (uses) {
+        options.usesOverride = foundry.utils.deepClone(uses);
+        options.usesOverride.override = true;
+        options.generateUses = true;
+      } else {
+        logger.warn(`No system.uses found on ${this.data.name} when generating activity uses override`);
+      }
+    }
+
+    const activity = this.getActivity({
+      typeOverride: typeOverride ?? this.enricher.type ?? this.enricher.activity?.type,
+      name,
+      nameIdPostfix,
+      typeFallback,
+    }, options);
+
+
+    if (!activity) {
+      logger.debug(`No Activity type found for ${this.data.name}`, {
+        this: this,
+      });
+      return undefined;
+    }
+
+    if (!this.activityType) this.activityType = activity.data.type;
+
+    await this.enricher.applyActivityOverride(activity.data);
+    this.activities.push(activity);
+
+    if (this.enricher.activity?.addSingleFreeUse) {
+      const singleActivity = foundry.utils.deepClone(activity.data);
+      singleActivity.name = `${singleActivity.name} (Free use)`;
+      singleActivity._id = `${singleActivity._id.slice(0, -3)}fre`;
+      foundry.utils.setProperty(singleActivity, "consumption.targets", [
+        {
+          type: "activityUses",
+          target: "",
+          value: "1",
+          scaling: {
+            mode: "",
+            formula: "",
+          },
+        },
+      ]);
+      const period = this.enricher.activity.addSingleFreeRecoveryPeriod ?? "lr";
+      foundry.utils.setProperty(singleActivity, "uses", {
+        override: true,
+        max: "1",
+        spent: 0,
+        recovery: [{ period, type: "recoverAll", formula: undefined }],
+      });
+      foundry.utils.setProperty(this.data, `system.activities.${singleActivity._id}`, singleActivity);
+    }
+
+    foundry.utils.setProperty(this.data, `system.activities.${activity.data._id}`, activity.data);
+
+    return activity.data._id;
+  }
+
+  // subclasses such as DDBSpell may return undefined when generation is skipped
+  async _generateAdditionalActivities(): Promise<string[] | undefined> {
+    if (!this.enricher.addAutoAdditionalActivities) return [];
+    if (this.additionalActivities.length === 0) return [];
+    let i = 0;
+    const ids: string[] = [];
+    for (const activityData of this.additionalActivities) {
+      const id = await this._generateActivity({
+        hintsOnly: false,
+        name: activityData.name,
+        nameIdPostfix: i,
+        typeOverride: activityData.type,
+      }, activityData.options);
+      logger.debug(`Generated additional Activity with id ${id}`, {
+        this: this,
+        activityData,
+        id,
+      });
+      if (id) ids.push(id);
+      i++;
+    }
+    return ids;
+  }
+
+
+  _activityEffectLinking(): void {
+    const documentEffects = this.data.effects;
+    if (!documentEffects || documentEffects.length === 0) return;
+    if (!foundry.utils.hasProperty(this.data, "system.activities")) return;
+    for (const activityId of Object.keys(this.data.system.activities)) {
+      const activity = this.data.system.activities[activityId];
+      if (!activity.effects || activity.effects.length !== 0) continue;
+      if (foundry.utils.getProperty(activity, "flags.ddbimporter.noeffect")) continue;
+      for (const effect of documentEffects) {
+        const ignoreTransfer = foundry.utils.getProperty(effect, "flags.ddbimporter.ignoreTransfer") ?? false;
+        if (effect.transfer && !ignoreTransfer) continue;
+        if (foundry.utils.getProperty(effect, "flags.ddbimporter.noeffect")) continue;
+        const activityNamesRequired = foundry.utils.hasProperty(effect, "flags.ddbimporter.activitiesMatch")
+          ? foundry.utils.getProperty(effect, "flags.ddbimporter.activitiesMatch") as string[]
+          : foundry.utils.hasProperty(effect, "flags.ddbimporter.activityMatch")
+            ? [foundry.utils.getProperty(effect, "flags.ddbimporter.activityMatch")] as string[]
+            : [] as string[];
+        if (activityNamesRequired.length > 0 && !activityNamesRequired.includes(activity.name ?? "")) continue;
+        if (!effect._id) effect._id = foundry.utils.randomID();
+        activity.effects.push({
+          _id: effect._id,
+          level: foundry.utils.getProperty(effect, "flags.ddbimporter.effectIdLevel") ?? { min: null, max: null },
+          riders: {
+            activity: foundry.utils.getProperty(effect, "flags.ddbimporter.activityRiders") as string[] ?? [],
+            effect: foundry.utils.getProperty(effect, "flags.ddbimporter.effectRiders") as string[] ?? [],
+            item: foundry.utils.getProperty(effect, "flags.ddbimporter.itemRiders") as string[] ?? [],
+          },
+        });
+      }
+      this.data.system.activities[activityId] = activity;
+    }
+
+    // Track changes to rider activities & effects and store in item flags
+    const riders = { activity: new Set<string>(), effect: new Set<string>() };
+    for (const activityId of Object.keys(this.data.system.activities)) {
+      const activity = this.data.system.activities[activityId];
+      if (activity.type !== "enchant") continue;
+      for (const e of activity.effects ?? []) {
+        e.riders?.activity?.forEach((activity: string) => {
+          riders.activity.add(activity);
+        });
+        e.riders?.effect?.forEach((effect: string) => {
+          riders.effect.add(effect);
+        });
+      }
+    }
+
+    foundry.utils.setProperty(this.data, "flags.dnd5e.riders", {
+      activity: Array.from(riders.activity),
+      effect: Array.from(riders.effect),
+    });
+
+  }
+
+
+  static getDamageParts(modifiers: any[], typeOverride: string | null = null): any[] {
+    return modifiers
+      .filter((mod: any) => Number.isInteger(mod.value)
+        || (mod.dice ? mod.dice : mod.die ? mod.die : undefined) !== undefined,
+      )
+      .map((mod: any) => {
+        const die = mod.dice ? mod.dice : mod.die ? mod.die : undefined;
+        if (die) {
+          const damage = SystemHelpers.buildDamagePart({
+            damageString: die.diceString,
+            type: typeOverride ?? mod.subType,
+          });
+          return damage;
+        } else if (mod.value) {
+          const damage = SystemHelpers.buildDamagePart({
+            damageString: mod.value,
+            type: typeOverride ?? mod.subType,
+          });
+          return damage;
+        } else if (mod.fixedValue) {
+          const damage = SystemHelpers.buildDamagePart({
+            damageString: mod.fixedValue,
+            type: typeOverride ?? mod.subType,
+          });
+          return damage;
+        } else {
+          return null;
+        }
+      }).filter((part: any) => part !== null);
+  }
+
+  static filterCombinedDamageParts(damageParts: any[]): any[] {
+    const tracker: Record<string, any> = {};
+
+    for (const part of damageParts) {
+      const partKey = `${part.number ?? ""}${part.denomination ?? ""}${part.bonus ?? ""}${part.custom}${part.formula}`;
+      if (tracker[partKey]) {
+        tracker[partKey].types.push(...part.types);
+      } else {
+        tracker[partKey] = part;
+      }
+    }
+
+    return Object.values(tracker);
+  }
+
+  static getCombinedDamageModifiers(modifiers: any[]): any[] {
+    const damageModifiers = modifiers.filter((m: any) => m.type === "damage");
+
+    const additionalDamageParts = DDBActivityFactoryMixin.getDamageParts(
+      damageModifiers
+        .filter((mod: any) => mod.type === "damage" && (!mod.restriction || mod.restriction === "")),
+    );
+
+    return DDBActivityFactoryMixin.filterCombinedDamageParts(additionalDamageParts);
+
+  }
+
+  _escapeCheckGeneration(): void {
+    const escape = this.ddbDefinition.description.match(/escape DC ([0-9]+)/);
+    if (escape) {
+      const escape = this.ddbDefinition.description.match(/escape DC ([0-9]+)/);
+      if (escape) {
+        this.additionalActivities.push({
+          type: ACTIVITY_TYPES.CHECK,
+          name: `Escape Check`,
+          options: {
+            generateCheck: true,
+            generateTarget: false,
+            generateRange: false,
+            checkOverride: {
+              "associated": [
+                "acr",
+                "ath",
+              ],
+              "ability": [],
+              "dc": {
+                "calculation": "",
+                "formula": escape[1],
+              },
+            },
+          },
+        });
+      }
+    }
+  }
+
+  _studyCheckGeneration(): void {
+    const studyRegex = /takes (the|a) Study action to examine/i;
+    const match = this.ddbDefinition.description.match(studyRegex);
+    if (match) {
+      this.additionalActivities.push({
+        type: ACTIVITY_TYPES.CHECK,
+        name: `Study Check`,
+        options: {
+          generateCheck: true,
+          generateTarget: false,
+          generateRange: false,
+          checkOverride: {
+            "associated": [
+              "inv",
+            ],
+            "ability": [],
+            "dc": {
+              "calculation": "spellcasting",
+              "formula": "",
+            },
+          },
+          activationOverride: {
+            "type": "special",
+            "override": true,
+            "condition": "Study Action to Investigate",
+          },
+          rangeOverride: {
+            units: "any",
+            "override": true,
+          },
+          targetOverride: {
+            affects: {
+              "type": "self",
+            },
+            "override": true,
+          },
+          durationOverride: {
+            "units": "inst",
+            "override": true,
+          },
+        },
+      });
+    }
+  }
+
+}

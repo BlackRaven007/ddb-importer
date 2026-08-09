@@ -1,0 +1,778 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class ArmorModel extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.NONE;
+  }
+
+  get _guardianActivities() {
+    const defensiveFieldUses = this._getUsesWithSpent({
+      type: "class",
+      name: "Defensive Field",
+      max: "@prof",
+      period: "lr",
+    });
+    const results: IDDBAdditionalActivity[] = [
+      {
+        init: {
+          name: "Guardian",
+          type: DDBEnricherData.ACTIVITY_TYPES.ENCHANT,
+        },
+        build: {
+          generateTarget: true,
+          generateActivation: true,
+          activationOverride: {
+            type: "special",
+          },
+          targetOverride: {
+            affects: {
+              type: "object",
+            },
+          },
+        },
+        overrides: {
+          data: {
+            midiProperties: {
+              triggeredActivityId: "none",
+              triggeredActivityTargets: "targets",
+              triggeredActivityRollAs: "self",
+              forceDialog: false,
+              confirmTargets: "never",
+            },
+            restrictions: {
+              type: "equipment",
+              categories: ["heavy", "light", "medium"],
+              allowMagical: true,
+            },
+          },
+        },
+      },
+      {
+        init: {
+          name: "Guardian: Thunder Gauntlet",
+          type: DDBEnricherData.ACTIVITY_TYPES.ATTACK,
+        },
+        build: {
+          generateTarget: true,
+          generateRange: true,
+          generateAttack: true,
+          generateDamage: true,
+          generateActivation: true,
+          generateDuration: true,
+          durationOverride: {
+            units: "inst",
+          },
+          activationOverride: {
+            type: "action",
+          },
+        },
+        overrides: {
+          id: "ddbThunderGauntl",
+          targetType: "creature",
+          data: {
+            attack: {
+              ability: "",
+              bonus: "max(@abilities.str.mod, @abilities.int.mod)",
+            },
+            img: "icons/magic/lightning/bolt-forked-large-blue.webp",
+            range: {
+              value: 5,
+              long: null,
+              units: "ft",
+            },
+            damage: {
+              parts: [
+                DDBEnricherData.basicDamagePart({
+                  customFormula: this.is2014 ? null : "@scale.armorer.thunder-pulse + max(@abilities.str.mod, @abilities.int.mod) + @scale.armorer.improved-armorer",
+                  number: this.is2014 ? 1 : null,
+                  denomination: this.is2014 ? 8 : null,
+                  bonus: this.is2014 ? "max(@abilities.str.mod, @abilities.int.mod)" : null as unknown as string, // null clears the bonus; param type is narrower
+                  type: "thunder",
+                }),
+              ],
+            },
+          },
+        },
+      },
+      {
+        init: {
+          name: "Guardian: Defensive Field",
+          type: DDBEnricherData.ACTIVITY_TYPES.HEAL,
+        },
+        build: {
+          generateTarget: true,
+          generateConsumption: true,
+        },
+        overrides: {
+          id: "ddbDefensivField",
+          targetType: "self",
+          addActivityConsume: true,
+          data: {
+            img: "icons/magic/control/debuff-chains-ropes-net-white.webp",
+            healing: DDBEnricherData.basicDamagePart({
+              bonus: "@classes.artificer.levels",
+              types: ["temphp"],
+            }),
+            uses: defensiveFieldUses,
+          },
+        },
+      },
+    ];
+
+    if (this.is2024) {
+      results.push({
+        init: {
+          name: "Guardian: Pull Creature",
+          type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
+        },
+        build: {
+          generateTarget: true,
+          generateRange: true,
+          generateActivation: true,
+          activationOverride: {
+            type: "reaction",
+          },
+        },
+        overrides: {
+          activationCondition: "A creature ends it's turn within 30 feet of you",
+          id: "ddbPullCreature1",
+          targetType: "creature",
+          addActivityConsume: true,
+          data: {
+            save: {
+              ability: ["str"],
+              dc: {
+                calculation: "int",
+                formula: "",
+              },
+            },
+            range: {
+              value: "30",
+              units: "ft",
+            },
+            visibility: {
+              "level": {
+                "min": 15,
+                "max": null,
+              },
+              "requireAttunement": false,
+              "requireIdentification": false,
+              "requireMagic": false,
+              "identifier": "artificer",
+            },
+            uses: {
+              spent: 0,
+              max: "min(1, @abilities.int.mod)",
+              recovery: [{ period: "lr", type: "recoverAll", formula: undefined }],
+            },
+          },
+        },
+      });
+    }
+
+    return results;
+  }
+
+  get _infiltratorActivities() {
+    const results: IDDBAdditionalActivity[] = [
+      {
+        init: {
+          name: "Infiltrator",
+          type: DDBEnricherData.ACTIVITY_TYPES.ENCHANT,
+        },
+        build: {
+          generateTarget: true,
+          generateActivation: true,
+          activationOverride: {
+            type: "special",
+          },
+          targetOverride: {
+            affects: {
+              type: "object",
+            },
+          },
+        },
+        overrides: {
+          data: {
+            midiProperties: {
+              triggeredActivityId: "none",
+              triggeredActivityTargets: "targets",
+              triggeredActivityRollAs: "self",
+              forceDialog: false,
+              confirmTargets: "never",
+            },
+            restrictions: {
+              type: "equipment",
+              categories: ["heavy", "light", "medium"],
+              allowMagical: true,
+            },
+          },
+        },
+      },
+      {
+        init: {
+          name: "Infiltrator: Lightning Launcher",
+          type: DDBEnricherData.ACTIVITY_TYPES.ATTACK,
+        },
+        build: {
+          generateTarget: true,
+          generateRange: true,
+          generateAttack: true,
+          generateDamage: true,
+          generateActivation: true,
+          generateDuration: true,
+          durationOverride: {
+            units: "inst",
+          },
+          activationOverride: {
+            type: "action",
+          },
+        },
+        overrides: {
+          id: "ddbInfiltratLigh",
+          targetType: "creature",
+          data: {
+            attack: {
+              ability: "",
+              bonus: "max(@abilities.dex.mod, @abilities.int.mod)",
+              type: {
+                value: "ranged",
+              },
+            },
+            img: "icons/magic/lightning/projectile-orb-blue.webp",
+            range: {
+              value: 90,
+              long: 600,
+              units: "ft",
+            },
+            damage: {
+              parts: [
+                DDBEnricherData.basicDamagePart({
+                  customFormula: this.is2014 ? null : "@scale.armorer.lightning-launcher + max(@abilities.str.mod, @abilities.int.mod) + @scale.armorer.improved-armorer",
+                  number: this.is2014 ? 1 : null,
+                  denomination: this.is2014 ? 6 : null,
+                  bonus: this.is2014 ? "max(@abilities.dex.mod, @abilities.int.mod)" : null as unknown as string, // null clears the bonus; param type is narrower
+                  type: "lightning",
+                }),
+              ],
+            },
+          },
+        },
+      },
+      {
+        init: {
+          name: "Infiltrator: Lightning Launcher (Extra Damage)",
+          type: DDBEnricherData.ACTIVITY_TYPES.ATTACK,
+        },
+        build: {
+          generateTarget: true,
+          generateRange: true,
+          generateAttack: true,
+          generateDamage: true,
+          generateActivation: true,
+          generateDuration: true,
+          durationOverride: {
+            units: "inst",
+          },
+          activationOverride: {
+            type: "special",
+          },
+        },
+        overrides: {
+          id: "ddbLightingExtra",
+          targetType: "creature",
+          activationCondition: "Once per turn",
+          data: {
+            img: "icons/magic/lightning/projectile-orb-blue.webp",
+            range: {
+              value: 90,
+              long: 600,
+              units: "ft",
+            },
+            damage: {
+              parts: [
+                DDBEnricherData.basicDamagePart({
+                  customFormula: this.is2014 ? null : "@scale.armorer.lightning-launcher",
+                  number: this.is2014 ? 1 : null,
+                  denomination: this.is2014 ? 6 : null,
+                  type: "lightning",
+                }),
+              ],
+            },
+          },
+        },
+      },
+    ];
+
+    if (this.is2024) {
+      results.push({
+        init: {
+          name: "Infiltrator: Fly",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateTarget: true,
+          generateRange: false,
+          generateActivation: true,
+          activationOverride: {
+            type: "bonus",
+          },
+        },
+        overrides: {
+          id: "ddbInfiltratoFly",
+          addActivityConsume: true,
+          targetType: "self",
+          data: {
+            visibility: {
+              "level": {
+                "min": 15,
+                "max": null,
+              },
+              "requireAttunement": false,
+              "requireIdentification": false,
+              "requireMagic": false,
+              "identifier": "artificer",
+            },
+            uses: {
+              spent: 0,
+              max: "min(1, @abilities.int.mod)",
+              recovery: [{ period: "lr", type: "recoverAll", formula: undefined }],
+            },
+          },
+        },
+      });
+    }
+
+    return results;
+  }
+
+  get _dreadnaughtActivities(): IDDBAdditionalActivity[] {
+    const results: IDDBAdditionalActivity[] = [
+      {
+        init: {
+          name: "Dreadnaught",
+          type: DDBEnricherData.ACTIVITY_TYPES.ENCHANT,
+        },
+        build: {
+          generateTarget: true,
+          generateActivation: true,
+          activationOverride: {
+            type: "special",
+          },
+          targetOverride: {
+            affects: {
+              type: "object",
+            },
+          },
+        },
+        overrides: {
+          data: {
+            midiProperties: {
+              triggeredActivityId: "none",
+              triggeredActivityTargets: "targets",
+              triggeredActivityRollAs: "self",
+              forceDialog: false,
+              confirmTargets: "never",
+            },
+            restrictions: {
+              type: "equipment",
+              categories: ["heavy", "light", "medium"],
+              allowMagical: true,
+            },
+          },
+        },
+      },
+      // TODO: We should create a Force Demolisher item in the compendium and link instead of building this activity
+      {
+        init: {
+          name: "Dreadnaught: Force Demolisher",
+          type: DDBEnricherData.ACTIVITY_TYPES.ATTACK,
+        },
+        build: {
+          generateTarget: true,
+          generateRange: true,
+          generateAttack: true,
+          generateDamage: true,
+          generateActivation: true,
+          generateDuration: true,
+          durationOverride: {
+            units: "inst",
+          },
+          activationOverride: {
+            type: "special",
+          },
+        },
+        overrides: {
+          id: "ddbForceDemolish",
+          targetType: "creature",
+          data: {
+            range: {
+              value: 10,
+              units: "ft",
+            },
+            attack: {
+              ability: "",
+              bonus: "max(@abilities.dex.mod, @abilities.int.mod)",
+              type: {
+                value: "melee",
+              },
+            },
+            img: "icons/weapons/hammers/hammer-double-glowing-yellow.webp",
+            damage: {
+              parts: [
+                DDBEnricherData.basicDamagePart({
+                  customFormula: "@scale.armorer.force-demolisher + max(@abilities.str.mod, @abilities.int.mod) + @scale.armorer.improved-armorer",
+                  type: "force",
+                }),
+              ],
+            },
+          },
+        },
+      },
+      {
+        init: {
+          name: "Dreadnaught: Giant Stature (Large)",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateTarget: true,
+          generateActivation: true,
+          activationOverride: {
+            type: "bonus",
+          },
+          targetOverride: {
+            affects: {
+              type: "object",
+            },
+          },
+        },
+        overrides: {
+          id: "ddbGiantStatue00",
+          targetType: "self",
+          data: {
+            midiProperties: {
+              triggeredActivityId: "none",
+              triggeredActivityTargets: "targets",
+              triggeredActivityRollAs: "self",
+              forceDialog: false,
+              confirmTargets: "never",
+            },
+            duration: {
+              units: "minute",
+              value: "1",
+            },
+            effects: [
+              {
+                "_id": "ddbGiantStatue03",
+                riders: {
+                  activity: [],
+                  effect: [],
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        init: {
+          name: "Dreadnaught: Giant Stature (Huge)",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateTarget: true,
+          generateActivation: true,
+          activationOverride: {
+            type: "bonus",
+          },
+          targetOverride: {
+            affects: {
+              type: "object",
+            },
+          },
+        },
+        overrides: {
+          id: "ddbGiantStatue01",
+          targetType: "self",
+          data: {
+            midiProperties: {
+              triggeredActivityId: "none",
+              triggeredActivityTargets: "targets",
+              triggeredActivityRollAs: "self",
+              forceDialog: false,
+              confirmTargets: "never",
+            },
+            duration: {
+              units: "minute",
+              value: "1",
+            },
+            visibility: {
+              "level": {
+                "min": 15,
+                "max": null,
+              },
+              "requireAttunement": false,
+              "requireIdentification": false,
+              "requireMagic": false,
+              "identifier": "artificer",
+            },
+            effects: [
+              {
+                "_id": "ddbGiantStatue04",
+                "level": {
+                  "min": 15,
+                  "max": null,
+                },
+                riders: {
+                  activity: [],
+                  effect: [],
+                },
+              },
+            ],
+          },
+        },
+      },
+    ];
+
+    return results;
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+
+    const results = [
+      ...this._guardianActivities,
+      ...this._infiltratorActivities,
+    ];
+
+    if (this.is2024) {
+      results.push(...this._dreadnaughtActivities);
+    }
+
+    return results;
+  }
+
+  get _guardianEffects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Guardian",
+        activityMatch: "Guardian",
+        type: "enchant",
+        changes: [
+          DDBEnricherData.ChangeHelper.overrideChange(`{} [Guardian]`, 20, "name"),
+          DDBEnricherData.ChangeHelper.overrideChange("", 20, "system.strength"),
+          DDBEnricherData.ChangeHelper.addChange("foc", 20, "system.properties"),
+        ],
+        data: {
+          flags: {
+            ddbimporter: {
+              activityRiders: this.is2014
+                ? ["ddbThunderGauntl", "ddbDefensivField"]
+                : ["ddbThunderGauntl", "ddbDefensivField", "ddbPullCreature1"],
+            },
+          },
+          duration: {
+            value: null,
+            expiry: null,
+            expired: null,
+          },
+        },
+      },
+      {
+        name: "Thunder Struck",
+        activityMatch: "Guardian: Thunder Gauntlet",
+        options: {
+          durationSeconds: 6,
+          description: `Disadvantage on attack rolls against targets other than you until the start of your next turn`,
+        },
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.unsignedAddChange("!workflow.target.getName('@token.name')", 20, "flags.midi-qol.disadvantage.attack.all"),
+        ],
+        daeSpecialDurations: ["turnStartSource"],
+        data: {
+          img: "icons/skills/melee/unarmed-punch-fist-white.webp",
+          duration: {
+            value: 6,
+            units: "seconds",
+            expiry: "turnStart",
+          },
+        },
+      },
+    ];
+  }
+
+  get _infiltratorEffects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Infiltrator Armor",
+        activityMatch: "None",
+        options: {
+          // disabled: true,
+          transfer: true,
+        },
+        changes: [
+          DDBEnricherData.ChangeHelper.addChange("5", 20, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.ste.roll.mode"),
+        ],
+        midiOptionalChanges: [
+          {
+            name: "lightningLauncher",
+            data: {
+              label: "Use Lightning Launcher extra damage?",
+              count: "turn",
+              "damage.all": this.is2014 ? "1d6[lightning]" : "@scale.armorer.lightning-launcher[lightning]",
+              activation: `"@workflow.activity.name" == "Infiltrator: Lightning Launcher"`,
+            },
+          },
+        ],
+        data: {
+          _id: "ddbInfiltratorEf",
+          duration: {
+            value: null,
+            expiry: null,
+            expired: null,
+          },
+        },
+      },
+      {
+        name: "Infiltrator",
+        activityMatch: "Infiltrator",
+        type: "enchant",
+        changes: [
+          DDBEnricherData.ChangeHelper.overrideChange(`{} [Infiltrator]`, 30, "name"),
+          DDBEnricherData.ChangeHelper.overrideChange("", 20, "system.strength"),
+          DDBEnricherData.ChangeHelper.addChange("foc", 20, "system.properties"),
+        ],
+        data: {
+          duration: {
+            value: null,
+            expiry: null,
+            expired: null,
+          },
+          flags: {
+            ddbimporter: {
+              activityRiders: this.is2014
+                ? ["ddbInfiltratLigh", "ddbLightingExtra"]
+                : ["ddbInfiltratLigh", "ddbLightingExtra", "ddbInfiltratoFly"],
+              effectRiders: ["ddbInfiltratorEf"],
+            },
+          },
+        },
+      },
+      {
+        name: "Infiltrator: Flight",
+        activityMatch: "Infiltrator: Fly",
+        options: {
+          durationSeconds: 6,
+          description: `You gain flight equal to twice your speed until the end of your turn`,
+        },
+        changes: [
+          DDBEnricherData.ChangeHelper.upgradeChange("(2 * @attributes.movement.walk)", 20, "system.attributes.movement.fly"),
+        ],
+        daeSpecialDurations: ["turnEndSource" as const, "turnEnd" as const],
+        data: {
+          duration: {
+            value: 6,
+            units: "seconds",
+            expiry: "turnEnd",
+          },
+        },
+      },
+    ];
+  }
+
+  get _dreadnaughtEffects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Dreadnaught",
+        activityMatch: "Dreadnaught",
+        type: "enchant",
+        changes: [
+          DDBEnricherData.ChangeHelper.overrideChange(`{} [Dreadnaught]`, 20, "name"),
+          DDBEnricherData.ChangeHelper.overrideChange("", 20, "system.strength"),
+          DDBEnricherData.ChangeHelper.addChange("foc", 20, "system.properties"),
+        ],
+        data: {
+          flags: {
+            ddbimporter: {
+              activityRiders: ["ddbForceDemolish", "ddbGiantStatue00", "ddbGiantStatue01"],
+              // effectRiders: ["ddbGiantStatue03", "ddbGiantStatue04"],
+            },
+          },
+          duration: {
+            value: null,
+            expiry: null,
+            expired: null,
+          },
+        },
+      },
+      {
+        name: "Giant Stature (Large)",
+        activityMatch: "Giant Stature (Large)",
+        changes: [
+          DDBEnricherData.ChangeHelper.overrideChange("lg", 20, "system.traits.size"),
+          // DDBEnricherData.ChangeHelper.addChange("", 20, "system.range"),
+        ],
+        atlChanges: [
+          DDBEnricherData.ChangeHelper.upgradeChange(2, 10, "ATL.width"),
+          DDBEnricherData.ChangeHelper.upgradeChange(2, 10, "ATL.height"),
+        ],
+        data: {
+          _id: "ddbGiantStatue03",
+          duration: {
+            value: 60,
+            units: "seconds",
+          },
+        },
+      },
+      {
+        name: "Giant Stature (Huge)",
+        activityMatch: "Giant Stature (Huge)",
+        changes: [
+          DDBEnricherData.ChangeHelper.overrideChange("hg", 20, "system.traits.size"),
+          // DDBEnricherData.ChangeHelper.addChange("", 20, "system.range"),
+        ],
+        atlChanges: [
+          DDBEnricherData.ChangeHelper.upgradeChange(3, 15, "ATL.width"),
+          DDBEnricherData.ChangeHelper.upgradeChange(3, 15, "ATL.height"),
+        ],
+        data: {
+          _id: "ddbGiantStatue04",
+          duration: {
+            value: 60,
+            units: "seconds",
+          },
+        },
+      },
+    ];
+  }
+
+  get effects(): IDDBEffectHint[] {
+    const results: IDDBEffectHint[] = [
+      ...this._guardianEffects,
+      ...this._infiltratorEffects,
+    ];
+
+    if (this.is2024) {
+      results.push(...this._dreadnaughtEffects);
+    }
+
+    return results;
+
+  }
+
+  get override(): IDDBOverrideData {
+    return {
+      descriptionSuffix: this.is2014
+        ? `
+<section class="secret ddbSecret" id="secret-ddbArmorModel">
+<p><strong>Implementation Details</strong></p>
+<p>Use the Enchantments to select your armor model.</p>
+</section>`
+        : `
+<section class="secret ddbSecret" id="secret-ddbArmorModel">
+<p><strong>Implementation Details</strong></p>
+<p>Use the Enchantments to select your armor model. The bonuses from Improved Armorer and Perfected Armor will be applied as you level.</p>
+</section>`,
+    };
+  }
+}

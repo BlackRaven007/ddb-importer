@@ -1,0 +1,33 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class SearUndead extends DDBEnricherData {
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      targetType: "creature",
+      activationType: "special",
+      activationCondition: "When you Turn Undead",
+      data: {
+        damage: {
+          parts: [
+            DDBEnricherData.basicDamagePart({
+              customFormula: "(@abilities.wis.mod)d8",
+              types: ["radiant"],
+            }),
+          ],
+        },
+      },
+    };
+  }
+
+  get override(): IDDBOverrideData {
+    return {
+      data: {
+        "system.type.subtype": "channelDivinity",
+      },
+    };
+  }
+}

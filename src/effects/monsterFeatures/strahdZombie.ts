@@ -1,0 +1,24 @@
+import { forceItemEffect } from "../effects";
+import { DDBMacros } from "../../lib/_module";
+import { baseMonsterFeatureEffect } from "../specialMonsters";
+
+
+export async function strahdZombieEffects(npc: I5eMonsterData): Promise<I5eMonsterData> {
+  for (let item of npc.items) {
+    if (item.name.startsWith("Loathsome Limbs")) {
+      const effect = baseMonsterFeatureEffect(item, item.name);
+      effect.system.changes.push(
+        DDBMacros.generateOnUseMacroChange({ macroPass: "isDamaged", macroType: "monsterFeature", macroName: "loathsomeLimbs.js" }),
+      );
+      effect.transfer = true;
+      foundry.utils.setProperty(effect, "flags.dae.stackable", "noneNameOnly");
+      await DDBMacros.setItemMacroFlag(item, "monsterFeature", "loathsomeLimbs.js");
+
+      item.effects ??= [];
+      item.effects.push(effect);
+    }
+    item = forceItemEffect(item);
+  }
+
+  return npc;
+}

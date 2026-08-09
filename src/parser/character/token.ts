@@ -1,0 +1,74 @@
+import { logger } from "../../lib/_module";
+import { DICTIONARY } from "../../config/_module";
+import DDBCharacter from "../DDBCharacter";
+
+DDBCharacter.prototype._generateToken = function _generateToken(this: DDBCharacter) {
+  if (!this.currentActor) {
+    logger.warn("Unable to generate token, no current actor");
+    return;
+  }
+  try {
+    // Default to the most basic token setup.
+    // everything else can be handled by the user / Token Mold
+    const existingData: I5ePrototypeToken = foundry.utils.duplicate(this.currentActor.prototypeToken) as unknown as I5ePrototypeToken;
+    const tokenData: I5ePrototypeToken = foundry.utils.mergeObject(existingData, {
+      actorLink: true,
+      name: this.raw.character.name,
+      sight: {
+        enabled: true,
+        range: 0,
+        visionMode: "basic",
+      },
+      detectionModes: {},
+    });
+    const sight = tokenData.sight ?? { enabled: true, range: 0, visionMode: "basic" };
+    tokenData.sight = sight;
+    const detectionModes = tokenData.detectionModes ?? {};
+    tokenData.detectionModes = detectionModes;
+    const atlActive = game.modules?.get("ATL")?.active;
+    // if atl is active it can add vision upgrade effects, otherwise we don't take effects into account
+    const senses = this.getSenses({ includeEffects: !atlActive }) as I5eSenses;
+    // darkvision: 0,
+    // blindsight: 0,
+    // tremorsense: 0,
+    // truesight: 0,
+
+    for (const [key, value] of Object.entries(senses.ranges ?? {})) {
+      if (value > 0 && value > (sight.range ?? 0) && foundry.utils.hasProperty(DICTIONARY.senseMap(), key)) {
+        const visionMode = DICTIONARY.senseMap()[key];
+        foundry.utils.setProperty(tokenData, "sight.visionMode", visionMode);
+        foundry.utils.setProperty(tokenData, "sight.range", value);
+        tokenData.sight = foundry.utils.mergeObject(sight, foundry.utils.getProperty(CONFIG.Canvas.visionModes, String(visionMode) + ".vision.defaults") as object);
+      }
+      if (!game.modules?.get("vision-5e")?.active
+        && value > 0
+        && foundry.utils.hasProperty(DICTIONARY.detectionMap, key)
+      ) {
+        const detectionModeId = DICTIONARY.detectionMap[key];
+        detectionModes[detectionModeId] = {
+          range: value,
+          enabled: true,
+        };
+      }
+    }
+
+    // devilsight? we set the vision mode back to basic
+    const devilSight = (senses.special ?? "").includes("You can see normally in darkness");
+    if (devilSight && game.modules?.get("vision-5e")?.active) {
+      foundry.utils.setProperty(tokenData, "sight.visionMode", "devilsSight");
+      const devilsSightDefaults = foundry.utils.getProperty(CONFIG.Canvas.visionModes, "devilsSight.vision.defaults") as I5eTokenSight;
+      tokenData.sight = foundry.utils.mergeObject(sight, devilsSightDefaults);
+    } else if (devilSight) {
+      foundry.utils.setProperty(tokenData, "sight.visionMode", "basic");
+      tokenData.sight = foundry.utils.mergeObject(sight, CONFIG.Canvas.visionModes.basic.vision.defaults);
+    }
+
+    this.raw.character.prototypeToken = tokenData;
+  } catch (err) {
+    logger.error(err);
+    if (err instanceof Error) logger.error(err.stack);
+    throw new Error("Please update your D&D 5e system to a newer version", {
+      cause: err,
+    });
+  }
+};

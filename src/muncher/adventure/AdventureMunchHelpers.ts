@@ -1,0 +1,596 @@
+import { logger, CompendiumHelper, PatreonHelper, FileHelper, utils, ImportRunTracker } from "../../lib/_module";
+import { parseSpells } from "../spells";
+import DDBItemsImporter from "../DDBItemsImporter";
+import { SETTINGS } from "../../config/_module";
+import DDBMonsterFactory from "../../parser/DDBMonsterFactory";
+
+type TGameDataType = "scenes" | "actors" | "items" | "journal" | "tables" | "playlist" | "macros";
+type TEntityType = Scene | Actor | Item | JournalEntry | RollTable | Playlist | Macro;
+
+export default class AdventureMunchHelpers {
+
+  /**
+   * Find an entity by the import key.
+   * @param  {string} type Entity type to search for
+   * @param  {string} id Entity Id
+   * @returns {object} Entity Object Data
+   */
+  static findEntityByImportId<T extends TEntityType = TEntityType>(type: TGameDataType, id: string): T | undefined {
+    return (game.data as Record<string, any>)[type].find((item: T) => item._id === id);
+  }
+
+  /**
+   * Async replace for all matching patterns
+   *
+   * @param {string} str Original string to replace values in
+   * @param {string} regex regex for matching
+   * @param {Function} asyncFn async function to run on each match
+   * @returns {string}
+   */
+  static async replaceAsync(str: any, regex: any, asyncFn: any) {
+    const promises: any[] = [];
+    str.replace(regex, (match: any, ...args: any[]) => {
+      const promise = asyncFn(match, ...args);
+      promises.push(promise);
+    });
+    const data = await Promise.all(promises);
+    return str.replace(regex, () => data.shift());
+  }
+
+  /**
+   * Returns the difference between object 1 and 2
+   * @param  {object} obj1
+   * @param  {object} obj2
+   * @returns {object}
+   */
+  static diff(obj1: Record<string, any>, obj2: Record<string, any>): object {
+    const result: Record<string, any> = {};
+    for (const key in obj1) {
+      if (obj2[key] != obj1[key]) result[key] = obj2[key];
+      if (Array.isArray(obj2[key]) && Array.isArray(obj1[key]))
+        result[key] = this.diff(obj1[key], obj2[key]);
+      if (typeof obj2[key] == "object" && typeof obj1[key] == "object")
+        result[key] = this.diff(obj1[key], obj2[key]);
+    }
+    return result;
+  }
+
+  /**
+   * Replaces matchAll as it's not yet available in Electron App
+   * @param   {string} regexp RegEx to use
+   * @param   {string} string String to match on
+   * @returns {Array}
+   */
+  static reMatchAll(regexp: string | RegExp, string: any) {
+    const matches = string.match(new RegExp(regexp, "gm"));
+    if (matches) {
+      let start = 0;
+      return matches.map((group0: any) => {
+        const match = group0.match(regexp);
+        match.index = string.indexOf(group0, start);
+        start = match.index;
+        return match;
+      });
+    }
+    return matches;
+  }
+
+  static async loadMissingDocuments(type: TCompendiumTypes, docIds: number[], notifierV2: INotifierV2 | null = null) {
+    return new Promise((resolve) => {
+      if (docIds && docIds.length > 0) {
+        switch (type) {
+          case "item":
+            logger.debug(`Importing missing ${type}s from DDB`, docIds);
+            notifierV2?.({ section: "note", message: `Importing ${docIds.length} missing ${type}s from DDB` });
+            resolve(DDBItemsImporter.fetchAndImportItems({
+              useSourceFilter: false,
+              ids: docIds,
+              deleteBeforeUpdate: false,
+              notifierV2,
+            }));
+            break;
+          case "monster": {
+            try {
+              const tier = PatreonHelper.getPatreonTier();
+              const tiers = PatreonHelper.calculateAccessMatrix(tier);
+              if (tiers.all) {
+                logger.debug(`Importing missing ${type}s from DDB`, docIds);
+                notifierV2?.({ section: "note", message: `Importing ${docIds.length} missing ${type}s from DDB` });
+                const monsterFactory = new DDBMonsterFactory({
+                  notifierV2: notifierV2 ?? undefined,
+                });
+                resolve(monsterFactory.processIntoCompendium(docIds));
+              } else {
+                logger.warn(`Unable to import missing ${type}s from DDB - link to patreon or use your own proxy`, docIds);
+                ui.notifications.warn(`Unable to import missing ${type}s from DDB - link to patreon or use your own proxy`, { permanent: true });
+                resolve([]);
+              }
+            } catch (err) {
+              if (err instanceof SyntaxError) {
+                ui.notifications.error("Error fetching monsters, likely cause outdated ddb-proxy", { permanent: true });
+              } else {
+                throw err;
+              }
+            }
+            break;
+          }
+          case "spell":
+            logger.debug(`Importing missing ${type}s from DDB`);
+            notifierV2?.({ section: "note", message: `Missing spells detected, importing from DDB` });
+            // we actually want all spells, because monsters don't just use spells from a single source
+            resolve(parseSpells({ ids: null, deleteBeforeUpdate: false, notifierV2 }));
+            break;
+          // no default
+        }
+      } else {
+        resolve([]);
+      }
+    });
+  }
+
+  static async importMissingDocumentById(type: TCompendiumTypes, docId: number, notifierV2: INotifierV2 | null = null) {
+    switch (type) {
+      case "item":
+        return DDBItemsImporter.fetchAndImportItems({
+          useSourceFilter: false,
+          ids: [docId],
+          deleteBeforeUpdate: false,
+          notifierV2,
+        });
+      case "monster": {
+        const tier = PatreonHelper.getPatreonTier();
+        const tiers = PatreonHelper.calculateAccessMatrix(tier);
+        if (!tiers.all) {
+          throw new Error("Unable to import missing monsters from DDB without Patreon tier access");
+        }
+        const monsterFactory = new DDBMonsterFactory({ notifierV2: notifierV2 ?? undefined });
+        return monsterFactory.processIntoCompendium([docId]);
+      }
+      case "spell":
+        return parseSpells({ ids: null, deleteBeforeUpdate: false, notifierV2 });
+      default:
+        return [];
+    }
+  }
+
+  static async getCompendiumIndex(type: TCompendiumTypes) {
+    const compendium = CompendiumHelper.getCompendiumType(type);
+    // getCompendiumType with fail=true (default) throws when missing, so this is unreachable
+    if (!compendium) throw new Error(`Unable to find compendium for type ${type}`);
+    const fields = (type === "monster")
+      ? ["flags.ddbimporter.id"]
+      : ["flags.ddbimporter.definitionId"];
+
+    const indexFields = { fields } as CompendiumCollection.GetIndexOptions;
+    const compendiumIndex = await compendium.getIndex(indexFields) as IndexTypeForMetadata<CompendiumCollection.DocumentName>;
+    return compendiumIndex;
+  }
+
+  static async getMissingIds(type: TCompendiumTypes, ids: (string | number)[]): Promise<number[]> {
+    const index = await AdventureMunchHelpers.getCompendiumIndex(type);
+    const flagPath = (type === "monster") ? "flags.ddbimporter.id" : "flags.ddbimporter.definitionId";
+    return ids.filter((id) =>
+      !index.some((i) => {
+        const v = foundry.utils.getProperty(i, flagPath);
+        return v != null && String(v) === String(id);
+      }),
+    ).map((i) => parseInt(String(i)));
+  }
+
+  static async checkForMissingDocuments(type: TCompendiumTypes, ids: (number | string)[], notifierV2: INotifierV2 | null = null) {
+    const missingIds = await AdventureMunchHelpers.getMissingIds(type, ids);
+    logger.debug(`${type} missing ids`, missingIds);
+    if (missingIds.length === 0) return;
+
+    const runKeys = missingIds.map((id) => `${type}:${id}`);
+    const run = await ImportRunTracker.startOrResumeRun(`adventure-missing-${type}`, runKeys, {
+      optionsHash: String(ids.length),
+      sourceSnapshot: {
+        missingCount: missingIds.length,
+        sourceIdsCount: ids.length,
+      },
+    });
+    const retryableKeys = ImportRunTracker.getPendingOrFailedKeys(run.id);
+    const hasRetrySet = retryableKeys.size > 0;
+    const queue = missingIds.filter((id) => {
+      const key = `${type}:${id}`;
+      return hasRetrySet ? retryableKeys.has(key) : true;
+    });
+    const resumableCount = missingIds.length - queue.length;
+    await ImportRunTracker.setResumableCount(run.id, resumableCount);
+
+    if (type === "spell") {
+      const keys = queue.map((id) => `${type}:${id}`);
+      for (const key of keys) {
+        await ImportRunTracker.markItemStatus(run.id, key, "processing");
+      }
+      try {
+        await AdventureMunchHelpers.importMissingDocumentById(type, queue[0], notifierV2);
+        for (const key of keys) {
+          await ImportRunTracker.markItemStatus(run.id, key, "succeeded");
+        }
+      } catch (error) {
+        for (const key of keys) {
+          await ImportRunTracker.markItemStatus(run.id, key, "failed", error);
+        }
+      }
+    } else {
+      for (const id of queue) {
+        const key = `${type}:${id}`;
+        await ImportRunTracker.markItemStatus(run.id, key, "processing");
+        try {
+          await AdventureMunchHelpers.importMissingDocumentById(type, id, notifierV2);
+          await ImportRunTracker.markItemStatus(run.id, key, "succeeded");
+        } catch (error) {
+          await ImportRunTracker.markItemStatus(run.id, key, "failed", error);
+        }
+      }
+    }
+
+    await ImportRunTracker.completeRun(run.id);
+    const summary = ImportRunTracker.getRunSummaryById(run.id);
+    logger.debug(`${type} missing import summary`, summary);
+  }
+
+  /**
+   * Get documents for ids from compendium
+   * @param {string} type compendium type
+   * @param {Array} ids array of ddb ids
+   * @param {object} overrides overrides
+   * @param {boolean} temporary create the items in the world?
+   * @returns {Promise<Array>} array of world actors
+   */
+  static async getDocuments(type: TCompendiumTypes, ids: (number | string)[], overrides = {}, temporary = false) {
+    const compendium = CompendiumHelper.getCompendiumType(type);
+    const index = await AdventureMunchHelpers.getCompendiumIndex(type);
+    const ddbIds = ids.map((num) => {
+      return String(num);
+    });
+
+    return new Promise((resolve) => {
+      const documents = index
+        .filter((idx) => {
+          switch (type) {
+            case "monster":
+              return ddbIds.includes(String(foundry.utils.getProperty(idx, "flags.ddbimporter.id")));
+            case "spell":
+            case "item":
+              return ddbIds.includes(String(foundry.utils.getProperty(idx, "flags.ddbimporter.definitionId")));
+            default:
+              return false;
+          }
+        })
+        .map((i) => {
+          switch (type) {
+            case "monster":
+              return game.actors.importFromCompendium(
+                compendium as CompendiumCollection<"Actor">,
+                i._id, overrides, { temporary, keepId: true, keepEmbeddedIds: true },
+              );
+            case "spell":
+            case "item":
+              return game.items.importFromCompendium(
+                compendium as CompendiumCollection<"Item">,
+                i._id, overrides, { temporary, keepId: true, keepEmbeddedIds: true },
+              );
+            default:
+              return undefined;
+          }
+        });
+      logger.debug(`${type} documents loaded`, documents);
+      resolve(documents);
+    });
+  }
+
+
+  static async linkExistingActorTokens(tokens: I5eTokenData[]): Promise<I5eTokenData[]> {
+    const monsterIndex = await AdventureMunchHelpers.getCompendiumIndex("monster");
+
+    const newTokens = tokens.map((token) => {
+      const monsterHit = (monsterIndex as unknown as Partial<I5eMonsterData>[]).find((monster) =>
+        monster.flags?.ddbimporter?.id && token.flags.ddbActorFlags?.id
+        && monster.flags.ddbimporter.id === token.flags.ddbActorFlags.id);
+      if (monsterHit) {
+        token.flags.compendiumActorId = monsterHit._id;
+      }
+      return token;
+    });
+
+    return newTokens;
+  }
+
+  // check the document for version data and for update info to see if we can replace it
+  static extractDocumentVersionData(newDoc: I5eSceneData, existingDoc: { flags: I5eSceneDataFlags }) {
+    const ddbIVersion = game.modules.get(SETTINGS.MODULE_ID)?.version ?? "0.0.0";
+    if (!existingDoc) existingDoc = { flags : {}};
+    // do we have versioned metadata?
+    foundry.utils.setProperty(newDoc, "flags.ddb.versions.importer", {});
+    if (newDoc?.flags?.ddb?.versions?.ddbMetaData?.lastUpdate) {
+      // check old data, it might not exist
+      const oldDDBMetaDataVersions = existingDoc.flags?.ddb?.versions?.ddbMetaData?.lastUpdate
+        ? existingDoc.flags.ddb.versions.ddbMetaData
+        : {
+          lastUpdate: "0.0.1",
+          drawings: "0.0.1",
+          notes: "0.0.1",
+          tokens: "0.0.1",
+          walls: "0.0.1",
+          lights: "0.0.1",
+          foundry: "0.8.9",
+        };
+      const oldDDBImporterVersion = existingDoc?.flags?.ddb?.versions?.ddbImporter
+        ? existingDoc.flags.ddb.versions.ddbImporter
+        : "2.0.1";
+      const oldAdventureMuncherVersion = existingDoc?.flags?.ddb?.versions?.adventureMuncher
+        ? existingDoc.flags.ddb.versions.adventureMuncher
+        : "0.3.0";
+      const oldVersions: I5eSceneDDBFlagsOldVersions = {
+        ddbImporter: oldDDBImporterVersion,
+        ddbMetaData: oldDDBMetaDataVersions,
+        adventureMuncher: oldAdventureMuncherVersion,
+      };
+
+      const documentVersions = newDoc.flags.ddb.versions;
+      const documentFoundryVersion = foundry.utils.getProperty(oldDDBMetaDataVersions, "foundry") as string ?? "0.8.9";
+      const importerVersionChanged = foundry.utils.isNewerVersion(ddbIVersion, documentFoundryVersion);
+      const metaVersionChanged = foundry.utils.isNewerVersion(oldDDBMetaDataVersions.lastUpdate ?? "0.0.1", oldDDBMetaDataVersions.lastUpdate ?? "0.0.1");
+
+      const adventureMuncherVersion = foundry.utils.getProperty(documentVersions, "adventureMuncher") as string;
+      const muncherVersionChanged = foundry.utils.isNewerVersion(adventureMuncherVersion, oldAdventureMuncherVersion);
+      const foundryVersionNewer = foundry.utils.isNewerVersion(documentFoundryVersion, game.version);
+
+      const versionUpdates: IDDBFlagsVersionUpdates = {
+        importerVersionChanged: importerVersionChanged,
+        metaVersionChanged: metaVersionChanged,
+        muncherVersionChanged: muncherVersionChanged,
+        foundryVersionNewer: foundryVersionNewer,
+        drawingVersionChanged: foundry.utils.isNewerVersion(documentVersions["ddbMetaData"]?.["drawings"] ?? "0.0.1", oldVersions["ddbMetaData"]["drawings"] ?? "0.0.1"),
+        noteVersionChanged: foundry.utils.isNewerVersion(documentVersions["ddbMetaData"]?.["notes"] ?? "0.0.1", oldVersions["ddbMetaData"]["notes"] ?? "0.0.1"),
+        tokenVersionChanged: foundry.utils.isNewerVersion(documentVersions["ddbMetaData"]?.["tokens"] ?? "0.0.1", oldVersions["ddbMetaData"]["tokens"] ?? "0.0.1"),
+        wallVersionChanged: foundry.utils.isNewerVersion(documentVersions["ddbMetaData"]?.["walls"] ?? "0.0.1", oldVersions["ddbMetaData"]["walls"] ?? "0.0.1"),
+        lightVersionChanged: foundry.utils.isNewerVersion(documentVersions["ddbMetaData"]?.["lights"] ?? "0.0.1", oldVersions["ddbMetaData"]["lights"] ?? "0.0.1"),
+      };
+      foundry.utils.setProperty(newDoc, "flags.ddb.versions.ddbImporter", ddbIVersion);
+      foundry.utils.setProperty(newDoc, "flags.ddb.versions.importer", versionUpdates);
+      foundry.utils.setProperty(newDoc, "flags.ddb.oldVersions", oldVersions);
+    }
+    return newDoc;
+  }
+
+  static getImportType(type: string) {
+    const typeName = type[0].toUpperCase() + type.slice(1);
+    let importType: string;
+
+    switch (type) {
+      case "journal":
+        importType = "JournalEntry";
+        break;
+      case "table":
+        importType = "RollTable";
+        break;
+      default:
+        importType = typeName;
+        break;
+    }
+
+    return importType;
+  }
+
+  /**
+   * Returns an object with various file paths, including the key to the file in the upload folder,
+   * the path to the file relative to the adventure upload path, the full path to the file, and the
+   * filename with or without the .webp extension.
+   * @param {object} options The options object.
+   * @param {string} options.adventureName The name of the adventure.
+   * @param {string} options.path The path to the file.
+   * @param {boolean} options.misc Indicates if the file is a miscellaneous import.
+   * @returns {object} An object containing:
+   *   pathKey: the key to the file in the upload folder
+   *   adventurePath: the path to the file relative to the adventure upload path
+   *   targetPath: the path to the file relative to the base upload path
+   *   filename: the filename with the .webp extension if useWebP is true
+   *   baseUploadPath: the base upload path
+   *   parsedBaseUploadPath: the parsed base upload path
+   *   uploadPath: the full path to the file
+   *   returnFilePath: the path to the file relative to the adventure upload path
+   *   baseFilename: the filename without the .webp extension
+   *   fullUploadPath: the full path to the file
+   *   forcingWebp: whether the .webp extension was added
+   */
+  static getImportFilePaths({ adventureName, path, misc }: { adventureName: string; path: string; misc: boolean }) {
+    const useWebP = utils.getSetting<boolean>("use-webp") && !path.endsWith("svg") && !path.endsWith("pdf");
+    const adventurePath = adventureName.replace(/[^a-z0-9]/gi, "_");
+    const targetPath = path.replace(/[\\/][^\\/]+$/, "");
+    const baseFilename = path.replace(/^.*[\\/]/, "").replace(/\?(.*)/, "");
+    const filename
+      = useWebP && !baseFilename.endsWith(".webp")
+        ? `${FileHelper.removeFileExtension(baseFilename)}.webp`
+        : baseFilename;
+    const baseUploadPath = misc
+      ? utils.getSetting<string>("adventure-misc-path")
+      : utils.getSetting<string>("adventure-upload-path");
+    const parsedBaseUploadPath = FileHelper.parseDirectory(baseUploadPath);
+    const uploadPath = misc
+      ? `${parsedBaseUploadPath.current}/${targetPath}`
+      : `${parsedBaseUploadPath.current}/${adventurePath}/${targetPath}`;
+    const fullUploadPath = misc
+      ? `${baseUploadPath}/${targetPath}`
+      : `${baseUploadPath}/${adventurePath}/${targetPath}`;
+    const pathKey = `${fullUploadPath}/${filename}`;
+    const returnFilePath = misc ? `${targetPath}/${filename}` : `${adventurePath}/${targetPath}/${filename}`;
+    return {
+      pathKey,
+      adventurePath,
+      targetPath,
+      filename,
+      baseUploadPath,
+      parsedBaseUploadPath,
+      uploadPath,
+      returnFilePath,
+      baseFilename,
+      fullUploadPath,
+      forcingWebp: useWebP && baseFilename !== filename,
+    };
+  }
+
+  /**
+   * Import compendium monsters (by DDB id) into the world, deduping against
+   * existing world actors by `flags.ddbimporter.id`. Per-actor resilient: a
+   * failed import warns and is skipped rather than throwing.
+   * @param {Array<number|string>} ddbIds DDB monster ids to import
+   * @param {object} [options]
+   * @param {string|null} [options.folderId] default target world Actor folder id
+   * @param {Map<string|number, object>} [options.overridesById] per-ddbId import
+   *   overrides (e.g. `{ _id, folder }`) that take precedence over `folderId`
+   * @returns {Promise<Array>} the imported/existing world actors
+   */
+  static async importMonstersToWorld(ddbIds: number[], { folderId = null, overridesById = null }: {
+    folderId?: string | null;
+    overridesById?: IAdventureMuncherOverridesById | null;
+  } = {}): Promise<Actor.Implementation[]> {
+    const compendium = CompendiumHelper.getCompendiumType("monster", false);
+    if (!compendium) {
+      logger.warn("AdventureMunchHelpers.importMonstersToWorld: no monster compendium available");
+      return [];
+    }
+    const index = await AdventureMunchHelpers.getCompendiumIndex("monster");
+    const wanted = new Set(ddbIds.map((id: any) => String(id)));
+    const results: Actor.Implementation[] = [];
+    for (const idx of index) {
+      const ddbId = String(foundry.utils.getProperty(idx, "flags.ddbimporter.id") ?? "");
+      if (!wanted.has(ddbId)) continue;
+      let worldActor = game.actors.find(
+        (a) => String(foundry.utils.getProperty(a, "flags.ddbimporter.id") ?? "") === ddbId,
+      );
+      if (!worldActor) {
+        const override: IAdventureMuncherOverrideById = overridesById?.get?.(ddbId) ?? {};
+        const overrides = { folder: folderId, ...override };
+        try {
+          worldActor = await game.actors.importFromCompendium(
+            compendium as CompendiumCollection<"Actor">,
+            idx._id, overrides, { keepId: true, keepEmbeddedIds: true },
+          );
+        } catch (err) {
+          logger.warn(`AdventureMunchHelpers: failed to import monster ${idx.name} (ddbId ${ddbId}) into world: ${(err as Error).message ?? err}`);
+          continue;
+        }
+      }
+      if (worldActor) results.push(worldActor as unknown as Actor.Implementation);
+    }
+    return results;
+  }
+
+  /**
+   * Generic scene-selection dialog. Shows a checkbox per item; returns the
+   * selected `_id` array ("Selected" button) or `null` ("All" button or
+   * dismissed - callers treat `null` as "import everything").
+   * @param {Array<{_id: string, name: string, label?: string}>} items the
+   *   selectable scenes (`label` is an optional version/suffix, shown italic)
+   * @returns {Promise<string[] | null>} selected ids, or `null` for "All"
+   */
+  static async chooseScenesDialog(items: { _id: string; name: string; label?: string }[]): Promise<string[] | null> {
+    if (!items?.length) return null;
+
+    const checkboxes = items.map((item) => {
+      const suffix = item.label ? ` : <i>${item.label}</i>` : "";
+      return `<div>`
+        + `<input id="scene_${item._id}" name="${item._id}" type="checkbox" value="">`
+        + `<label for="scene_${item._id}">${item.name}${suffix}</label>`
+        + `</div>`;
+    }).join("");
+
+    const content = `<form class="import-data-selection" autocomplete="off" onsubmit="event.preventDefault();">`
+      + `<div>`
+      + `<p class="notes">The following scenes are available for import.</p>`
+      + `<p class="notes">Select required scenes or All button.</p>`
+      + `<div class="form-description">${checkboxes}</div>`
+      + `</div>`
+      + `</form>`;
+
+    const response = await foundry.applications.api.DialogV2.wait({
+      rejectClose: false,
+      window: { title: "Choose Scenes to Import" },
+      content,
+      classes: ["adventure-import-selection"],
+      position: { width: 700 },
+      buttons: [
+        {
+          action: "selection",
+          label: "Selected",
+          icon: "fas fa-list-check",
+          callback: (_event, button, _dialog) => {
+            if (!button.form) return [];
+            const formData = new foundry.applications.ux.FormDataExtended(button.form);
+            return Object.keys(formData.object);
+          },
+        },
+        {
+          action: "all",
+          label: "All",
+          icon: "fas fa-check-double",
+          callback: () => null,
+        },
+      ],
+    });
+
+    return response ?? null;
+  }
+
+  /**
+   * Import a non-image file
+   */
+  static async importRawFile({
+    adventureName,
+    path,
+    content,
+    mimeType,
+    misc,
+  }: {
+    adventureName: string;
+    path: string;
+    content: Blob | string;
+    mimeType: string;
+    misc: boolean;
+  }): Promise<string> {
+    try {
+      if (path[0] === "*") {
+        // this file was flagged as core data, just replace name.
+        return path.replace(/\*/g, "");
+      } else if (path.startsWith("icons/") || path.startsWith("systems/dnd5e/icons/") || path.startsWith("ddb://")) {
+        // these are core icons, ignore
+        // or are ddb:// paths that will be replaced by muncher
+        return path;
+      } else {
+        const paths = AdventureMunchHelpers.getImportFilePaths({
+          path,
+          misc,
+          adventureName,
+        });
+
+        if (paths.fullUploadPath && !CONFIG.DDBI.KNOWN.CHECKED_DIRS.has(paths.fullUploadPath)) {
+          logger.debug(`Checking dir path ${paths.uploadPath}`, paths);
+          await FileHelper.verifyPath(paths.parsedBaseUploadPath, `${paths.uploadPath}`);
+          await FileHelper.generateCurrentFiles(paths.fullUploadPath);
+          CONFIG.DDBI.KNOWN.CHECKED_DIRS.add(paths.fullUploadPath);
+        }
+
+        if (!CONFIG.DDBI.KNOWN.FILES.has(paths.pathKey)) {
+          logger.debug(`Importing raw file from ${path}`, paths);
+          const fileData = new File([content], paths.filename, { type: mimeType });
+          const targetPath = ((await FileHelper.uploadToPath(paths.fullUploadPath, fileData)) as unknown as { path?: string })?.path;
+          CONFIG.DDBI.KNOWN.FILES.add(paths.pathKey);
+          CONFIG.DDBI.KNOWN.LOOKUPS.set(`${paths.pathKey}`, targetPath);
+        } else {
+          logger.debug(`File already imported ${path}`);
+        }
+
+        return `${CONFIG.DDBI.KNOWN.LOOKUPS.get(paths.pathKey)}`;
+      }
+    } catch (err) {
+      logger.error(`Error importing raw file ${path} : ${utils.errorMessage(err)}`, { err });
+    }
+
+    return path;
+  }
+
+}

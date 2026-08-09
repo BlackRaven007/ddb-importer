@@ -1,0 +1,94 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class MutateShape extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.NONE;
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    const results: IDDBAdditionalActivity[] = [
+      {
+        init: {
+          name: "Clear Mutation Point",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateConsumption: true,
+          generateTarget: true,
+          generateActivation: true,
+          generateUtility: true,
+          consumptionOverride: {
+            targets: [
+              {
+                type: "itemUses",
+                target: "",
+                value: "@item.uses.value",
+                scaling: { mode: "", formula: "" },
+              },
+            ],
+          },
+        },
+        overrides: {
+          activationType: "special",
+        },
+      },
+      {
+        init: {
+          name: "Spend Spell Slot to Gain Mutation Points",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateConsumption: true,
+          generateTarget: true,
+          generateActivation: true,
+          generateUtility: true,
+          consumptionOverride: {
+            scaling: { allowed: true, max: "9" },
+            spellSlot: true,
+            targets: [
+              {
+                type: "itemUses",
+                target: "",
+                value: "-1",
+                scaling: { mode: "amount", formula: "-1" },
+              },
+              {
+                type: "spellSlots",
+                value: "1",
+                target: "1",
+                scaling: { mode: "level", formula: "" },
+              },
+            ],
+          },
+        },
+        overrides: {
+          activationType: "bonus",
+        },
+      },
+    ];
+    return results;
+  }
+
+  get override(): IDDBOverrideData {
+    const action = this.ddbParser.ddbData?.character.actions["class"]
+      .find((a) => a.name.includes(": Mutation Points"));
+
+    const uses = this._getUsesWithSpent({
+      type: "class",
+      name: ": Mutation Points",
+      max: `${action?.limitedUse?.maxUses ?? "9"}`,
+      period: "lr",
+      includesName: true,
+    });
+
+    return {
+      data: {
+        system: {
+          uses,
+        },
+      },
+    };
+  }
+
+}

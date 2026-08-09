@@ -1,0 +1,1193 @@
+import { DICTIONARY } from "../../config/_module";
+import { logger, utils, CompendiumHelper, DDBSources } from "../../lib/_module";
+import DDBCompanionFactory from "../companions/DDBCompanionFactory";
+import { DDBSpellActivity } from "../activities/_module";
+import DDBActivityFactoryMixin from "../activities/mixins/DDBActivityFactoryMixin";
+import { DDBSpellEnricher } from "../enrichers/_module";
+import DDBSummonsManager from "../companions/DDBSummonsManager";
+import { DDBTable, DDBReferenceLinker, DDBModifiers, DDBDataUtils, SystemHelpers } from "../lib/_module";
+import { AutoEffects, ChangeHelper } from "../enrichers/effects/_module";
+import { ISpellPreparationMode } from "../../config/dictionary/spell/spell";
+
+interface SpellHealingPart {
+  part: I5eDamagePart | null;
+  chatFlavor: string | null;
+};
+
+interface IDDBSpell {
+  ddbData: IDDBData | null;
+  spellData: IDDBSpellEntry;
+  rawCharacter?: I5ePCData | null;
+  namePrefix?: string | null;
+  namePostfix?: string | null;
+  isGeneric?: boolean | null;
+  updateExisting?: boolean | null;
+  limitedUse?: IDDBSpellLimitedUse | null;
+  forceMaterial?: boolean | null;
+  klass?: string | null;
+  lookup?: TParseSpellLookup | null;
+  lookupName?: string | null;
+  ability?: string | null;
+  spellClass?: string | null;
+  dc?: string | null;
+  overrideDC?: boolean | null;
+  nameOverride?: string | null;
+  isHomebrew?: boolean | null;
+  enricher?: DDBSpellEnricher | null;
+  generateSummons?: boolean | null;
+  notifier?: NotifierV1 | null;
+  healingBoost?: number | string | null;
+  cantripBoost?: boolean | null;
+  unPreparedCantrip?: boolean | null;
+  noSpellcasting?: boolean;
+  is2014Class?: boolean | null;
+  flagData?: IParseSpellFlagData;
+}
+
+interface IDDBSpellParseSpell {
+  namePrefix?: string | null;
+  namePostfix?: string | null;
+  ddbData?: IDDBData | null;
+  isGeneric?: boolean | null;
+  enricher?: DDBSpellEnricher | null;
+  generateSummons?: boolean | null;
+  notifier?: NotifierV1 | null;
+  unPreparedCantrip?: boolean | null;
+  noSpellcasting?: boolean;
+  flagData?: IParseSpellFlagData;
+}
+
+export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
+  declare data: I5eSpellItem;
+  isGeneric: boolean;
+  namePrefix: string | null;
+  namePostfix: string | null;
+  nameOverride: string;
+  originalName: string;
+  name: string;
+  isAction = false;
+  addSpellEffects: boolean;
+  legacyPostfix: boolean;
+  updateExisting: boolean;
+  pactSpellsPrepared: boolean;
+  forceMaterial: boolean;
+  forcePact: boolean;
+  spellClass: string;
+  is2014Class: boolean;
+  lookupName: string | undefined;
+  ability: string;
+  school: { id: string; name: string; img: string } | undefined;
+  dc: string;
+  overrideDC: boolean;
+  isHomebrew: boolean;
+  onlyPactMagic: boolean;
+  legacy: boolean;
+  is2014: boolean;
+  is2024: boolean;
+  itemCompendium: CompendiumCollection.Any;
+  isCompanionSpell2014: boolean;
+  isCompanionSpell2024: boolean;
+  isCRSummonSpell2014: boolean;
+  isCRSummonSpell2024: boolean;
+  isSummons: boolean;
+  generateSummons: boolean;
+  DDBCompanionFactory: DDBCompanionFactory | null;
+  isCantrip: boolean;
+  unPreparedCantrip: boolean;
+  cantripBoost: boolean;
+  healingBonus: string;
+  noSpellcasting: boolean;
+  spellData: IDDBSpellEntry;
+  declare ddbDefinition: IDDBSpellDefinition;
+  // created in the companion parse step before any companion read
+  ddbCompanionFactory!: DDBCompanionFactory;
+  flagData: IParseSpellFlagData;
+  limitedUse: IDDBSpellLimitedUse | null;
+  lookup: TParseSpellLookup;
+  classPrepMode: ISpellPreparationMode | undefined;
+  rawCharacter: I5ePCData | null;
+  healingParts: SpellHealingPart[];
+  declare enricher: DDBSpellEnricher;
+
+  _generateDataStub() {
+
+    const idPostfix = this.is2014 ? `${this.namePostfix ?? ""}14` : `${this.namePostfix ?? ""}24`;
+
+    this.data = {
+      _id: utils.namedIDStub(this.name, { prefix: this.namePrefix ?? undefined, postfix: idPostfix }),
+      type: "spell",
+      system: SystemHelpers.getTemplate("spell"),
+      effects: [],
+      name: this.name,
+      flags: {
+        ddbimporter: {
+          id: this.spellData.id ?? undefined,
+          definitionId: this.ddbDefinition.id,
+          entityTypeId: this.spellData.entityTypeId ?? undefined,
+          dndbeyond: this.flagData.ddbimporter.dndbeyond,
+          originalName: this.originalName,
+          // the flag type (types dir, outside this refactor) declares pageNumber as
+          // optional-number but DDB source data supplies number | null; keep the
+          // raw value rather than rewriting the data
+          sources: this.ddbDefinition.sources as unknown as { sourceId: number; pageNumber?: number; sourceType?: number }[] | undefined,
+          tags: this.ddbDefinition.tags,
+          version: CONFIG.DDBI.version,
+          is2014: this.is2014,
+          is2024: !this.is2014,
+          addSpellEffects: this.addSpellEffects,
+          legacy: this.legacy,
+        },
+        "midi-qol": {
+          removeAttackDamageButtons: "default",
+        },
+        midiProperties: {
+          confirmTargets: "default",
+          magicdam: true,
+          magiceffect: true,
+        },
+        "spell-class-filter-for-5e": this.flagData["spell-class-filter-for-5e"],
+        "tidy5e-sheet": this.flagData["tidy5e-sheet"],
+      },
+    };
+
+    if (this.legacyPostfix && this.legacy && !this.isHomebrew) {
+      this.data.name += " (Legacy)";
+    }
+  }
+
+  getCustomName(data: IDDBSpellEntry): string | null {
+    const characterValues = this.rawCharacter?.flags?.ddbimporter?.dndbeyond?.characterValues;
+    if (!characterValues) return null;
+    const customValue = characterValues.filter((value) => value.valueId == data.id && value.valueTypeId == data.entityTypeId);
+
+    if (customValue) {
+      const customName = customValue.find((value) => value.typeId == 8);
+
+      if (customName) {
+        // data.name = String(customName.value);
+        return String(customName.value);
+      }
+    }
+    return null;
+  }
+
+
+  getName() {
+    // spell name
+    const customName = this.getCustomName(this.spellData);
+    if (customName) {
+      return utils.nameString(String(customName));
+    } else if (this.nameOverride) {
+      return utils.nameString(this.nameOverride);
+    } else {
+      return utils.nameString(this.ddbDefinition.name);
+    }
+  }
+
+  async init() {
+    await this.loadEnricher();
+    if (this.itemCompendium) {
+      await this.itemCompendium.getIndex({
+        fields: [
+          "name",
+          "system.rarity",
+          "system.type.value",
+        ],
+      });
+    }
+  }
+
+
+  constructor({
+    ddbData, spellData, rawCharacter = null, namePrefix = null, namePostfix = null, isGeneric = null, updateExisting = null,
+    limitedUse = null, forceMaterial = null, klass = null, lookup = null, lookupName = null, ability = null,
+    spellClass = null, dc = null, overrideDC = null, nameOverride = null, isHomebrew = null, enricher = null,
+    generateSummons = null, notifier = null, healingBoost = null, cantripBoost = null, unPreparedCantrip = null,
+    noSpellcasting = false, is2014Class = null, flagData = {} as IParseSpellFlagData,
+  }: IDDBSpell) {
+
+    const generic = isGeneric ?? foundry.utils.getProperty(flagData, "ddbimporter.generic") as boolean;
+    const addEffects = generic
+      ? utils.getSetting<boolean>("munching-policy-add-midi-effects")
+      : utils.getSetting<boolean>("character-update-policy-add-midi-effects");
+    super({
+      enricher,
+      activityGenerator: DDBSpellActivity,
+      documentType: "spell",
+      notifier,
+      useMidiAutomations: addEffects,
+      usesOnActivity: false,
+    });
+
+    this.notifier = notifier;
+    // the activity factory mixin (outside this refactor) declares ddbData as
+    // non-null, but generic muncher spells are parsed without ddb data; all use
+    // sites in this class guard against it being unset
+    this.ddbData = ddbData as IDDBData;
+    this.spellData = spellData;
+    this.ddbDefinition = spellData.definition;
+    this.rawCharacter = rawCharacter;
+    this.namePrefix = namePrefix;
+    this.namePostfix = namePostfix;
+    this.flagData = flagData;
+    this.nameOverride = nameOverride ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.nameOverride") as string;
+    this.originalName = utils.nameString(this.ddbDefinition.name);
+    this.name = this.getName();
+    // activityType is left unset here; it is populated by activity generation
+    this.healingParts = [];
+
+    this.isGeneric = generic ?? false;
+    this.addSpellEffects = addEffects;
+
+    this.legacyPostfix = this.isGeneric
+      ? utils.getSetting<boolean>("munching-policy-legacy-postfix")
+      : !utils.getSetting<boolean>("character-update-policy-remove-2024");
+    this.updateExisting = updateExisting ?? this.isGeneric
+      ? utils.getSetting<boolean>("munching-policy-update-existing")
+      : false;
+    this.pactSpellsPrepared = utils.getSetting<boolean>("pact-spells-prepared");
+    this.limitedUse = limitedUse ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.limitedUse") as IDDBSpellLimitedUse | null;
+    this.forceMaterial = forceMaterial ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.forceMaterial") as boolean;
+    this.forcePact = foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.forcePact") as boolean;
+    this.spellClass = klass ?? spellClass ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.class") as string;
+    this.is2014Class = is2014Class ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.is2014Class") as boolean;
+    this.lookup = lookup ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.lookup") as TParseSpellLookup;
+    this.lookupName = lookupName ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.lookupName") as string;
+    this.ability = ability ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.ability") as string;
+    this.school = DICTIONARY.spell.schools.find((s) => s.name === this.ddbDefinition.school.toLowerCase());
+    this.dc = dc ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.dc") as string;
+    this.overrideDC = overrideDC ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.overrideDC") as boolean;
+    this.isHomebrew = isHomebrew ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.homebrew") as boolean;
+
+    this.onlyPactMagic = this.ddbData?.character?.classes?.length === 1
+      && this.ddbData.character.classes[0].definition.name === "Warlock";
+
+    this.legacy = this.ddbDefinition.isLegacy;
+    this.is2014 = (this.ddbDefinition.sources ?? []).every((s) => DDBSources.is2014Source(s));
+    this.is2024 = !this.is2014;
+
+    this._generateDataStub();
+
+    this.itemCompendium = CompendiumHelper.getCompendiumType("item", false) as CompendiumCollection<"Item">;
+    this.enricher = enricher ?? new DDBSpellEnricher({ activityGenerator: DDBSpellActivity, notifier: this.notifier });
+    this.isCompanionSpell2014 = this.is2014 && DICTIONARY.companions.COMPANION_SPELLS_2014.includes(this.originalName);
+    this.isCompanionSpell2024 = !this.is2014 && DICTIONARY.companions.COMPANION_SPELLS_2024.includes(this.originalName);
+    this.isCRSummonSpell2014 = this.is2014 && DICTIONARY.companions.CR_SUMMONING_SPELLS_2014.includes(this.originalName);
+    this.isCRSummonSpell2024 = !this.is2014 && DICTIONARY.companions.CR_SUMMONING_SPELLS_2024.includes(this.originalName);
+    this.isSummons = this.isCompanionSpell2014 || this.isCompanionSpell2024 || this.isCRSummonSpell2014 || this.isCRSummonSpell2024;
+    this.generateSummons = this.isGeneric
+      || (generateSummons ?? utils.getSetting<boolean>("character-update-policy-create-companions"));
+    this.DDBCompanionFactory = null; // lazy init
+
+    this.isCantrip = this.ddbDefinition.level === 0;
+    this.unPreparedCantrip = this.isCantrip && (unPreparedCantrip ?? false);
+    const boost = cantripBoost ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.cantripBoost")as boolean;
+    this.cantripBoost = this.isCantrip && boost;
+
+    const boostHeal = healingBoost ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.healingBoost") as string;
+    this.healingBonus = boostHeal ? ` + ${boostHeal} + @item.level` : "";
+    this.noSpellcasting = noSpellcasting;
+
+    this.classPrepMode = DICTIONARY.spell.preparationModes.find((p) =>
+      p.name === this.spellClass
+      && (!p.version || p.version === (this.is2014Class ? "2014" : "2024")),
+    );
+
+  }
+
+
+  _generateProperties() {
+    if (this.ddbDefinition.components.includes(1)) this.data.system.properties.push("vocal");
+    if (this.ddbDefinition.components.includes(2)) this.data.system.properties.push("somatic");
+    if (this.ddbDefinition.components.includes(3) || this.forceMaterial) {
+      this.data.system.properties.push("material");
+    }
+    if (this.ddbDefinition.ritual) this.data.system.properties.push("ritual");
+    if (this.ddbDefinition.concentration) this.data.system.properties.push("concentration");
+  }
+
+  _generateMaterials() {
+    // this is mainly guessing
+    if (this.ddbDefinition.componentsDescription && this.ddbDefinition.componentsDescription.length > 0) {
+      let cost = 0;
+      const matches = (/([\d.,]+)\s*gp/i).exec(this.ddbDefinition.componentsDescription);
+      if (matches) {
+        cost = parseInt(matches[1].replace(/,|\./g, ""));
+      }
+
+      this.data.system.materials = {
+        value: this.ddbDefinition.componentsDescription,
+        consumed: this.ddbDefinition.componentsDescription.toLowerCase().indexOf("consume") !== -1,
+        cost: cost,
+        supply: 0,
+      };
+    } else {
+      this.data.system.materials = {
+        value: "",
+        consumed: false,
+        cost: 0,
+        supply: 0,
+      };
+    }
+  }
+
+  _generateClassPreparationMode() {
+    // Savant spells are markes as always prepared for wizards
+    // const notAlways = this.lookupName?.endsWith("Savant") && this.spellClass === "Wizard";
+
+    if (this.spellData.restriction === "As Ritual Only"
+      || this.spellData.castOnlyAsRitual
+      || (this.spellData.ritualCastingType !== null && this.spellClass !== "Warlock" && !this.is2014)
+    ) {
+      this.data.system.method = "ritual";
+      this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.unprepared.value;
+    } else if (!this.spellData.usesSpellSlot && !this.isCantrip) {
+      // some class features such as druid circle of stars grants x uses of a spell
+      // at the lowest level. for these we add as an innate.
+      this.data.system.method = "innate";
+    } else if (this.spellData.alwaysPrepared) {
+      this.data.system.method = this.forcePact && !this.isCantrip ? "pact" : "spell";
+      this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.always.value;
+    } else if (this.data.system.method && this.data.system.method !== "" && this.classPrepMode) {
+      this.data.system.method = this.classPrepMode.method;
+      this.data.system.prepared = this.isCantrip && !this.unPreparedCantrip
+        ? this.classPrepMode?.cantripsPrepared
+          ? this.classPrepMode.cantripsPrepared()
+          : CONFIG.DND5E.spellPreparationStates.always.value
+        : this.classPrepMode.preparation(this.spellData.prepared);
+    }
+    if (this.data.system.method === "pact" && this.pactSpellsPrepared) {
+      this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.always.value;
+    }
+  }
+
+
+  _generateSpellPreparationMode() {
+    // default values
+    if (this.noSpellcasting) {
+      this.data.system.method = "";
+      return;
+    }
+    this.data.system.method = "spell";
+
+    const featureClass = this.lookup === "classFeature"
+      && this.spellClass;
+    if (this.isCantrip) {
+      if (this.lookup === "classSpell" && this.classPrepMode?.cantripsPrepared) {
+        this.data.system.prepared = this.classPrepMode.cantripsPrepared();
+      } else {
+        this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.always.value;
+      }
+    } else if (this.spellData.alwaysPrepared) {
+      this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.always.value;
+    } else if (this.spellData.prepared) {
+      this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.prepared.value;
+    } else {
+      this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.unprepared.value;
+    }
+
+    if (this.lookup === "classSpell" || featureClass) {
+      this._generateClassPreparationMode();
+    } else if (this.lookup === "race" && this.ddbDefinition.level !== 0) {
+      // set race spells as innate
+      this.data.system.method = "innate";
+      if (this.spellData.usesSpellSlot) {
+        // some racial spells allow the spell to also be added to spell lists
+        this.data.system.method = this.onlyPactMagic ? "pact" : "spell";
+        this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.always.value;
+      }
+    } else if (
+      // Warlock Mystic Arcanum are passed in as Features
+      this.lookupName?.startsWith("Mystic Arcanum")
+    ) {
+      // these have limited uses (set with getUses())
+      this.data.system.method = "pact";
+      this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.always.value;
+    } else if (this.lookup === "item" && !this.isCantrip) {
+      this.data.system.method = "atwill";
+      this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.unprepared.value;
+    } else {
+      // If spell doesn't use a spell slot and is not a cantrip, mark as always preped
+      const always = !this.spellData.usesSpellSlot && !this.isCantrip;
+      const ritualOnly = this.spellData.ritualCastingType !== null || this.spellData.castOnlyAsRitual; // e.g. Book of ancient secrets & totem barb
+      if (always && ritualOnly) {
+        // in this case we want the spell to appear in the spell list unprepared
+        this.data.system.method = "ritual";
+        this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.unprepared.value;
+      } else if (always) {
+        // these spells are always prepared, and have a limited use that's
+        // picked up by getUses() later
+        // this was changed to "atwill"
+        this.data.system.method = "atwill";
+        this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.always.value;
+      } else if (this.spellData.usesSpellSlot) {
+        this.data.system.method = this.onlyPactMagic ? "pact" : "spell";
+      }
+
+      if (!this.spellData.usesSpellSlot && ["classFeature", "subclassFeature", "feat"].includes(this.lookup)) {
+        if (this.spellData.alwaysPrepared) {
+          this.data.system.method = "atwill";
+          this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.always.value;
+        }
+      }
+    }
+  }
+
+  async _generateDescription() {
+    const description = await DDBTable.generateTable({
+      parentName: this.data.name,
+      html: this.ddbDefinition.description,
+      updateExisting: this.updateExisting,
+      sourceBook: this.data.system.source?.book,
+      notifier: this.notifier,
+    });
+    this.data.system.description = {
+      value: DDBReferenceLinker.parseTags(description),
+      chat: "",
+    };
+  }
+
+  _generateActivation() {
+    // for newer override spells, activation is at higher level
+    const activation = this.spellData.activation ?? this.ddbDefinition.activation;
+    const activationType = DICTIONARY.spell.activationTypes.find(
+      (type) => type.activationType === activation.activationType,
+    );
+    if (activationType && activation.activationTime) {
+      this.data.system.activation = {
+        type: activationType.value,
+        value: activation.activationTime,
+        condition: this.ddbDefinition.castingTimeDescription ?? "",
+      };
+    } else {
+      this.data.system.activation = {
+        type: "action",
+        value: 1,
+        condition: this.ddbDefinition.castingTimeDescription ?? "",
+      };
+    }
+  }
+
+  _generateDuration() {
+    if (this.ddbDefinition.duration) {
+      let units: string;
+      if (this.ddbDefinition.duration.durationUnit !== null) {
+        units = this.ddbDefinition.duration.durationUnit.toLowerCase();
+      } else {
+        units = this.ddbDefinition.duration.durationType.toLowerCase().substring(0, 4);
+      }
+      this.data.system.duration = {
+        concentration: this.ddbDefinition.concentration,
+        value: this.ddbDefinition.duration.durationInterval
+          ? String(this.ddbDefinition.duration.durationInterval)
+          : "",
+        units: units as TDurationUnit,
+      };
+    }
+  }
+
+  /**
+   * Check if the spell targets creatures.
+   * @returns {RegExpMatchArray | null} The match array if the spell targets creatures, null otherwise.
+   */
+  targetsCreature(): RegExpMatchArray | null {
+    const creature = /You touch (?:a|one) (?:willing |living )?creature|affecting one creature|creature you touch|a creature you|creature( that)? you can see|interrupt a creature|would strike a creature|creature of your choice|creature or object within range|cause a creature|creature must be within range|a creature in range/gi;
+    const creaturesRange = /(humanoid|monster|creature|target|beast)(s)? (or loose object )?(of your choice )?(that )?(you can see )?within range/gi;
+    const targets = /spell attack against the target|at a target in range|each creature within|each creature in the/gi;
+    return this.ddbDefinition.description.match(creature)
+      || this.ddbDefinition.description.match(creaturesRange)
+      || this.ddbDefinition.description.match(targets);
+  }
+
+  /**
+   * Uses regex magic to try and determine the number of creatures affected
+   * @returns {number|null} The maximum number of creatures affected, or null if no valid number is found
+   */
+  _getTargetValue(): number | null {
+    const numCreatures = /(?!At Higher Levels.*)(\w*) (?:falling )?(?:willing )?(?:Bloodied )?(creature(?:s)?|target|monster|celestial|fiend|fey|corpse(?:s)? of|humanoid)(?!.*you have animated)/gim;
+    const targets = [...this.ddbDefinition.description.matchAll(numCreatures)];
+    const targetValues = targets
+      .filter((target) => {
+        return DICTIONARY.numbers.some((n) => n.natural === target[1].toLowerCase());
+      })
+      // the filter above guarantees the find below matches
+      .map((target) => DICTIONARY.numbers.find((n) => n.natural === target[1].toLowerCase())!.num);
+
+    if (targetValues.length > 0) {
+      return Math.max(...targetValues);
+    } else {
+      return null;
+    }
+  }
+
+
+  /**
+   * Generates the target details for the spell.
+   */
+  _generateTarget() {
+    type TSpellTargetData = I5eSystemTargetData & {
+      affects: NonNullable<I5eSystemTargetData["affects"]>;
+      template: NonNullable<I5eSystemTargetData["template"]>;
+    };
+    let target = {
+      prompt: true,
+      affects: {
+        count: "",
+        type: "",
+        choice: false,
+        special: "",
+      },
+      template: {
+        count: "",
+        contiguous: false,
+        type: "",
+        size: "",
+        width: "",
+        height: "",
+        units: "ft",
+      },
+    } as TSpellTargetData;
+
+    const thickReg = new RegExp(/ (\d*)(?:[ -])foot(?:[ -])(thick|wide)/);
+    const thickMatch = thickReg.exec(this.ddbDefinition.description);
+    if (thickMatch && parseInt(thickMatch[1]) > 5) {
+      target.template.width = thickMatch[1];
+    }
+
+    const heightReg = new RegExp(/ (\d*)(?:[ -])foot(?:[ -])(tall|high)/);
+    const heightMatch = heightReg.exec(this.ddbDefinition.description);
+    if (heightMatch && Number.isInteger(Number(heightMatch[1])) && parseInt(heightMatch[1]) > 5) {
+      target.template.height = heightMatch[1];
+    }
+
+    const targetsCreatures = this.targetsCreature();
+
+    // if spell is an AOE effect get some details
+    if (this.ddbDefinition.range.aoeType && this.ddbDefinition.range.aoeValue) {
+      const type = this.ddbDefinition.range.aoeType.toLowerCase();
+      target.template.size = String(this.ddbDefinition.range.aoeValue);
+      target.template.type = type === "emanation" ? "radius" : type as TTemplate;
+      if (targetsCreatures) {
+        target.affects.type = "creature";
+      }
+      this.data.system.target = target;
+      return;
+    }
+
+
+    if (targetsCreatures) {
+      const count = this._getTargetValue();
+      target.affects.count = count ? `${count}` : "";
+    }
+
+    const rangeValue = foundry.utils.getProperty(this.ddbDefinition, "range.rangeValue") as number;
+
+    switch (this.ddbDefinition.range.origin) {
+      case "Touch":
+        if (targetsCreatures) {
+          target.affects.count = "1";
+          target.affects.type = "creature";
+        }
+        break;
+      case "Self": {
+        const dmgSpell = this.ddbDefinition.modifiers.some((mod) => mod.type === "damage");
+        if (dmgSpell && rangeValue) {
+          this.data.system.range.value = rangeValue;
+          this.data.system.range.units = "ft";
+          target.template.type = "radius";
+        } else if (dmgSpell) {
+          target.affects.type = "creature";
+        } else {
+          target.affects.type = "self";
+        }
+        break;
+      }
+      case "None":
+        target.affects.type = "";
+        break;
+      case "Ranged":
+        if (targetsCreatures) target.affects.type = "creature";
+        break;
+      case "Feet":
+        if (targetsCreatures) target.affects.type = "creature";
+        break;
+      case "Miles":
+        if (targetsCreatures) target.affects.type = "creature";
+        break;
+      case "Sight":
+      case "Special":
+        this.data.system.range.units = "spec";
+        break;
+      case "Any":
+        this.data.system.range.units = "any";
+        break;
+      case undefined:
+        target.affects.type = "";
+        break;
+      // no default
+    }
+
+    // wall type spell?
+    if (this.ddbDefinition.name.includes("Wall")) {
+      target.template.type = "wall";
+      target.template.units = "ft";
+
+      if (this.ddbDefinition.description.includes("ten 10-foot-")) {
+        target.template.size = "100";
+      } else {
+        const wallReg = new RegExp(/ (\d*) feet long/);
+        const matches = wallReg.exec(this.ddbDefinition.description);
+        if (matches) {
+          target.template.size = matches[1];
+        }
+      }
+    }
+
+    if (this.enricher.type === "summon") {
+      target = {
+        "template": {
+          "contiguous": false,
+          "units": "ft",
+          "type": "",
+        },
+        "affects": {
+          "choice": false,
+          "type": "space",
+          "count": "1",
+          "special": "unoccupied",
+        },
+      } as TSpellTargetData;
+    }
+
+    this.data.system.target = target;
+  }
+
+  #specialRange() {
+    if (this.isGeneric || !this.spellClass || !this.rawCharacter) return;
+
+    // Improved Illusions - at the time of this implemented, this was not handled
+    // automatically by DDB. This may change in the future, and this will need to be removed.
+    // if range 10+ then illusion range increases by 60
+    const hasIllusionSavant = DDBDataUtils.hasClassFeature({
+      ddbData: this.ddbData,
+      featureName: "Improved Illusions",
+      className: "Wizard",
+      subClassName: "Illusionist",
+    });
+    if (hasIllusionSavant && this.school?.id === "ill" && Number.parseInt(String(this.data.system.range.value)) >= 10) {
+      this.data.system.range.value = Number.parseInt(String(this.data.system.range.value)) + 60;
+    }
+
+  }
+
+  _generateRange() {
+    let value = this.ddbDefinition.range.rangeValue ?? null;
+    let units: string | null = "ft";
+
+    switch (this.ddbDefinition.range.origin) {
+      case "Touch":
+        value = null;
+        units = "touch";
+        break;
+      case "Self":
+        value = null;
+        units = "self";
+        break;
+      case "None":
+        units = "none";
+        break;
+      case "Ranged":
+        units = "ft";
+        break;
+      case "Feet":
+        units = "ft";
+        break;
+      case "Miles":
+        units = "ml";
+        break;
+      case "Sight":
+      case "Special":
+        units = "spec";
+        break;
+      case "Any":
+        units = "any";
+        break;
+      case undefined:
+        units = null;
+        break;
+      // no default
+    }
+
+    this.data.system.range = {
+      value: value,
+      units: units as TDistanceUnit,
+    };
+
+    this.#specialRange();
+  }
+
+  static getUses(limitedUse: IDDBSpellLimitedUse | null | undefined): I5eSystemLimitedUses {
+    let uses: I5eSystemLimitedUses = {
+      spent: null,
+      max: "",
+      recovery: [],
+    };
+
+    if (!limitedUse) return uses;
+    const resetType = DICTIONARY.resets.find((reset) => reset.id == limitedUse.resetType);
+    if (!resetType) {
+      logger.warn("Unknown reset type", {
+        resetType: limitedUse.resetType,
+        spell: this,
+      });
+      return uses;
+    }
+
+    if (limitedUse.maxUses || limitedUse.statModifierUsesId || limitedUse.useProficiencyBonus) {
+      let maxUses = (limitedUse.maxUses && limitedUse.maxUses !== -1) ? limitedUse.maxUses : "";
+
+      if (limitedUse.statModifierUsesId) {
+        const ability = DICTIONARY.actor.abilities.find(
+          (ability) => ability.id === limitedUse.statModifierUsesId,
+        );
+
+        if (!ability) {
+          logger.warn("Unknown stat modifier uses id for spell uses", {
+            statModifierUsesId: limitedUse.statModifierUsesId,
+            limitedUse,
+          });
+        } else {
+          switch (limitedUse.operator) {
+            case 2: {
+              maxUses = `${maxUses} * @abilities.${ability.value}.mod`;
+              break;
+            }
+            case 1:
+            default:
+              maxUses = `${maxUses} + @abilities.${ability.value}.mod`;
+          }
+        }
+      }
+
+      if (limitedUse.useProficiencyBonus) {
+        switch (limitedUse.proficiencyBonusOperator) {
+          case 2: {
+            maxUses = `${maxUses} * @prof`;
+            break;
+          }
+          case 1:
+          default:
+            maxUses = `${maxUses} + @prof`;
+        }
+      }
+
+      maxUses = maxUses.toString().trim().replace(/^\+/, "").trim();
+
+      const finalMaxUses = (maxUses !== "") ? maxUses : null;
+
+      uses = {
+        spent: limitedUse.numberUsed ?? null,
+        max: `${finalMaxUses}`,
+        recovery: resetType && !["charges", ""].includes(resetType.value)
+          ? [{
+            period: resetType.value as TLimitedUsePeriod,
+            type: "recoverAll",
+          }]
+          : [],
+      };
+
+      return uses;
+    }
+
+    return uses;
+  }
+
+  _generateUses() {
+    // we check this, as things like items have useage attached to the item, not spell
+    const limitedUse = this.limitedUse ?? this.spellData.limitedUse;
+    this.data.system.uses = DDBSpell.getUses(limitedUse);
+  }
+
+  #generateHealingParts() {
+    const activityParser = new DDBSpellActivity({
+      type: "heal",
+      ddbParent: this,
+      healingBoost: this.healingBonus,
+      cantripBoost: this.cantripBoost,
+    });
+
+    const heals = this.ddbDefinition.modifiers.filter((mod) =>
+      mod.type === "bonus"
+      && ["temporary-hit-points", "hit-points"].includes(mod.subType),
+    );
+
+    heals.forEach((heal) => {
+      const healingPart: SpellHealingPart = {
+        part: null,
+        chatFlavor: null,
+      };
+      const restrictionText = heal.restriction && heal.restriction !== "" ? heal.restriction : "";
+      if (restrictionText !== "") {
+        healingPart.chatFlavor = `Restriction: ${restrictionText}`;
+      }
+
+      const healValue = heal.die?.diceString
+        ? heal.die.diceString
+        : heal.die?.fixedValue
+          ? heal.die.fixedValue
+          : "";
+      const diceString = heal.usePrimaryStat
+        ? `${healValue} + @mod${this.healingBonus}`
+        : `${healValue}${this.healingBonus}`;
+      if (diceString && diceString.trim() !== "" && diceString.trim() !== "null") {
+        const damage = activityParser.buildDamagePart({
+          damageString: diceString,
+          type: heal.subType === "hit-points" ? "healing" : "temphp",
+        });
+        healingPart.part = damage;
+        this.healingParts.push(healingPart);
+      }
+    });
+  }
+
+  async _generateSummons() {
+    if (!this.enricher.generateSummons) return;
+    if (!this.enricher.summonsFunction) {
+      logger.warn(`Enricher for ${this.data.name} requested summons generation but has no summons function`);
+      return;
+    }
+    const summons = await this.enricher.summonsFunction({
+      ddbParser: this,
+      document: this.data,
+      raw: this.ddbDefinition.description,
+      text: this.data.system.description,
+    });
+
+    await DDBSummonsManager.addGeneratedSummons(summons);
+  }
+
+  async _generateCompanions() {
+    if (!this.isSummons) return;
+    const createOrUpdate = this.isGeneric
+      || utils.getSetting<boolean>("character-update-policy-create-companions")
+      || this.generateSummons;
+    this.ddbCompanionFactory = new DDBCompanionFactory(this.ddbDefinition.description, {
+      type: "spells",
+      originDocument: this.data,
+      is2014: this.is2014,
+      notifier: this.notifier,
+      createCompanions: createOrUpdate,
+      updateCompanions: createOrUpdate,
+    });
+    await this.ddbCompanionFactory.parse();
+
+    // always update compendium imports, but respect player import disable
+    await this.ddbCompanionFactory.updateOrCreateCompanions();
+
+    logger.debug(`parsed companions for ${this.data.name}`, {
+      factory: this.ddbCompanionFactory,
+      parsed: this.ddbCompanionFactory.companions,
+    });
+  }
+
+  /** @override */
+  _getAttackActivity({ name = null, nameIdPostfix = null } = {}, options = {}) {
+    const itemOptions = foundry.utils.mergeObject({
+      modRestrictionFilterExcludes: this.ddbDefinition.requiresSavingThrow ? ["Save", "saving throw"] : null,
+    }, options);
+
+    return super._getAttackActivity({ name, nameIdPostfix }, itemOptions);
+  }
+
+  /** @override */
+  _getActivitiesType() {
+    if (this.isSummons) {
+      return "summon";
+    }
+    if (this.ddbDefinition.requiresSavingThrow && !this.ddbDefinition.requiresAttackRoll) {
+      return "save";
+    } else if ((this.ddbDefinition.tags.includes("Damage") && this.ddbDefinition.requiresAttackRoll)
+      || this.ddbDefinition.attackType !== null
+    ) {
+      if (this.ddbDefinition.requiresSavingThrow) {
+        this.additionalActivities.push({
+          name: "Save",
+          type: "save",
+          options: {
+            generateDamage: true,
+            includeBaseDamage: false,
+            modRestrictionFilter: ["Save", "saving throw"],
+            consumptionOverride: {
+              targets: [],
+              spellSlot: false,
+              scaling: {
+                allowed: false,
+                max: "",
+              },
+            },
+          },
+        });
+        logger.debug(`Generating separate save with attack for ${this.originalName}`, this);
+      }
+      return "attack";
+    } else if (this.ddbDefinition.tags.includes("Damage")) {
+      return "damage";
+    } else if (this.ddbDefinition.tags.includes("Healing") && this.healingParts.length === 0) {
+      return "utility"; // e.g. things like lesser restoration
+    } else if (this.ddbDefinition.tags.includes("Buff")) {
+      return "utility";
+    } else if (this.ddbDefinition.modifiers.some((mod) => mod.type === "damage")) {
+      return "damage";
+    } else if (this.healingParts.length > 0) {
+      return "heal";
+    } else if (this.enricher.effects?.length > 0) {
+      return "utility";
+    }
+    return undefined;
+  }
+
+  /** @override */
+  async _generateActivity({ hintsOnly = false, name = null, nameIdPostfix = null, typeOverride = null, typeFallback = "utility" }: {
+    hintsOnly?: boolean;
+    name?: string | null;
+    nameIdPostfix?: any;
+    typeOverride?: string | null;
+    typeFallback?: string | null;
+  } = {},
+  optionsOverride: TDDBActivityBuildOptions = {},
+  ) {
+
+    const activity = await super._generateActivity({
+      hintsOnly,
+      name,
+      nameIdPostfix,
+      typeOverride,
+      typeFallback, // spells should always generate an activity
+    }, optionsOverride);
+
+    if (!activity) return undefined;
+    const activityData = foundry.utils.getProperty(this.data, `system.activities.${activity}`) as I5eActivity;
+
+    if (activityData.type !== "summon") return activity;
+    if (this.isCompanionSpell2014 || this.isCompanionSpell2024)
+      await this.ddbCompanionFactory.addCompanionsToDocuments([], activityData, this.enricher.activity ?? undefined);
+    else if (this.isCRSummonSpell2024 || this.isCRSummonSpell2014)
+      await this.ddbCompanionFactory.addCRSummoning(activityData);
+    return activity;
+  }
+
+  #addConditionEffects() {
+    if ((this.ddbDefinition.conditions ?? []).length === 0) return;
+    this.data.effects ??= [];
+
+    for (const data of this.ddbDefinition.conditions.filter((c) => c.type === 1)) {
+      const condition = DICTIONARY.actor.damageAdjustments
+        .filter((type) => type.type === 4)
+        .find((type) => type.id === data.conditionId);
+      if (condition?.foundryValue) {
+        const effect = AutoEffects.SpellEffect(this.data, `${this.data.name}: ${condition.name}`);
+        effect._id = foundry.utils.randomID();
+
+        // KNOWN_ISSUE_4_0: add duration
+        ChangeHelper.addStatusEffectChange({ effect, statusName: condition.foundryValue });
+        this.data.effects.push(effect);
+      }
+    }
+  }
+
+  async _applyEffects() {
+    foundry.utils.setProperty(this.data, "flags.ddbimporter.effectsApplied", true);
+    this.data.effects ??= [];
+    if (this.data.effects.length === 0) this.#addConditionEffects();
+    if (this.enricher.clearAutoEffects) this.data.effects = [];
+    const effects = await this.enricher.createEffects();
+    this.data.effects.push(...effects);
+    this.enricher.createDefaultEffects();
+    this._activityEffectLinking();
+  }
+
+  #addHealAdditionalActivities() {
+    const healingParts = this.activityType === "heal"
+      ? foundry.utils.deepClone(this.healingParts).slice(1)
+      : foundry.utils.deepClone(this.healingParts);
+    for (const part of healingParts) {
+      this.additionalActivities.push({
+        name: "Healing",
+        type: "heal",
+        options: {
+          generateDamage: false,
+          includeBaseDamage: false,
+          generateHealing: true,
+          healingPart: part.part,
+          healingChatFlavor: part.chatFlavor,
+          noSpellslot: this.activityType !== "heal",
+        },
+      });
+    }
+  }
+
+  async _generateAdditionalActivities() {
+    if (this.additionalActivities.length === 0) return;
+    logger.debug(`Additional Spell Activities for ${this.data.name}`, this.additionalActivities);
+    let i = 0;
+    const ids = [];
+    for (const activityData of this.additionalActivities) {
+      i++;
+      const id = await this._generateActivity({
+        hintsOnly: false,
+        name: activityData.name,
+        nameIdPostfix: i,
+        typeOverride: activityData.type,
+      }, activityData.options);
+      logger.debug(`Generated additional Activity with id ${id}`, {
+        this: this,
+        activityData,
+        id,
+      });
+      if (id) ids.push(id);
+    }
+    return ids;
+  }
+
+  getRangeAdjustmentMultiplier() {
+    if (!this.ddbData) return 1;
+    const rangeAdjustmentMods = DDBModifiers.filterBaseModifiers(this.ddbData, "bonus", { subType: "spell-attack-range-multiplier" }).filter((modifier) => modifier.isGranted);
+
+    const multiplier = rangeAdjustmentMods.reduce((current, mod) => {
+      if (mod.fixedValue !== null && Number.isInteger(mod.fixedValue) && mod.fixedValue > current) {
+        current = mod.fixedValue;
+      } else if (Number.isInteger(mod.value) && parseInt(String(mod.value)) > current) {
+        current = parseInt(String(mod.value));
+      }
+      return current;
+    }, 1);
+
+    return multiplier;
+  }
+
+  // adjustRange(multiplier, spell) {
+  //   // TPDO this needs to be adjusted and implemented for 2024 and 2014, not currently called
+  //   if (this.data.spell.system.actionType === "rsak" && Number.isInteger(spell.system.range?.value)) {
+  //     foundry.utils.setProperty(spell, "system.range.value", spell.system.range.value * multiplier);
+  //   }
+  //   return spell;
+  // }
+
+  async parse() {
+    this.data.system.level = this.ddbDefinition.level;
+    // the 5e type declares school as string, but an unknown school is stored as null
+    this.data.system.school = ((this.school) ? this.school.id : null) as string;
+    const source = DDBSources.parseSource(this.ddbDefinition);
+    this.data.system.source = source;
+    foundry.utils.setProperty(this.data, "flags.ddbimporter.dndbeyond.sourceId", source.id);
+    foundry.utils.setProperty(this.data, "flags.ddbimporter.dndbeyond.sourceCategoryId", source.categoryId);
+    this.data.system.source.rules = this.is2014 ? "2014" : "2024";
+
+    if (this.spellClass) {
+      this.data.system.sourceClass = DDBDataUtils.classIdentifierName(this.spellClass);
+    }
+    this._generateProperties();
+    this._generateMaterials();
+    this._generateSpellPreparationMode();
+    await this._generateDescription();
+    this._generateActivation();
+    this._generateDuration();
+    this._generateRange();
+    this._generateTarget();
+    this._generateUses();
+    this.#generateHealingParts(); // used in activity
+
+    await this._generateSummons();
+    await this._generateCompanions();
+
+    this._studyCheckGeneration();
+
+    if (!this.enricher.stopDefaultActivity)
+      await this._generateActivity();
+
+    if (!this.enricher.activity?.stopHealSpellActivity)
+      this.#addHealAdditionalActivities();
+    if (this.enricher.addAutoAdditionalActivities)
+      await this._generateAdditionalActivities();
+    await this.enricher.addAdditionalActivities(this);
+
+    // TO DO: activities
+    // this.data.system.save = getSave(this.spellData);
+
+    await this._applyEffects();
+
+    // ensure the spell ability id is correct for the spell
+    // this.data.system.spellcasting = {
+    // progression: spellProgression.value,
+    // ability: spellCastingAbility,
+    // TODO; we should check that spells/classes that generate spells with abilities not spellcasting, that these
+    // are set properly
+    if (this.rawCharacter && !this.spellClass && !this.isGeneric) {
+      logger.warn("Spell without class, defaulting to spellcasting ability", {
+        spell: this,
+      });
+      // this.data.system.ability = [this.ability];
+      // if (this.data.system.save.scaling == "spell") {
+      //   this.data.system.save.scaling = this.ability;
+      // }
+    }
+
+    if (this.ddbData) {
+      DDBDataUtils.addCustomValues(this.ddbData, this.data);
+    }
+
+    this.cleanup();
+    await this.enricher.addDocumentAdvancements();
+    await this.enricher.addDocumentOverride();
+    let identifier = utils.referenceNameString(`${this.originalName.toLowerCase()}`);
+    if (DICTIONARY.identifierAdjustments[identifier]) {
+      identifier = DICTIONARY.identifierAdjustments[identifier];
+    }
+    this.data.system.identifier = identifier;
+
+    await this.enricher.cleanup();
+  }
+
+  static async parseSpell(data: IDDBSpellEntry, character: I5ePCData | null,
+    {
+      namePrefix = null, namePostfix = null, ddbData = null, enricher = null, generateSummons = null, notifier = null,
+      isGeneric = null, unPreparedCantrip = null, noSpellcasting = false, flagData = { ddbimporter: { dndbeyond: {} } },
+    }: IDDBSpellParseSpell = {},
+  ) {
+    const spell = new DDBSpell({
+      ddbData,
+      spellData: data,
+      rawCharacter: character,
+      isGeneric,
+      namePrefix,
+      namePostfix,
+      enricher,
+      generateSummons,
+      notifier,
+      unPreparedCantrip,
+      noSpellcasting,
+      flagData,
+    });
+    await spell.init();
+    await spell.parse();
+
+    logger.verbose(`Parsed spell ${spell.data.name}`, {
+      spell,
+      ddbData,
+      flagData,
+    });
+
+    return spell.data;
+  }
+
+  /** @override */
+  _getHealActivity({ name = null, nameIdPostfix = null } = {}, options = {}) {
+    const spellOptions = foundry.utils.mergeObject({
+      healingPart: this.healingParts.length > 0 ? this.healingParts[0].part : null,
+      healingChatFlavor: this.healingParts.length > 0 ? this.healingParts[0].chatFlavor : null,
+    }, options);
+
+    return super._getHealActivity({ name, nameIdPostfix }, spellOptions);
+  }
+
+}

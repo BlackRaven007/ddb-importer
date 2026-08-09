@@ -1,0 +1,287 @@
+/* eslint-disable @typescript-eslint/no-unsafe-function-type */
+// Type declarations for third-party module/system globals not covered by foundry-vtt-types.
+// Core Foundry globals (game, CONFIG, CONST, Hooks, foundry, canvas, ui, Actor, Item, etc.)
+// are provided by @league-of-foundry-developers/foundry-vtt-types via tsconfig.json "types".
+//
+// This file must be a module (has `export {}`) so that `declare global` properly
+// merges into globalThis. Without it, SettingConfig augmentation is invisible to
+// other modules and game.settings.get/set only recognizes "core" as a namespace.
+
+import { IDDBIConfig } from "../hooks/ready/registerGameSettings";
+
+export {};
+
+declare global {
+
+  // This module's code runs at/after the Foundry "ready" hook for everything that
+  // touches game.* (imports, munching, syncing). Assume the ready state so that
+  // game.settings, game.packs, canvas, ui etc. are not `undefined`-typed at every
+  // call site (official fvtt-types lenient configuration, see
+  // fvtt-types/src/configuration/configuration.d.mts).
+  interface AssumeHookRan {
+    ready: never;
+  }
+
+  type Str16 = string & { readonly __brand: "Str16" };
+
+  type TCoreFoundryTypes = "Actor" | "Item" | "ActiveEffect" | "JournalEntry" | "JournalEntryPage" | "Macro" | "RollTable" | "Scene" | "Playlist" | "Compendium";
+
+  type TCompendiumEntityType = Extract<
+    TCoreFoundryTypes,
+    "Actor" | "Item" | "JournalEntry" | "Macro" | "RollTable" | "Scene"
+  >;
+
+
+  type DeepPartial<T> = {
+    [K in keyof T]?: T[K] extends (infer U)[]
+      ? DeepPartial<U>[]
+      : T[K] extends object
+        ? DeepPartial<T[K]>
+        : T[K];
+  };
+
+  // Bridge dnd5e DataModelConfig registrations to the global interface.
+  // The dnd5e types augment "fvtt-types/configuration" which doesn't reach
+  // the global DataModelConfig from @league-of-foundry-developers/foundry-vtt-types.
+  interface DataModelConfig {
+    Actor: fvttUtils.InterfaceToObject<dnd5e.types.DataModelConfig.Actor>;
+    Item: fvttUtils.InterfaceToObject<dnd5e.types.DataModelConfig.Item>;
+    ActiveEffect: fvttUtils.InterfaceToObject<dnd5e.types.DataModelConfig.ActiveEffect>;
+    ChatMessage: fvttUtils.InterfaceToObject<dnd5e.types.DataModelConfig.ChatMessage>;
+    JournalEntryPage: fvttUtils.InterfaceToObject<dnd5e.types.DataModelConfig.JournalEntryPage>;
+    JournalEntry: fvttUtils.InterfaceToObject<dnd5e.types.DataModelConfig.JournalEntry>;
+  }
+
+  type IndexTypeForMetadata<Type extends CompendiumCollection.DocumentName> = foundry.utils.Collection<CompendiumCollection.IndexEntry<Type>>;
+
+  // interface IndexTypeForMetadata<Type extends CompendiumCollection.DocumentName> extends foundry.utils.Collection<CompendiumCollection.IndexEntry<Type>> {
+  //   flags?: IActorFlagConfig | IItemFlagConfig | IJournalEntryFlagConfig | IRollTableFlagConfig;
+  // }
+
+  // declare namespace CompendiumCollection {
+  //   interface ExtendedGetIndexOptions<T extends CompendiumCollection.DocumentName> extends GetIndexOptions<T> {
+  //     fields?: string[];
+  //   }
+  //   interface IndexEntry<T extends CompendiumCollection.DocumentName> extends IndexEntry<T> {
+  //     _id: string;
+  //     uuid: string;
+  //     flags?: {
+  //       ddbimporter?: IDDBImporterFlags;
+  //     }
+  //   }
+  // }
+
+  interface ITokenizer2APIResponse {
+    prototypeToken: I5ePrototypeToken;
+    layers: Record<string, any>[];
+  }
+  interface ITokenizer2API {
+    tokenize: (actor: Actor | I5eActor, options?: object) => Promise<ITokenizer2APIResponse>;
+    tokenizeBatch: (actors: (Actor | I5eActor)[], options?: object) => Promise<ITokenizer2APIResponse[]>;
+  }
+
+  // ddb-importer module global
+  interface Window {
+    Tokenizer: {
+      autoToken: (actor: Actor | I5eActor, options?: object) => Promise<string>;
+    };
+    Tokenizer2: ITokenizer2API;
+    DDBImporter: {
+      lib: Record<string, any>;
+      [key: string]: any;
+    };
+    dnd5eCustomSkills: any;
+    PIXI: any;
+  }
+  var DDBImporter: Window["DDBImporter"];
+
+  // Third-party Foundry module globals
+  const MidiQOL: any;
+  const DAE: any;
+  const Sequencer: any;
+  const Sequence: any;
+  const chrisPremades: any;
+  const AutomatedAnimations: any;
+  const AdventureImporter: any;
+  const ForgeVTT: any;
+  const ForgeAPI: any;
+
+  // Custom skills module
+  const dnd5eCustomSkills: any;
+
+  // JSZip library (loaded at runtime, not bundled)
+  const JSZip: any;
+
+  interface IDDBImporterDebug {
+    record: boolean;
+    log: { level: string; data: any[] }[];
+    download: () => void;
+    multiattack: boolean;
+    referenceLinking: boolean;
+  }
+
+  namespace CONFIG {
+    interface StatusEffect {
+      name: string;
+      _id: string;
+      reference?: string;
+    }
+  }
+
+  interface I5eLanguageGroup {
+    label: string;
+    selectable?: boolean;
+    children?: Record<string, I5eLanguageGroup | string>;
+  }
+
+  interface CONFIG extends CONFIG {
+    DDBI: IDDBIConfig;
+    // Temp, until we use dnd5e-types
+    DND5E: {
+      sourceBooks: Record<string, string>;
+      activityActivationTypes: TActivationCost;
+      defaultArtwork: {
+        Actor: Record<string, string>;
+        Item: Record<string, string>;
+      };
+      spellPreparationStates: {
+        prepared: {
+          value: number;
+        };
+        unprepared: {
+          value: number;
+        };
+        always: {
+          value: number;
+        };
+      };
+      languages: Record<string, I5eLanguageGroup>;
+      weaponIds: Record<string, string>;
+      featureTypes: any;
+      spellScrollIds: Record<number, string>;
+      conditionTypes: Record<string, {
+        label: string;
+        icon: string;
+      }>;
+      creatureTypes: Record<string, {
+        label: string;
+      }>;
+      spellComponents: Record<string, {
+        label: string;
+      }>;
+      spellTags: Record<string, {
+        label: string;
+      }>;
+      spellLevels: Record<string, {
+        label: string;
+      }>;
+      rules: Record<string, {
+        label: string;
+        reference?: string;
+      }>;
+      dieSteps: number[];
+      abilities: Record<string, {
+        label: string;
+      }>;
+      habitats: Record<string, any>;
+      spellLevels: Record<string, string>;
+      abilityActivationTypes: Record<string, string>;
+      activityTypes: Record<string, {
+        documentClass: Function | Activity;
+      }>;
+      actorSizes: Record<string, {
+        label: string;
+        token?: number;
+        hitDie: number;
+        abbreviation: string;
+        numerical: number;
+        capacityMultiplier: number;
+      }>;
+      areaTargetTypes: Record<string, {
+        label: string;
+        counted: string;
+        template: string;
+        standard?: boolean;
+      }>;
+      armorClasses: Record<string, {
+        label: string;
+      }>;
+      consumableTypes: Record<string, {
+        label: string;
+        subtypes?: Record<string, string>;
+      }>;
+      // This one's added by midi
+      customDamageResistanceTypes: Record<string, string>;
+      damageTypes: Record<string, {
+        label: string;
+        icon: string;
+        isPhysical?: boolean;
+        reference?: string;
+        color?: Color;
+      }>;
+      equipmentTypes: Record<string, string>;
+      healingTypes: Record<string, {
+        label: string;
+        icon: string;
+        color?: Color;
+      }>;
+      itemActionTypes: Record<string, string>;
+      skills: Record<string, {
+        label: string;
+        ability: string;
+      }>;
+      sourcePacks: {
+        BACKGROUNDS: string;
+        CLASSES: string;
+        ITEMS: string;
+        RACES: string;
+      };
+      spellSchools: Record<string, {
+        label: string;
+        icon: string;
+        fullKey: string;
+        reference?: string;
+      }>;
+      tools: Record<string, {
+        ability: string;
+        id: string;
+      }>;
+      toolTypes: Record<string, string>;
+      traits: Record<string, {
+        labels: {
+          title: string;
+          localization: string;
+          all?: string;
+        };
+        icon: string;
+        actorKeyPath?: string;
+        configKey?: string;
+        dataType?: number | boolean;
+        labelKeyPath?: string;
+        subTypes?: {
+          keyPath?: string;
+          ids?: string[];
+        };
+        children?: Record<string, string>;
+        sortCategories?: boolean;
+        expertise?: boolean;
+        mastery?: boolean;
+      }>;
+      weaponMasteries: Record<string, { label: string; reference?: string }>;
+      weaponTypes: Record<string, string>;
+      itemProperties: Record<string, { label: string; reference?: string; abbreviation?: string }>;
+      validProperties: Record<string, Set<string>>;
+      weaponProficiencies: Record<string, string>;
+      weaponProficienciesMap: Record<string, string>;
+      weaponTypeMap: Record<string, string>;
+    };
+    DDB: IDDBConfig;
+    chrisPremades: {
+      renamedItems: Record<string, string>;
+    };
+    debug: {
+      ddbimporter: IDDBImporterDebugConfig;
+    };
+  }
+
+}

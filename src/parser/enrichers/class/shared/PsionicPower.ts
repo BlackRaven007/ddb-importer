@@ -1,0 +1,85 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class PsionicPower extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData {
+    const formula = `1@scale.${this.getClassIdentifier(this.ddbParser.subKlass ?? "")}.energy-die.die`;
+    const activityData: Partial<I5eActivity> = {
+      roll: {
+        prompt: false,
+        visible: false,
+        formula,
+        name: "Roll Bonus",
+      },
+    };
+    const result: IDDBActivityData = {
+      name: "",
+      type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+      addItemConsume: true,
+      data: activityData,
+    };
+
+    if (this.isSubclass("Soulknife")) {
+      result.name = "Psi-Bolstered Knack";
+    } else {
+      result.name = "Protective Field";
+      result.activationType = "reaction";
+      result.targetType = "creature";
+      activityData.range = {
+        units: "ft",
+        value: "30",
+      };
+    }
+    return result;
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    const results: IDDBAdditionalActivity[] = [];
+    if (this.isSubclass("Soulknife")) {
+      results.push(
+        { action: { name: "Psionic Power: Psychic Whispers", type: "class" } },
+      );
+    } else {
+      results.push(
+        { action: { name: "Psionic Power: Psionic Strike", type: "class" } },
+        { action: { name: "Psionic Power: Telekinetic Movement", type: "class" } },
+      );
+    }
+
+    if (this.is2014) {
+      results.push({
+        action: { name: "Psionic Power: Recovery", type: "class" },
+      });
+    }
+    return results;
+  }
+
+  get override(): IDDBOverrideData {
+    const spent = this.isSubclass("Soulknife")
+      ? this._getSpentValue("class", "Psionic Power: Psionic Energy Dice", "Soulknife")
+      : this._getSpentValue("class", "Psionic Power: Psionic Energy Dice", "Psi Warrior");
+
+    const recovery: I5eSystemLimitedUsesRecovery[] = [
+      { period: "lr", type: "recoverAll", formula: undefined },
+    ];
+    if (!this.is2014) {
+      recovery.push({ period: "sr", type: "formula", formula: "1" });
+    }
+    const subclass = this.ddbParser.subKlass === "Soulknife"
+      ? "soulknife"
+      : "psi-warrior";
+
+    return {
+      uses: {
+        spent,
+        max: this.is2014 ? "@prof * 2" : `@scale.${subclass}.energy-die.number`,
+        recovery,
+      },
+    };
+  }
+
+}

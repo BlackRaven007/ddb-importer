@@ -1,0 +1,114 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class HolyAura extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Cast",
+      targetType: "self",
+      // rangeSelf: true,
+      // noTemplate: true,
+      // overrideRange: true,
+      // overrideTarget: true,
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Save vs Blinded",
+          type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
+        },
+        build: {
+          generateSave: true,
+          generateConsumption: false,
+          noSpellslot: true,
+          generateRange: true,
+        },
+        overrides: {
+          targetType: "creature",
+          data: {
+            range: {
+              units: "ft",
+              value: "30",
+            },
+          },
+          overrideRange: true,
+          overrideTarget: true,
+        },
+      },
+    ];
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        noCreate: true,
+        name: "Holy Aura: Blinded",
+        activityMatch: "Save vs Blinded",
+        daeSpecialDurations: ["turnEnd" as const],
+      },
+      {
+        name: "Holy Aura (Aura)",
+        options: {
+          durationSeconds: 60,
+        },
+        activityMatch: "Cast",
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.unsignedAddChange(
+            "1",
+            20,
+            "flags.midi-qol.advantage.ability.attack.all",
+          ),
+        ],
+        changes: ["str", "dex", "con", "int", "wis", "cha"].map((ability) =>
+          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, `system.abilities.${ability}.save.roll.mode`),
+        ).concat([
+          DDBEnricherData.ChangeHelper.upgradeChange("5", 20, "token.light.dim"),
+          DDBEnricherData.ChangeHelper.overrideChange("#97a9ab", 20, "token.light.color"),
+          DDBEnricherData.ChangeHelper.overrideChange("0.25", 20, "token.light.alpha"),
+          DDBEnricherData.ChangeHelper.overrideChange("4", 20, "token.light.animation.intensity"),
+          DDBEnricherData.ChangeHelper.overrideChange("sunburst", 20, "token.light.animation.type"),
+          DDBEnricherData.ChangeHelper.overrideChange("2", 20, "token.light.animation.speed"),
+        ]),
+        data: {
+          flags: {
+            dae: {
+              stackable: "noneNameOnly",
+              selfTarget: true,
+              selfTargetAlways: true,
+            },
+            ActiveAuras: {
+              aura: "Allies",
+              radius: "30",
+              isAura: true,
+              inactive: false,
+              hidden: false,
+              displayTemp: true,
+              ignoreSelf: false,
+            },
+          },
+        },
+        auraeffects: {
+          applyToSelf: true,
+          bestFormula: "",
+          canStack: false,
+          collisionTypes: ["move"],
+          combatOnly: false,
+          disableOnHidden: true,
+          distanceFormula: `30`,
+          disposition: 1,
+          evaluatePreApply: true,
+          overrideName: "",
+          script: "",
+        },
+      },
+    ];
+  }
+
+}

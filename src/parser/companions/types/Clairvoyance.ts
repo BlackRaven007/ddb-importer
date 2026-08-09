@@ -1,0 +1,31 @@
+import DDBEffectHelper from "../../../effects/DDBEffectHelper";
+import { SUMMONS_ACTOR_STUB } from "./_data";
+
+export async function getClairvoyance(): Promise<ICompanionResult> {
+  if (foundry.utils.getProperty(CONFIG, "DDBI.parsed.Clairvoyance")) return {} as ICompanionResult;
+  const condition = DDBEffectHelper.findCondition({ conditionName: "Invisible" });
+  const effects = condition
+    ? [(await ActiveEffect.implementation.fromStatusEffect(condition.id)).toObject()]
+    : [];
+  const results: ICompanionResult = {
+    Clairvoyance: {
+      name: "Invisible Sensor",
+      version: "1",
+      required: null,
+      isJB2A: false,
+      needsJB2A: false,
+      folderName: "Clairvoyance",
+      data: foundry.utils.mergeObject(foundry.utils.deepClone(SUMMONS_ACTOR_STUB()), {
+        "name": "Invisible Sensor",
+        "prototypeToken.name": "Invisible Sensor",
+        "prototypeToken.texture.src": "icons/magic/perception/eye-tendrils-web-purple.webp",
+        "img": "icons/magic/perception/eye-tendrils-web-purple.webp",
+        "effects": effects,
+      }) as unknown as I5eMonsterData,
+    },
+  };
+
+  await foundry.utils.setProperty(CONFIG, "DDBI.parsed.Clairvoyance", true);
+
+  return results;
+};

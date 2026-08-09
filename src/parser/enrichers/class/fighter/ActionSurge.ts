@@ -1,0 +1,23 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class ActionSurge extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Action Surge",
+      activationType: "special",
+      targetType: "self",
+    };
+  }
+
+  get override(): IDDBOverrideData {
+    return {
+      removeDamage: true,
+    };
+  }
+
+}

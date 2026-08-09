@@ -1,0 +1,370 @@
+import { DICTIONARY } from "../../../config/_module";
+import { logger, utils } from "../../../lib/_module";
+import { DDBDescriptions, DDBModifiers, SystemHelpers } from "../../lib/_module";
+import ChangeHelper from "./ChangeHelper";
+import MidiEffects from "./MidiEffects";
+
+interface IGenericConditionAdjustment {
+  value: string[] | any[];
+  bypasses?: string[] | any[];
+  midiValues?: any[];
+}
+
+const UNIT_MAP: Record<string, TEffectDurationUnit | null> = {
+  turn: "turns",
+  turns: "turns",
+  round: "rounds",
+  rounds: "rounds",
+  hour: "hours",
+  hours: "hours",
+  minute: "minutes",
+  minutes: "minutes",
+  second: "seconds",
+  seconds: "seconds",
+  day: "days",
+  days: "days",
+  spec: null,
+  special: null,
+  inst: null,
+};
+
+// the parsed item documents that effects get attached to
+type TEffectDocument = TAll5eItemDocuments;
+
+export default class AutoEffects {
+
+  static UNIT_MAP = UNIT_MAP;
+
+  static effectModules(): IEffectModules {
+    return SystemHelpers.effectModules();
+  }
+
+  static adjustDurationUnits(units: string): TEffectDurationUnit | null {
+    if (units && UNIT_MAP[units] !== undefined) {
+      return UNIT_MAP[units];
+    }
+    logger.error(`No mapping found for duration units ${units}`);
+    return null;
+  }
+
+  static adjustDuration(duration: IEffectDuration) {
+    duration.units = AutoEffects.adjustDurationUnits(duration.units ?? "") ?? undefined;
+  }
+
+  static generateBasicEffectDuration(document: TAll5eItemDocuments, activity?: IActivityData): IEffectDuration {
+    const duration: IEffectDuration = {
+      value: null,
+      units: "seconds",
+      expiry: null,
+      expired: false,
+    };
+    const docData: I5eSystemDurationData | I5eActivityDuration | null = foundry.utils.getProperty(document, "system.duration") as I5eSystemDurationData ?? activity?.duration;
+    if (!docData) return duration;
+
+    const mappedUnit = docData.units ? UNIT_MAP[docData.units] : undefined;
+    if (mappedUnit && docData.value) {
+      duration.value = parseInt(docData.value);
+      duration.units = AutoEffects.adjustDurationUnits(mappedUnit);
+      duration.expiry = "turnStart";
+    }
+
+    return duration;
+  }
+
+  static BaseEffect(
+    document: TEffectDocument,
+    name: string,
+    {
+      transfer = true,
+      disabled = false,
+      description,
+      durationSeconds,
+      durationRounds,
+      durationTurns,
+      showIcon,
+    }: IDDBEffectOptions = {},
+  ): TAutoEffect {
+    const effect: TAutoEffect = {
+      img: document.img,
+      name,
+      statuses: [],
+      system: { changes: [] },
+      duration: {} as IEffectDuration,
+      tint: "",
+      transfer,
+      disabled,
+      showIcon: showIcon ?? 1,
+      flags: {
+        dae: {
+          transfer,
+          stackable: "noneNameOnly",
+        },
+        ddbimporter: {
+          disabled,
+        },
+        "midi-qol": {
+          forceCEOff: true,
+        },
+        core: {},
+      },
+    };
+    effect.duration = AutoEffects.generateBasicEffectDuration(document);
+    effect.description = description ?? "";
+    if (durationSeconds) {
+      effect.duration.value = durationSeconds;
+      effect.duration.units = "seconds";
+      effect.duration.expiry = "turnStart";
+    }
+    if (durationRounds) {
+      effect.duration.value = durationRounds;
+      effect.duration.units = "rounds";
+      effect.duration.expiry = "turnStart";
+    }
+    if (durationTurns) {
+      effect.duration.value = durationTurns;
+      effect.duration.units = "turns";
+      effect.duration.expiry = "turnStart";
+    }
+    return effect;
+  }
+
+  static SpellEffect(document: TEffectDocument, label: string,
+    { transfer = false, disabled = false, description, durationSeconds,
+      durationRounds, durationTurns, showIcon }: IDDBEffectOptions = {},
+  ): TAutoEffect {
+    const options = { transfer, disabled, description, durationSeconds, durationRounds, durationTurns, showIcon };
+    return AutoEffects.BaseEffect(document, label, options);
+  }
+
+  static FeatEffect(document: TEffectDocument, label: string,
+    { transfer = false, disabled = false, description, durationSeconds,
+      durationRounds, durationTurns, showIcon }: IDDBEffectOptions = {},
+  ): TAutoEffect {
+    return AutoEffects.BaseEffect(document, label, { transfer, disabled, description, durationSeconds, durationRounds, durationTurns, showIcon });
+  }
+
+  static MonsterFeatureEffect(document: TEffectDocument, label: string,
+    { transfer = false, disabled = false, showIcon }: IDDBEffectOptions = {},
+  ): TAutoEffect {
+    return AutoEffects.BaseEffect(document, label, { transfer, disabled, showIcon });
+  }
+
+
+  static ItemEffect(document: TEffectDocument, label: string,
+    { transfer = true, disabled = false, description, durationSeconds,
+      durationRounds, durationTurns, showIcon }: IDDBEffectOptions = {},
+  ): TAutoEffect {
+    const effect = AutoEffects.BaseEffect(document, label, { transfer, disabled, description, durationSeconds, durationRounds, durationTurns, showIcon });
+    return effect;
+  }
+
+  static addVision5eStub<T extends TEffectDocument>(document: T): T {
+    if (!document.effects) document.effects = [];
+
+    const name = document.flags?.ddbimporter?.originalName ?? document.name;
+
+    // if document name in Vision effects then add effect
+    if (DICTIONARY.effects.vision5e[name]
+      && document.type === DICTIONARY.effects.vision5e[name].type
+      && !document.effects.some((e) => e.name === DICTIONARY.effects.vision5e[name].effectName)
+    ) {
+      const effect = AutoEffects.SpellEffect(document, DICTIONARY.effects.vision5e[name].effectName);
+      effect.transfer = DICTIONARY.effects.vision5e[name].transfer;
+      document.effects.push(effect);
+      if (DICTIONARY.effects.vision5e[name].type === "spell") {
+        foundry.utils.setProperty(document, "system.target.type", "self");
+      }
+      foundry.utils.setProperty(document, "flags.ddbimporter.effectsApplied", true);
+    }
+    return document;
+  }
+
+  static forceDocumentEffect<T extends TEffectDocument>(document: T): T {
+    if ((document.effects?.length ?? 0) > 0
+      || foundry.utils.hasProperty(document.flags, "dae")
+      || foundry.utils.hasProperty(document.flags, "midi-qol.onUseMacroName")
+    ) {
+      document = MidiEffects.applyDefaultMidiFlags(document);
+      foundry.utils.setProperty(document, "flags.ddbimporter.effectsApplied", true);
+      if (!foundry.utils.getProperty(document, "flags.midi-qol.forceCEOn")) {
+        foundry.utils.setProperty(document, "flags.midi-qol.forceCEOff", true);
+      }
+    }
+    return document;
+  }
+
+
+  static getGenericConditionAffectData(modifiers: IModifiersMod[], condition: TDDBDamageConditionType, typeId: number, forceNoMidi = false): IGenericConditionAdjustment[] {
+    const restrictions = [
+      "",
+      null,
+      "While within 20 feet",
+      "Dwarf Only",
+      "While Not Incapacitated",
+      // "As an Action", this is a timed/limited effect, dealt with elsewhere
+      "While Staff is Held",
+      "Helm has at least one ruby remaining",
+      "while holding",
+      "While Held",
+    ];
+
+    const ddbAdjustments = typeId === 4
+      ? [
+        { id: 11, type: 4, name: "Poisoned", slug: "poison" },
+        { id: 16, type: 4, name: "Diseased", slug: "diseased" },
+        { id: 16, type: 4, name: "Diseased", slug: "disease" },
+      ]
+        .concat(CONFIG.DDB.conditions.map((a) => {
+          return {
+            id: a.definition.id,
+            type: 4,
+            name: a.definition.name,
+            slug: a.definition.slug,
+          };
+        }))
+      : CONFIG.DDB.damageAdjustments;
+
+    const result = DDBModifiers
+      .filterModifiersOld(modifiers, condition, null, restrictions)
+      .filter((modifier: IModifiersMod) => {
+        const ddbLookup = ddbAdjustments.find((d) => d.type == typeId && d.slug === modifier.subType);
+        if (!ddbLookup) return false;
+        return DICTIONARY.actor.damageAdjustments.some((adj) =>
+          adj.type === typeId
+          && ddbLookup.id === adj.id
+          && (foundry.utils.hasProperty(adj, "foundryValues") || foundry.utils.hasProperty(adj, "foundryValue")),
+        );
+      })
+      .map((modifier: IModifiersMod) => {
+        const ddbLookup = ddbAdjustments.find((d) => d.type == typeId && d.slug === modifier.subType);
+        // the filter above guarantees a lookup match exists
+        if (!ddbLookup) return undefined;
+        const entry = DICTIONARY.actor.damageAdjustments.find((adj) =>
+          adj.type === typeId
+          && ddbLookup.id === adj.id,
+        );
+        if (!entry) return undefined;
+        const valueData: IGenericConditionAdjustment | undefined = foundry.utils.hasProperty(entry, "foundryValues")
+          ? foundry.utils.getProperty(entry, "foundryValues") as IGenericConditionAdjustment
+          : foundry.utils.hasProperty(entry, "foundryValue")
+            ? { value: [entry.foundryValue], bypasses: [] }
+            : undefined;
+        return valueData;
+      })
+      .filter((adjustment: IGenericConditionAdjustment | undefined) => adjustment !== undefined)
+      .map((result: IGenericConditionAdjustment) => {
+        if (game.modules.get("midi-qol")?.active && result.midiValues && !forceNoMidi) {
+          return {
+            value: result.value.concat(result.midiValues),
+            bypasses: result.bypasses,
+          };
+        } else {
+          return result;
+        }
+      });
+
+    return result;
+  }
+
+
+  static getStatusConditionEffect({ text = null, status = null, nameHint = null, flags = {} }: IStatusConditionEffectOptions = {}): TAutoEffect | null {
+    const parsedStatus: IParseStatusConditionResult = status ?? DDBDescriptions.parseStatusCondition({ text: text ?? "" });
+    if (!parsedStatus.success) return null;
+
+    const effect: TAutoEffect = {
+      name: "",
+      system: { changes: [] },
+      flags: foundry.utils.mergeObject({
+        dae: {
+          specialDuration: parsedStatus.specialDurations,
+        },
+      }, flags),
+      statuses: [],
+      duration: {
+        value: parsedStatus.duration.value,
+        units: parsedStatus.duration.units ?? undefined,
+      },
+    };
+
+    if (parsedStatus.group4) {
+      const condition = parsedStatus.condition ?? "";
+      ChangeHelper.addStatusEffectChange({ effect, statusName: condition });
+      DDBDescriptions.addSpecialDurationFlagsToEffect(effect, parsedStatus.match);
+      if (nameHint) effect.name = `${nameHint}: ${parsedStatus.conditionName}`;
+      else effect.name = `Status: ${parsedStatus.conditionName}`;
+      effect.img = CONFIG.DND5E.conditionTypes[condition]?.icon ?? undefined;
+    } else if (parsedStatus.condition === "dead") {
+      ChangeHelper.addStatusEffectChange({ effect, statusName: "Dead" });
+      effect.img = "systems/dnd5e/icons/svg/statuses/dead.svg";
+    } else {
+      logger.debug(`Odd condition ${status.condition} found`, {
+        text,
+        nameHint,
+        status,
+      });
+      return null;
+    }
+
+    if (parsedStatus.riderStatuses) {
+      effect.statuses.push(...parsedStatus.riderStatuses);
+    }
+
+    return effect;
+  }
+
+  static getStatusEffect({ ddbDefinition, foundryItem, labelOverride }: IStatusEffectOptions = {}): I5eEffectData | null {
+    if (!foundryItem.effects) foundryItem.effects = [];
+
+    const text = ddbDefinition.description ?? ddbDefinition.snippet ?? "";
+
+    const conditionResult = DDBDescriptions.parseStatusCondition({ text });
+
+    if (!conditionResult.success) return null;
+    const conditionEffect = AutoEffects.getStatusConditionEffect({ status: conditionResult, nameHint: labelOverride });
+    if (!conditionEffect) return null;
+
+    const effectLabel = (labelOverride ?? conditionEffect.name ?? foundryItem.name ?? conditionResult.condition);
+    const effect = AutoEffects.BaseEffect(foundryItem, effectLabel, {
+      transfer: false,
+      description: `Apply status ${conditionResult.condition}`,
+    });
+    effect.system.changes.push(...conditionEffect.system.changes);
+    effect.statuses.push(...conditionEffect.statuses);
+    if (conditionEffect.name && conditionEffect.name !== "") effect.name = conditionEffect.name;
+    effect.flags = foundry.utils.mergeObject(effect.flags, conditionEffect.flags);
+    if (Number.isFinite(conditionEffect.duration?.value)) {
+      effect.duration.value = conditionEffect.duration.value;
+      effect.duration.units = AutoEffects.adjustDurationUnits(conditionEffect.duration.units ?? "") ?? undefined;
+      effect.duration.expiry = conditionEffect.duration.expiry;
+    }
+
+    if (!effect.name || effect.name === "") {
+      const conditionName = conditionResult.condition ?? "";
+      const condition = utils.capitalize(conditionName);
+      effect.name = `Status: ${condition}`;
+      effect.img = CONFIG.DND5E.conditionTypes[conditionName]?.icon;
+    }
+    return effect;
+  }
+
+  static addSimpleConditionEffect<T extends TEffectDocument>(document: T, condition: string, { disabled, transfer }: ISimpleConditionOptions = {}): T {
+    document.effects = [];
+    const effect = this.ItemEffect(document, `${document.name} - ${utils.capitalize(condition)}`, { disabled, transfer });
+    ChangeHelper.addStatusEffectChange({ effect, statusName: condition });
+    document.effects.push(effect);
+    return document;
+  }
+
+  static generateBaseSkillEffect(id: number, label: string): I5eEffectData {
+    const mockItem = {
+      img: "icons/svg/up.svg",
+    };
+    const skillEffect = this.ItemEffect(mockItem as TEffectDocument, label);
+    skillEffect.flags.dae = {};
+    (skillEffect.flags.ddbimporter ??= {}).characterEffect = true;
+    skillEffect.origin = `Actor.${id}`;
+    delete skillEffect.transfer;
+    return skillEffect;
+  }
+
+}

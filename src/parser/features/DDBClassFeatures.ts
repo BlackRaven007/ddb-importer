@@ -1,0 +1,341 @@
+import { logger } from "../../lib/_module";
+import DDBChoiceFeature from "./DDBChoiceFeature";
+import DDBFeature from "./DDBFeature";
+import { DDBClassFeatureEnricher } from "../enrichers/_module";
+import { DDBFeatureActivity } from "../activities/_module";
+import CharacterFeatureFactory from "./CharacterFeatureFactory";
+import { DICTIONARY } from "../../config/_module";
+import type DDBCharacter from "../DDBCharacter";
+import { type IDDBSourceResponse } from "../../lib/DDBSources";
+
+interface IDDBKlassFeatures {
+  derived: IDDBClassFeature[];
+  class: IDDBClassDefinitionFeature[];
+  classFeatureIds: number[];
+  subclass: IDDBClassDefinitionFeature[] | undefined;
+  subclassFeatureIds: number[];
+  filtered: {
+    class: IDDBClassFeature[];
+    subclass: IDDBClassFeature[];
+  };
+}
+
+export default class DDBClassFeatures {
+
+  rawCharacter: I5ePCData | null;
+  ddbCharacter: DDBCharacter | null;
+  ddbData: IDDBData;
+  excludedFeatures: number[];
+  klassFeatures: Record<string, IDDBKlassFeatures>;
+  data: T5eFeatureMixinDataTypes[];
+  _parsed: Record<string, T5eFeatureMixinDataTypes[]>;
+  _generated: T5eFeatureMixinDataTypes[];
+  _processed: T5eFeatureMixinDataTypes[];
+
+  static EXCLUDED_FEATURES = [
+    "Expertise",
+  ];
+
+  static EXCLUDED_FEATURES_2014: string[] = [
+  ];
+
+  static EXCLUDED_FEATURES_2024: string[] = [
+    // "Rage",
+  ];
+
+  static DISCARD_BASE_FEATURE = DICTIONARY.parsing.choiceFeatures.DISCARD_FEATURE_AFTER_CHOICES;
+
+  deriveFeatures() {
+    this.ddbData.character.classes.forEach((klass) => {
+      const derived = klass.classFeatures;
+      const klassDefinitionFeatures = klass.definition.classFeatures;
+      const subclassDefinition = klass.subclassDefinition;
+      const subKlassDefinitionFeatures = subclassDefinition?.classFeatures;
+
+      const klassDefinitionFeatureIds = klassDefinitionFeatures.map((f) => f.id);
+      const subKlassDefinitionFeatureIds = subclassDefinition
+        ? derived
+          .filter((f) => f.definition.classId === subclassDefinition.id)
+          .map((f) => f.definition.id)
+        : [];
+
+      const filteredSubClassDefinitionFeatures = derived.filter((derivedFeature) =>
+        subKlassDefinitionFeatureIds.includes(derivedFeature.definition.id)
+        && CharacterFeatureFactory.includedFeatureNameCheck(derivedFeature.definition.name)
+        && derivedFeature.definition.requiredLevel <= klass.level
+        && !this.excludedFeatures.includes(derivedFeature.definition.id),
+        // && DDBClassFeatures.highestLevelFeature(klass, feat)?.definition?.id === feat.definition.id,
+      );
+
+      const filteredKlassDefinitionFeatures = derived.filter((derivedFeature) =>
+        klassDefinitionFeatureIds.includes(derivedFeature.definition.id)
+        && CharacterFeatureFactory.includedFeatureNameCheck(derivedFeature.definition.name)
+        && derivedFeature.definition.requiredLevel <= klass.level
+        && !this.excludedFeatures.includes(derivedFeature.definition.id)
+        && !filteredSubClassDefinitionFeatures.some((sf) => sf.definition.name === derivedFeature.definition.name),
+        // && DDBClassFeatures.highestLevelFeature(klass, feat)?.definition?.id === feat.definition.id,
+      );
+
+      this.klassFeatures[klass.definition.name] = {
+        derived,
+        class: klassDefinitionFeatures,
+        classFeatureIds: klassDefinitionFeatureIds,
+        subclass: subKlassDefinitionFeatures,
+        subclassFeatureIds: subKlassDefinitionFeatureIds,
+        filtered: {
+          class: filteredKlassDefinitionFeatures,
+          subclass: filteredSubClassDefinitionFeatures,
+        },
+      };
+    });
+  }
+
+  constructor({ ddbData, rawCharacter = null, ddbCharacter = null }: {
+    ddbData: IDDBData;
+    rawCharacter?: I5ePCData | null;
+    ddbCharacter?: DDBCharacter | null;
+  }) {
+    this.ddbCharacter = ddbCharacter;
+    this.ddbData = ddbData;
+    this.rawCharacter = rawCharacter;
+    this.data = [];
+
+    // object off ddb parsed features by class/subclass
+    this._parsed = {};
+    // general array to check for duplicates
+    this._generated = [];
+    // final array of processed, filtered features
+    this._processed = [];
+
+    // object to hold filtered features to be generated
+    this.klassFeatures = {};
+    this.ddbData.character.classes.forEach((klass) => {
+      this._parsed[klass.definition.name] = [];
+      if (klass.subclassDefinition) {
+        this._parsed[klass.subclassDefinition.name] = [];
+      };
+    });
+
+    this.excludedFeatures = this.ddbData.character.optionalClassFeatures
+      .map((f) => f.affectedClassFeatureId)
+      .filter((id): id is number => Boolean(id));
+
+    this.deriveFeatures();
+  }
+
+  async _getFeatures({ featureDefinition, type, source, filterByLevel = true, flags = {} }:{
+    featureDefinition: TDDBFeatureMixinDefinitions | TDDBFeatureMixinFeatures;
+    type: IActionTypes;
+    source: IDDBSourceResponse | string;
+    filterByLevel?: boolean;
+    flags?: IItemFlagConfig;
+  }): Promise<T5eFeatureMixinDataTypes[]> {
+    logger.debug(`DDBClassFeatures._getFeatures started for ${type} of ${source} for ${(foundry.utils.getProperty(featureDefinition, "definition.name") as string) ?? foundry.utils.getProperty(featureDefinition, "name")}`);
+    const enricher = new DDBClassFeatureEnricher({
+      activityGenerator: DDBFeatureActivity,
+      fallbackEnricher: "Generic",
+    });
+    await enricher.init();
+    const feature = new DDBFeature({
+      ddbCharacter: this.ddbCharacter,
+      ddbData: this.ddbData,
+      ddbDefinition: featureDefinition,
+      rawCharacter: this.rawCharacter,
+      type,
+      source,
+      extraFlags: flags,
+      enricher,
+    });
+    await feature.loadEnricher();
+    await feature.build();
+    const allowedByLevel = !filterByLevel || (filterByLevel && feature.hasRequiredLevel);
+
+    logger.debug(`DDBClassFeatures._getFeatures generated: ${feature.ddbDefinition.name}`, {
+      featureDefinition,
+      feature,
+      this: this,
+    });
+
+    if (DDBClassFeatures.EXCLUDED_FEATURES.some((e) => feature.name.startsWith(e))
+      || (feature.is2014 && DDBClassFeatures.EXCLUDED_FEATURES_2014.includes(feature.originalName))
+      || (!feature.is2014 && DDBClassFeatures.EXCLUDED_FEATURES_2024.includes(feature.originalName))
+    ) {
+      logger.debug(`DDBClassFeatures._getFeatures: ${feature.ddbDefinition.name} excluded`, {
+        featureDefinition,
+        feature,
+        this: this,
+      });
+      return [];
+    }
+    if (!allowedByLevel) {
+      logger.debug(`DDBClassFeatures._getFeatures: ${feature.ddbDefinition.name} not allowed by level`, {
+        featureDefinition,
+        feature,
+        this: this,
+      });
+      return [];
+    }
+    const choiceFeatures: T5eFeatureMixinDataTypes[] = feature.isChoiceFeature
+      ? await DDBChoiceFeature.buildChoiceFeatures(feature)
+      : [];
+    if (DDBClassFeatures.DISCARD_BASE_FEATURE.includes(feature.originalName)) {
+      return choiceFeatures;
+    }
+    return [feature.data].concat(choiceFeatures);
+  }
+
+  // static highestLevelFeature(klass, feature) {
+  //   const match = klass.classFeatures
+  //     .filter((f) => f.definition.name === feature.definition.name
+  //       && f.definition.requiredLevel <= klass.level)
+  //     .reduce((prev, cur) => {
+  //       return prev.definition.requiredLevel > cur.definition.requiredLevel ? prev : cur;
+  //     }, { definition: { requiredLevel: 0 } });
+
+  //   return match;
+  // }
+
+  async _generateClassFeatures(klass: IDDBClass) {
+    const className = klass.definition.name;
+    const classFeatures = this.klassFeatures[klass.definition.name].filtered.class;
+    const parsedFeatures = [];
+
+    for (const feature of classFeatures) {
+      const features = await this._getFeatures({
+        featureDefinition: feature,
+        type: "class",
+        source: className,
+        flags: {
+          "ddbimporter": {
+            class: klass.definition.name,
+            classId: klass.definition.id,
+          },
+        },
+      });
+      parsedFeatures.push(...features);
+    }
+    this._parsed[className] = foundry.utils.duplicate(parsedFeatures) as unknown as T5eFeatureMixinDataTypes[];
+
+    parsedFeatures
+      .sort((a, b) => {
+        return (a.flags.ddbimporter?.dndbeyond?.displayOrder ?? 0) - (b.flags.ddbimporter?.dndbeyond?.displayOrder ?? 0);
+      })
+      .forEach((item) => {
+        // have we already processed an identical item?
+        if (!CharacterFeatureFactory.isDuplicateFeature(this._generated, item)) {
+          const name = item.flags.ddbimporter?.originalName ?? item.name;
+          const existingFeature = CharacterFeatureFactory.getNameMatchedFeature(this._processed, item);
+          const duplicateFeature = CharacterFeatureFactory.isDuplicateFeature(this._processed, item)
+            || CharacterFeatureFactory.FORCE_DUPLICATE_FEATURE.includes(name);
+          if (existingFeature && !duplicateFeature) {
+            const levelAdjustment = `<h3>${className}: Level ${item.flags.ddbimporter?.dndbeyond?.requiredLevel}</h3>${item.system.description?.value ?? ""}`;
+            if (existingFeature.system.description) existingFeature.system.description.value += levelAdjustment;
+            existingFeature.effects?.push(...(item.effects ?? []));
+          } else if (!existingFeature) {
+            this._processed.push(item);
+          }
+        }
+      });
+    this._generated.push(...parsedFeatures);
+
+  }
+
+  async _generateSubClassFeatures(klass: IDDBClass) {
+    const className = klass.definition.name;
+    const subclassDefinition = klass.subclassDefinition;
+    if (!subclassDefinition) {
+      logger.warn(`No subclass definition found for ${className}, skipping subclass feature generation`);
+      return;
+    }
+    const subClassName = `${subclassDefinition.name}`;
+    const parsedFeatures: T5eFeatureMixinDataTypes[] = [];
+    const subClassFeatures = this.klassFeatures[klass.definition.name].filtered.subclass;
+    const subClass = foundry.utils.getProperty(klass, "subclassDefinition") as IDDBClassDefinition;
+
+    for (const feature of subClassFeatures) {
+      const features = await this._getFeatures({
+        featureDefinition: feature,
+        type: "class",
+        source: `${className} : ${subclassDefinition.name}`,
+        flags: {
+          "ddbimporter": {
+            class: klass.definition.name,
+            classId: klass.definition.id,
+            subClass: subClass.name,
+            subClassId: subClass.id,
+          },
+        },
+      });
+      parsedFeatures.push(...features);
+    }
+    this._parsed[subClassName] = foundry.utils.duplicate(parsedFeatures) as unknown as T5eFeatureMixinDataTypes[];
+
+    const subClassDocs: T5eFeatureMixinDataTypes[] = [];
+
+    // parse out duplicate features from class features
+    parsedFeatures.forEach((item) => {
+      if (!CharacterFeatureFactory.isDuplicateFeature(this._parsed[className], item)) {
+        const name = item.flags.ddbimporter?.originalName ?? item.name;
+        const existingFeature = CharacterFeatureFactory.getNameMatchedFeature(subClassDocs, item);
+        const duplicateFeature = CharacterFeatureFactory.isDuplicateFeature(subClassDocs, item)
+          || CharacterFeatureFactory.FORCE_DUPLICATE_FEATURE.includes(name);
+        if (existingFeature && !duplicateFeature) {
+          if (CharacterFeatureFactory.FORCE_DUPLICATE_OVERWRITE.includes(name)) {
+            if (existingFeature.system.description) {
+              existingFeature.system.description.value = `${item.system.description?.value ?? ""}`;
+            }
+          } else {
+            const levelAdjustment = `<h3>${subClassName}: At Level ${item.flags.ddbimporter?.dndbeyond?.requiredLevel}</h3>${item.system.description?.value ?? ""}`;
+            if (existingFeature.system.description) existingFeature.system.description.value += levelAdjustment;
+          }
+        } else if (!existingFeature) {
+          subClassDocs.push(item);
+        }
+      }
+    });
+    // add features to list to indicate processed
+    this._generated.push(...parsedFeatures);
+
+    // now we take the unique subclass features and add to class
+    subClassDocs
+      .sort((a, b) => {
+        return (a.flags.ddbimporter?.dndbeyond?.displayOrder ?? 0) - (b.flags.ddbimporter?.dndbeyond?.displayOrder ?? 0);
+      })
+      .forEach((item) => {
+        const name = item.flags.ddbimporter?.originalName ?? item.name;
+        const existingFeature = CharacterFeatureFactory.getNameMatchedFeature(this._processed, item);
+        const duplicateFeature = CharacterFeatureFactory.isDuplicateFeature(this._processed, item)
+          || CharacterFeatureFactory.FORCE_DUPLICATE_FEATURE.includes(name);
+        if (existingFeature && !duplicateFeature) {
+          if (CharacterFeatureFactory.FORCE_DUPLICATE_OVERWRITE.includes(name)) {
+            if (existingFeature.system.description) {
+              existingFeature.system.description.value = `${item.system.description?.value ?? ""}`;
+            }
+          } else {
+            const levelAdjustment = `<h3>${subClassName}: At Level ${item.flags.ddbimporter?.dndbeyond?.requiredLevel}</h3>${item.system.description?.value ?? ""}`;
+            if (existingFeature.system.description) existingFeature.system.description.value += levelAdjustment;
+          }
+        } else if (!existingFeature) {
+          this._processed.push(item);
+        }
+      });
+
+  }
+
+  async build() {
+    // subclass features can often be duplicates of class features.
+    for (const klass of this.ddbData.character.classes) {
+      logger.debug(`Processing class features for ${klass.definition.name}`);
+      await this._generateClassFeatures(klass);
+      // subclasses
+      if (klass.subclassDefinition && klass.subclassDefinition.classFeatures) {
+        logger.debug(`Processing subclass features for ${klass.subclassDefinition.name}`);
+        await this._generateSubClassFeatures(klass);
+      }
+      logger.debug(`ddbClassFeatures for ${klass.definition.name}`, { ddbClassFeatures: this });
+    }
+    this.data = foundry.utils.duplicate(this._processed) as unknown as T5eFeatureMixinDataTypes[];
+    // return this.data;
+  }
+
+}

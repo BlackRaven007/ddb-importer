@@ -1,0 +1,114 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class JavelinOfLightning extends DDBEnricherData {
+
+  get activity(): IDDBActivityData {
+    return {
+      noConsumeTargets: true,
+    };
+  }
+
+  get override(): IDDBOverrideData {
+    const overrideData: Record<string, any> = {
+      system: {
+        uses: {
+          spent: null,
+          max: "",
+          recovery: [],
+          autoDestroy: false,
+        },
+      },
+    };
+    const override: IDDBOverrideData = {
+      retainUseSpent: true,
+      data: overrideData,
+    };
+
+    if (this.is2014) return override;
+
+    overrideData.system.damage = {
+      base: DDBEnricherData.basicDamagePart({
+        number: 1,
+        denomination: 6,
+        types: ["piercing", "lightning"],
+      }),
+    };
+    return override;
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Lightning Bolt",
+          type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
+        },
+        build: {
+          onSave: "half",
+          includeBaseDamage: false,
+          generateSave: true,
+          generateActivation: true,
+          generateConsumption: false,
+          generateDamage: true,
+          generateTarget: true,
+          generateRange: true,
+          generateUses: true,
+          saveOverride: {
+            ability: ["dex"],
+            dc: {
+              calculation: "",
+              formula: "13",
+            },
+          },
+          damageParts: [
+            DDBEnricherData.basicDamagePart({
+              number: 4,
+              denomination: 6,
+              types: ["lightning"],
+            }),
+          ],
+          usesOverride: {
+            spent: 0,
+            max: "1",
+            autoDestroy: true,
+            recovery: [
+              {
+                period: "dawn",
+                type: "recoverAll",
+              },
+            ],
+          },
+        },
+        overrides: {
+          addActivityConsume: true,
+          data: {
+            img: "icons/magic/lightning/bolt-forked-large-blue-yellow.webp",
+            range: {
+              override: true,
+              value: "",
+              units: "self",
+            },
+            target: {
+              override: true,
+              affects: {
+                count: "",
+                type: "creature",
+              },
+              template: {
+                contiguous: false,
+                type: "line",
+                size: "120",
+                units: "ft",
+                width: "5",
+              },
+            },
+          },
+        },
+      },
+    ];
+  }
+
+  get addAutoAdditionalActivities() {
+    return false;
+  }
+}

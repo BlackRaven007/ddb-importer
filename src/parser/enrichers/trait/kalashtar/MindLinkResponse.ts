@@ -1,0 +1,32 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class MindLinkResponse extends DDBEnricherData {
+
+  get activity(): IDDBActivityData {
+    return {
+      data: {
+        range: {
+          units: "spec",
+          special: "Within sight",
+        },
+      },
+    };
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        changes: [
+          DDBEnricherData.ChangeHelper.unsignedAddChange("Telepathy", 10, "system.traits.languages.custom"),
+        ],
+        data: {
+          duration: {
+            value: 3600,
+            units: "seconds",
+          },
+        },
+      },
+    ];
+  }
+
+}

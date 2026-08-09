@@ -1,0 +1,60 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class EnhancedBond extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.HEAL;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Bonus Healing",
+      activationType: "special",
+      data: {
+        healing: DDBEnricherData.basicDamagePart({
+          number: 1,
+          denomination: 8,
+          types: ["healing"],
+        }),
+      },
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Bonus Damage",
+          type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
+        },
+        build: {
+          generateConsumption: false,
+          generateTarget: true,
+          generateRange: false,
+          generateActivation: true,
+          generateDamage: true,
+          activationOverride: {
+            type: "special",
+            value: 1,
+            condition: "",
+          },
+        },
+        overrides: {
+          data: {
+            damage: {
+              parts: [
+                DDBEnricherData.basicDamagePart({
+                  number: 1,
+                  denomination: 8,
+                  types: ["fire"],
+                }),
+              ],
+            },
+          },
+        },
+      },
+    ];
+  }
+
+}
+

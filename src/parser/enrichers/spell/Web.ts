@@ -1,0 +1,93 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class Web extends DDBEnricherData {
+
+  get activity(): IDDBActivityData {
+    return {
+      id: "ddbWebSpellSave1",
+      noeffect: this.useMidiAutomations,
+    };
+  }
+
+
+  get override(): IDDBOverrideData {
+    return {
+      data: {
+        flags: {
+          ddbimporter: {
+            effect: {
+              applyStart: true,
+              applyEntry: true,
+              applyImmediate: true,
+              everyEntry: false,
+              allowVsRemoveCondition: true,
+              removalCheck: "str", // in 2024 this can be athletcis
+              removalSave: null,
+              saveRemoves: false,
+              condition: "Restrained",
+              save: "dex",
+              sequencerFile: "jb2a.web.02",
+              activityIds: ["ddbWebSpellSave1"],
+            },
+          },
+        },
+      },
+    };
+  }
+
+  get clearAutoEffects() {
+    return true;
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Restrained",
+        activeAurasNever: true,
+        midiNever: true,
+        statuses: ["Restrained"],
+      },
+      {
+        name: "Web",
+        activeAurasOnly: true,
+        options: {
+          durationSeconds: 3600,
+        },
+        midiOnly: true,
+        macroChanges: [
+          {
+            functionCall: "DDBImporter.effects.AuraAutomations.ConditionOnEntry",
+          },
+        ],
+        data: {
+          flags: {
+            dae: {
+              macroRepeat: "startEveryTurn",
+            },
+            ActiveAuras: {
+              isAura: true,
+              aura: "All",
+              radius: undefined,
+              alignment: "",
+              type: "",
+              ignoreSelf: false,
+              height: false,
+              hidden: false,
+              onlyOnce: false,
+              displayTemp: true,
+            },
+          },
+        },
+      },
+    ];
+  }
+
+
+  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
+    return {
+      functionCall: "DDBImporter.effects.AuraAutomations.ConditionOnEntry",
+      triggerPoints: ["preActiveEffects"],
+    };
+  }
+
+}

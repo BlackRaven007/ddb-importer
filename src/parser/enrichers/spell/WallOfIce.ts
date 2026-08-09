@@ -1,0 +1,91 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class WallOfIce extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.SAVE;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Place Panels",
+      splitDamage: true,
+      data: {
+        img: "icons/magic/water/barrier-ice-wall-snow.webp",
+        target: {
+          override: true,
+          template: {
+            count: "10",
+            contiguous: true,
+            type: "wall",
+            size: "10",
+            width: "1",
+            height: "10",
+            units: "ft",
+          },
+        },
+      },
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Create Dome/Globe",
+          type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
+        },
+        build: {
+          generateDamage: true,
+          generateConsumption: true,
+          generateSave: true,
+          generateTarget: true,
+          img: "icons/magic/water/barrier-ice-shield.webp",
+          partialDamageParts: [0],
+          targetOverride: {
+            override: true,
+            template: {
+              count: "1",
+              contiguous: false,
+              type: "sphere",
+              size: "10",
+              units: "ft",
+            },
+            affects: {},
+          },
+        },
+      },
+      {
+        init: {
+          name: "Frigid Air Save",
+          type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
+        },
+        build: {
+          generateDamage: true,
+          generateConsumption: false,
+          generateSave: true,
+          img: "icons/magic/water/snowflake-ice-blue-white.webp",
+          generateTarget: true,
+          partialDamageParts: [1],
+          noSpellslot: true,
+          activationOverride: { type: "special", condition: "Moving through/starting in Frigid Air" },
+          durationOverride: { units: "inst", concentration: false },
+          targetOverride: {
+            override: true,
+            affects: {
+              type: "creature",
+            },
+            template: {},
+          },
+        },
+      },
+    ];
+  }
+
+  get override(): IDDBOverrideData {
+    return {
+      noTemplate: true,
+    };
+  }
+
+}

@@ -1,0 +1,46 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class FightingStyleInterception extends DDBEnricherData {
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      targetType: "creature",
+      data: {
+        target: {
+          affects: {
+            type: "creature",
+          },
+          template: {},
+        },
+        roll: {
+          prompt: false,
+          visible: false,
+          formula: "1d10 + @prof",
+          name: "Reduce Damage Roll",
+        },
+      },
+    };
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        midiOnly: true,
+        name: "Interception (Automation)",
+        options: {
+          transfer: true,
+        },
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.overrideChange("1d10 + @system.attributes.prof", 20, "system.traits.dm.midi.mwak"),
+          DDBEnricherData.ChangeHelper.overrideChange("1d10 + @system.attributes.prof", 20, "system.traits.dm.midi.rwak"),
+          DDBEnricherData.ChangeHelper.overrideChange("1d10 + @system.attributes.prof", 20, "system.traits.dm.midi.rsak"),
+          DDBEnricherData.ChangeHelper.overrideChange("1d10 + @system.attributes.prof", 20, "system.traits.dm.midi.msak"),
+        ],
+        daeSpecialDurations: ["isDamaged" as const],
+      },
+    ];
+  }
+}

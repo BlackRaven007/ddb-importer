@@ -1,0 +1,34 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class MageHand extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.SUMMON;
+  }
+
+
+  get summonsFunction() {
+    return DDBImporter.lib.DDBSummonsInterface.getMageHands;
+  }
+
+  get generateSummons() {
+    return true;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      noTemplate: true,
+      profileKeys: [
+        { count: 1, name: "MageHandRed" },
+        { count: 1, name: "MageHandPurple" },
+        { count: 1, name: "MageHandGreen" },
+        { count: 1, name: "MageHandBlue" },
+        { count: 1, name: "MageHandRock" },
+        { count: 1, name: "MageHandRainbow" },
+      ],
+      summons: {
+      },
+    };
+  }
+
+}

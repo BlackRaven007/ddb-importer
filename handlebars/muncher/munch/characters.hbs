@@ -1,0 +1,8 @@
+<section class="tab characters-{{ tab.id }} {{ tab.cssClass }}" data-tab="{{ tab.id }}" data-group="{{ tab.group }}">
+    {{> "templates/generic/tab-navigation.hbs" tabs=tabs.munch.tabs.characters.tabs }}
+    {{> "modules/ddb-importer/handlebars/muncher/munch/characters/settings.hbs" tab=tabs.munch.tabs.characters.tabs.settings }}
+    {{> "modules/ddb-importer/handlebars/muncher/munch/characters/feat.hbs" tab=tabs.munch.tabs.characters.tabs.feat }}
+    {{> "modules/ddb-importer/handlebars/muncher/munch/characters/backgrounds.hbs" tab=tabs.munch.tabs.characters.tabs.backgrounds }}
+    {{> "modules/ddb-importer/handlebars/muncher/munch/characters/species.hbs" tab=tabs.munch.tabs.characters.tabs.species }}
+    {{> "modules/ddb-importer/handlebars/muncher/munch/characters/class.hbs" tab=tabs.munch.tabs.characters.tabs.class }}
+</section>

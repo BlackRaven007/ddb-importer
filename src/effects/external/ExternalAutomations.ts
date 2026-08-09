@@ -1,0 +1,135 @@
+import { logger, PatreonHelper, utils } from "../../lib/_module";
+import ChrisPremadesHelper from "./ChrisPremadesHelper";
+
+export default class ExternalAutomations {
+
+  actor: Actor;
+  dynamicUpdateAllowed: boolean;
+  dynamicUpdateStatus: boolean;
+
+  constructor(actor: Actor) {
+    this.actor = actor;
+    const dynamicSync = utils.getSetting<boolean>("dynamic-sync");
+    const updateUser = utils.getSetting<string>("dynamic-sync-user");
+    const gmSyncUser = game.user.isGM && game.user.id == updateUser;
+    const tier = PatreonHelper.getPatreonTier();
+    const tiers = PatreonHelper.calculateAccessMatrix(tier);
+    this.dynamicUpdateAllowed = dynamicSync && gmSyncUser && tiers?.experimentalMid;
+    this.dynamicUpdateStatus = foundry.utils.getProperty(this.actor, "flags.ddbimporter.activeUpdate") as boolean ?? false;
+  }
+
+  getCurrentDynamicUpdateState() {
+    return foundry.utils.getProperty(this.actor, "flags.ddbimporter.activeUpdate") as boolean ?? false;
+  }
+
+  async disableDynamicUpdates() {
+    if (!this.dynamicUpdateStatus) return;
+    const activeUpdateData = { flags: { ddbimporter: { activeUpdate: false } } };
+    await this.actor.update(activeUpdateData as Actor.UpdateInput);
+  }
+
+  async enableDynamicUpdates() {
+    if (!this.dynamicUpdateStatus) return;
+    const activeUpdateData = { flags: { ddbimporter: { activeUpdate: true } } };
+    await this.actor.update(activeUpdateData as Actor.UpdateInput);
+  }
+
+  static async applyChrisPremadeEffect({ document, type, monsterName = null, chrisNameOverride = null }: { document: TExternalAutomationDocuments; type: string; monsterName?: string | null; chrisNameOverride?: string | null }): Promise<TExternalAutomationDocuments> {
+    return ChrisPremadesHelper.findAndUpdate({
+      document,
+      type,
+      chrisNameOverride,
+      monsterName,
+    });
+  }
+
+  static async applyChrisPremadeEffects({ documents, compendiumItem = false, force = false, monsterName = null }: {
+    documents: TExternalAutomationDocuments[];
+    compendiumItem?: boolean;
+    force?: boolean;
+    monsterName?: string | null;
+  }): Promise<TExternalAutomationDocuments[]> {
+    if (!game.modules.get("chris-premades")?.active) {
+      logger.debug("Cauldron of Plentiful Resources not active");
+      return documents;
+    }
+
+    const applyChrisEffects = force || (compendiumItem
+      ? utils.getSetting<boolean>("munching-policy-use-chris-premades")
+      : utils.getSetting<boolean>("character-update-policy-use-chris-premades"));
+    if (!applyChrisEffects) {
+      logger.debug("Not Applying basic premades");
+      return documents;
+    }
+
+    for (let doc of documents) {
+      if (["class", "subclass", "background"].includes(doc.type)) continue;
+      const type = ChrisPremadesHelper.getTypeMatch(doc, monsterName !== null);
+      logger.debug(`Evaluating ${doc.name} of type ${type} for Cauldron of Plentiful Resources application.`, { type, monsterName });
+
+      doc = await ChrisPremadesHelper.findAndUpdate({
+        document: doc,
+        type,
+        monsterName,
+      });
+      if (monsterName && !["monsterfeature"].includes(type) && foundry.utils.getProperty(doc, "flags.ddbimporter.effectsApplied") !== true) {
+        logger.debug(`No Cauldron of Plentiful Resources found for ${doc.name} with type "${type}", checking for monster feature.`);
+        doc = await ChrisPremadesHelper.findAndUpdate({
+          document: doc,
+          type: "monsterfeature",
+          monsterName,
+        });
+      }
+    }
+
+    return documents;
+  }
+
+  static async addChrisEffectsToActorDocuments(actor: Actor): Promise<string[]> {
+    if (!game.modules.get("chris-premades")?.active) {
+      ui.notifications.error("Cauldron of Plentiful Resources module not installed");
+      return [];
+    }
+
+    const externalAutomations = new ExternalAutomations(actor);
+    await externalAutomations.disableDynamicUpdates();
+
+    logger.info("Starting to update actor documents with Cauldron of Plentiful Resources effects");
+    const documents = actor.getEmbeddedCollection("Item").toObject().filter((d) =>
+      foundry.utils.getProperty(d, "flags.ddbimporter.ignoreItemImport") !== true
+      && foundry.utils.getProperty(d, "flags.ddbimporter.ignoreItemForChrisPremades") !== true,
+    ) as unknown as TExternalAutomationDocuments[];
+    const isMonster = actor.type === "npc";
+    const monsterName = isMonster ? actor.name as string : null;
+    const data = (await ExternalAutomations.applyChrisPremadeEffects({
+      documents,
+      compendiumItem: false,
+      force: true,
+      monsterName,
+    }))
+      .filter((d) =>
+        foundry.utils.getProperty(d, "flags.ddbimporter.chrisEffectsApplied") === true
+        && !foundry.utils.hasProperty(d, "flags.items-with-spells-5e.item-spells.parent-item"),
+      );
+    const dataIds = data.map((d) => d._id).filter((id): id is string => typeof id === "string");
+    logger.debug("Cauldron of Plentiful Resources generation complete, beginning replace", {
+      isMonster,
+      monsterName,
+      data,
+      dataIds,
+      actor,
+      documents,
+    });
+    await actor.deleteEmbeddedDocuments("Item", dataIds);
+    logger.debug("Cauldron of Plentiful Resources, deletion complete");
+    logger.debug("Creating Cauldron of Plentiful Resources items", data);
+    await actor.createEmbeddedDocuments("Item", data as any, { keepId: true });
+    logger.debug("Delete and recreate complete, beginning restricted item replacer");
+    await ChrisPremadesHelper.restrictedItemReplacer(actor, monsterName);
+    logger.debug("Restricted item replacer complete, beginning Replacement of Redundant CPR Documents");
+    await ChrisPremadesHelper.addAndReplaceRedundantChrisDocuments(actor, monsterName);
+    logger.info("Effect replacement complete");
+    await externalAutomations.enableDynamicUpdates();
+    return data.map((d) => d.name);
+  }
+}

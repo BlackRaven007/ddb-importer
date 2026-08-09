@@ -1,0 +1,86 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class Grease extends DDBEnricherData {
+
+  get activity(): IDDBActivityData {
+    return {
+      id: "ddbGreaseSpellSa",
+      noeffect: this.useMidiAutomations,
+    };
+  }
+
+  get clearAutoEffects() {
+    return this.useMidiAutomations;
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Grease",
+        activeAurasOnly: true,
+        midiOnly: true,
+        options: {
+          durationSeconds: 60,
+        },
+        macroChanges: [
+          { functionCall: "DDBImporter.effects.AuraAutomations.ConditionOnEntry" },
+        ],
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.customChange(
+            `applyCondition=!statusesSet.has('prone'),turn=end,label=${this.data.name},saveRemove=false,saveDC=@attributes.spell.dc,saveAbility=dex,saveDamage=nodamage,killAnim=true,macro=function.DDBImporter.effects.AuraAutomations.ConditionOnEntry`,
+            20,
+            "flags.midi-qol.OverTime",
+          ),
+        ],
+        data: {
+          duration: {
+            value: 60,
+            units: "seconds",
+          },
+          flags: {
+            ActiveAuras: {
+              isAura: true,
+              aura: "All",
+              radius: undefined,
+              displayTemp: true,
+            },
+          },
+        },
+      },
+    ];
+  }
+
+  get override(): IDDBOverrideData {
+    return {
+      data: {
+        flags: {
+          ddbimporter: {
+            effect: {
+              applyStart: true,
+              applyEnd: true,
+              applyEntry: true,
+              applyImmediate: true,
+              everyEntry: true,
+              removeOnOff: false,
+              allowVsRemoveCondition: false,
+              removalCheck: null,
+              removalSave: null,
+              saveRemoves: false,
+              condition: "Prone",
+              sequencerFile: "jb2a.grease.dark_green.loop",
+              activityIds: ["ddbGreaseSpellSa"],
+            },
+          },
+        },
+      },
+    };
+  }
+
+  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
+    return {
+      functionCall: "DDBImporter.effects.AuraAutomations.ConditionOnEntry",
+      triggerPoints: ["preActiveEffects"],
+    };
+  }
+
+}

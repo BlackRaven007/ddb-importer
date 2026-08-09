@@ -1,0 +1,63 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class _IntuitionActionBase extends DDBEnricherData {
+
+  get activity(): IDDBActivityData {
+    return {
+      data: {
+        roll: {
+          name: "Roll bonus",
+          formula: `@scale.${this.parentIdentifier}.die`,
+        },
+      },
+    };
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        options: {
+          transfer: true,
+          durationSeconds: undefined,
+          durationRounds: undefined,
+        },
+        data: {
+          duration: {
+            value: null,
+            expiry: null,
+            expired: undefined,
+          },
+        },
+        changes: [],
+      },
+    ];
+
+  }
+
+  get override(): IDDBOverrideData {
+    const advancement = {
+      "type": "ScaleValue",
+      "_id": foundry.utils.randomID(),
+      "configuration": {
+        "identifier": "die",
+        "type": "dice",
+        "scale": {
+          "0": {
+            "number": 1,
+            "faces": 4,
+          },
+        },
+      },
+      "title": this.name,
+      "hint": "A scale value which can be updated by its Greater Mark feat.",
+    };
+    // to do determine advancement here
+
+    return {
+      data: {
+        [`system.advancement.${advancement._id}`]: advancement,
+      },
+    };
+  }
+
+}

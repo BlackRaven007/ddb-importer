@@ -1,0 +1,30 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class CloakOfDisplacement extends DDBEnricherData {
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: `${this.data.name} - Check`,
+        macroChanges: [
+          { macroType: "item", macroName: "cloakOfDisplacement.js" },
+        ],
+        data: {
+          flags: {
+            dae: {
+              macroRepeat: "startEveryTurn",
+            },
+          },
+        },
+      },
+    ];
+  }
+
+  get itemMacro(): IDDBItemMacro {
+    return {
+      type: "item",
+      name: "cloakOfDisplacement.js",
+    };
+  }
+
+}

@@ -1,0 +1,60 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class HadozeeDodge extends DDBEnricherData {
+
+  get type() {
+    if (!this.isAction) return null;
+    return DDBEnricherData.ACTIVITY_TYPES.HEAL;
+  }
+
+  get activity(): IDDBActivityData | null {
+    if (!this.isAction) return null;
+    return {
+      name: "Reduce Damage",
+      targetType: "self",
+      type: DDBEnricherData.ACTIVITY_TYPES.HEAL,
+      noConsumeTargets: true,
+      data: {
+        healing: DDBEnricherData.basicDamagePart({
+          number: 1,
+          denomination: 10,
+          bonus: "1d6 + @attributes.prof",
+          types: ["healing"],
+        }),
+      },
+    };
+  }
+
+  get useDefaultAdditionalActivities() {
+    return true;
+  }
+
+  get effects(): IDDBEffectHint[] {
+    if (!this.isAction) return [];
+    return [
+      {
+        midiOnly: true,
+        name: "Hadozee Dodge",
+        daeSpecialDurations: ["1Reaction" as const],
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.customChange("1d6 + @attributes.prof", 20, "system.traits.dm.midi.all"),
+        ],
+        data: {
+          flags: {
+            dae: {
+              selfTarget: true,
+              selfTargetAlways: true,
+            },
+          },
+        },
+      },
+    ];
+  }
+
+  get override(): IDDBOverrideData {
+    return {
+      midiDamageReaction: true,
+    };
+  }
+
+}

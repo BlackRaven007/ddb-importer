@@ -1,0 +1,81 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class Silence extends DDBEnricherData {
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Within Zone of Silence",
+        statuses: ["Deafened"],
+        changes: [
+          DDBEnricherData.ChangeHelper.overrideChange(
+            "thunder",
+            50,
+            "system.traits.di.value",
+          ),
+        ],
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.overrideChange(
+            "1",
+            50,
+            "flags.midi-qol.fail.spell.vocal",
+          ),
+        ],
+        options: {
+          durationSeconds: 600,
+        },
+        data: {
+          flags: {
+            ActiveAuras: {
+              isAura: true,
+              aura: "All",
+              radius: "20",
+              alignment: "",
+              type: "",
+              ignoreSelf: false,
+              height: false,
+              hidden: false,
+              onlyOnce: false,
+              displayTemp: true,
+            },
+          },
+        },
+      },
+    ];
+  }
+
+  get override(): IDDBOverrideData {
+    return {
+      data: {
+        flags: {
+          limits: {
+            sight: {
+              hearing: { enabled: true, range: 0 }, // Hearing
+            },
+            sound: { enabled: true, range: 0 },
+          },
+          walledtemplates: {
+            wallRestriction: "move",
+            wallsBlock: "walled",
+          },
+        },
+      },
+    };
+  }
+
+  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
+    return {
+      type: "generic",
+      name: "activeAuraOnly.js",
+      triggerPoints: ["preActiveEffects"],
+    };
+  }
+
+  get itemMacro(): IDDBItemMacro {
+    return {
+      type: "generic",
+      name: "activeAuraOnly.js",
+    };
+  }
+
+}

@@ -1,0 +1,30 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class InspiredEclipse extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      targetType: "self",
+      addItemConsume: true,
+      activationType: "special",
+      activationCondition: "Give someone Bardic Inspiration",
+    };
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        statuses: ["Invisible"],
+        options: {
+          durationSeconds: 6,
+        },
+        daeSpecialDurations: ["turnStart" as const, "1Attack" as const, "1Spell" as const],
+      },
+    ];
+  }
+
+}

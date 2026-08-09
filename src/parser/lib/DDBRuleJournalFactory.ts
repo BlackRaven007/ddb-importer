@@ -1,0 +1,531 @@
+import { DICTIONARY } from "../../config/_module";
+import { CompendiumHelper, DDBSources, logger, utils } from "../../lib/_module";
+import DDBDataUtils from "./DDBDataUtils";
+
+
+// type TRaceChoiceDocumentTypes = I5eFeatItem | I5eWeaponItem;
+
+const JOURNAL_INDEX_FIELDS = [
+  "name",
+  "flags.ddbimporter",
+];
+
+const ITEM_INDEX_FIELDS = ["name", "type", "flags.ddbimporter", "system.source.book"];
+
+const BASE_RULE_PAGE: I5eRuleJournalPageData = {
+  sort: 1,
+  name: "",
+  type: "rule",
+  system: {
+    type: "rule",
+  },
+  title: {
+    show: true,
+    level: 2,
+  },
+  image: {},
+  text: {
+    content: "",
+    format: 1,
+  },
+  src: null,
+  ownership: {
+    default: -1,
+  },
+  flags: {
+    ddbimporter: {},
+  },
+};
+
+const WEAPON_MASTERY: Record<string, number[]> = {
+  "PHB 2024": [
+    18, // cleave
+    19, // graze
+    20, // nick
+    21, // push
+    22, // sap
+    23, // slow
+    24, // topple
+    25, // vex
+  ],
+  "GHPG": [ // grim hollow
+    50, // brutal
+    55, // defending
+    53, // disarming
+    40, // entangling
+    49, // returning
+    32, // scattering
+    52, // set
+    44, // strong draw
+    42, // swift
+  ],
+  "TGC": [ // gunslinger
+    37, // automatic
+    36, // explode
+    32, // scatter
+  ],
+};
+
+const WEAPON_PROPERTIES: Record<string, number[]> = {
+  "PHB 2024": [
+    1, // ammunition
+    2, // finesse
+    3, // heavy
+    4, // light
+    5, // loading
+    7, // range
+    8, // reach
+    9, // special
+    10, // thrown
+    11, // two-handed
+    12, // versatile
+  ],
+  "DMG 2024": [
+    14, // burst
+    15, // reload
+  ],
+  "GHPG": [ // grim hollow
+    43, // armor piercing
+    45, // black powder
+    46, // cumbersome
+    54, // damage
+    51, // double
+    39, // hafted
+    47, // magazine
+    41, // momentum
+    48, // repeater
+    56, // scatter
+  ],
+  "TGC": [ // gunslinger
+    32, // scatter
+    33, // firearm
+    34, // recoil
+    35, // sighted
+  ],
+  "AV": [
+    38, // repeating
+  ],
+  "HGtMH1": [ // Heliana’s Guide to Monster Hunting: Part 1
+    31, // loud
+    30, // attached
+    15, // reload
+  ],
+  "CR": [ // critical role
+    15, // reload
+    16, // misfire
+    17, // explosive
+  ],
+  "EGtW": [ // critical role
+    15, // reload
+    16, // misfire
+    17, // explosive
+  ],
+  "TCSR": [ // critical role
+    15, // reload
+    16, // misfire
+    17, // explosive
+  ],
+  "SGEHPP": [ // Steinhardt's Guide to the Eldritch Hunt Player Pack
+    58, // barrel
+    59, // blaring
+    60, // spread fire
+    61, // twinned barrel
+    62, // artillery
+    63, // booming
+  ],
+  // unknown source
+  // 57, // Pull
+};
+
+// const PHYSICAL_WEAPON_PROPERTIES = [
+//   43, // armor piercing
+// ];
+
+function getAllowedSourceIds() {
+  return utils.getSetting<string[]>("allowed-weapon-property-sources").map((id) => parseInt(id));
+}
+
+interface IRuleFactorySource {
+  id: number;
+  acronym: string;
+  label: string;
+}
+
+export default class DDBRuleJournalFactory {
+
+  journalCompendium: CompendiumCollection.Any | null = null;
+  nameBit = "";
+  flagName = "";
+  flagTag = "";
+  sources: IRuleFactorySource[] | null = null;
+  filteredSources: IRuleFactorySource[] | null = null;
+  journalFolder: ({ _id: string; name: string } & Folder) | null = null;
+  available = false;
+
+  /** set by subclasses; used as the rule page system type */
+  declare type?: I5eRuleType;
+
+  static getSources(): IRuleFactorySource[] {
+    const ddbSources = foundry.utils.getProperty(CONFIG, "DDB.sources") as IDDBConfigSource[];
+    if (!ddbSources) return [];
+
+    const sources: IRuleFactorySource[] = ddbSources
+      .filter((s) => s.isReleased)
+      .map((s) => {
+        return {
+          id: s.id,
+          acronym: DDBSources.getAdjustedSourceBook(s.name),
+          label: s.description,
+        };
+      });
+
+    sources.push({
+      id: 9999999,
+      acronym: "Homebrew",
+      label: "Homebrew",
+    });
+    return sources;
+  }
+
+  #buildSources() {
+    const sources = DDBRuleJournalFactory.getSources();
+
+    if (sources.length === 0) return;
+
+    this.sources = sources;
+    this.filteredSources = sources.filter((s) =>
+      utils.getSetting<boolean>("use-basic-rules")
+      || !DICTIONARY.sourceCategories.basicRules.includes(s.id),
+    );
+
+  }
+
+  constructor({ journalName, flagName, flagTag }: { journalName?: string; flagName?: string; flagTag?: string } = {}) {
+    this.nameBit = journalName ?? "";
+    this.flagName = flagName ?? "";
+    this.flagTag = flagTag ?? "";
+    this.journalCompendium = CompendiumHelper.getCompendiumType("journals") ?? null;
+    this.#buildSources();
+
+    if (this.journalCompendium) {
+      this.available = true;
+    } else {
+      logger.error("DDB Rule Journal Factory not available, check your compendiums exist.");
+    }
+  }
+
+  async _getIndexes() {
+    if (!this.journalCompendium) return;
+    await this.journalCompendium.getIndex({
+      fields: JOURNAL_INDEX_FIELDS,
+    });
+
+  }
+
+  async init() {
+    if (!this.available || !this.journalCompendium) return;
+
+    await this._getIndexes();
+
+    this.journalFolder = await CompendiumHelper.createFolder({
+      pack: this.journalCompendium,
+      name: this.nameBit,
+      flagTag: this.flagTag,
+      entityType: "JournalEntry",
+    });
+  }
+
+  async _createRuleJournal(source: IRuleFactorySource): Promise<JournalEntry | undefined> {
+    if (!this.journalCompendium || !this.journalFolder) {
+      logger.error(`Unable to create rule journal for ${source.label}: compendium or folder missing.`);
+      return undefined;
+    }
+    const journalData = {
+      _id: utils.namedIDStub(this.flagTag, { prefix: source.acronym.replaceAll(" ", "").replaceAll(".", "") }),
+      name: source.label,
+      sort: source.id,
+      ownership: {
+        default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER,
+      },
+      flags: {
+        ddbimporter: {
+          type: this.flagName,
+          sourceId: source.id,
+          sourceCode: source.acronym,
+          sourceName: source.label,
+        },
+      },
+      folder: this.journalFolder._id,
+    };
+    logger.debug(`Creating Rule Journal: ${source.label}`, { journalData, source });
+    const journal = await JournalEntry.create(
+      journalData as unknown as JournalEntry.CreateInput,
+      {
+        pack: this.journalCompendium.metadata.id,
+        displaySheet: false,
+        keepId: true,
+      } as Parameters<typeof JournalEntry.create>[1],
+    );
+    return journal;
+  }
+
+  async _getRuleJournal(source: IRuleFactorySource): Promise<JournalEntry | undefined> {
+    if (!this.journalCompendium) return undefined;
+    const journalHit = this.journalCompendium.index.find((j) =>
+      foundry.utils.getProperty(j, "flags.ddbimporter.type") === this.flagName
+      && foundry.utils.getProperty(j, "flags.ddbimporter.sourceCode") === source.acronym,
+    );
+    if (journalHit) {
+      logger.debug(`Found existing Rule Journal for ${source.acronym} (${this.flagName})`);
+      return this.journalCompendium.getDocument(journalHit._id) as unknown as JournalEntry;
+    }
+    logger.debug(`Creating Rule Journal for ${source.acronym} (${this.flagName})`);
+    const journal = await this._createRuleJournal(source);
+    return journal;
+  }
+
+  async _getJournalRulePage(journal: JournalEntry, rulePageName: string, source: IRuleFactorySource) {
+    const ruleIdentifier = DDBDataUtils.classIdentifierName(rulePageName);
+    const page = journal.pages.find((p: JournalEntryPage.Implementation) => DDBDataUtils.classIdentifierName(p.name) === ruleIdentifier);
+    if (page) return page;
+
+    const pageData: I5eRuleJournalPageData = foundry.utils.deepClone(BASE_RULE_PAGE);
+    pageData.system.type = this.type;
+    pageData.name = rulePageName;
+    pageData._id = utils.namedIDStub(rulePageName, { prefix: source.acronym.replaceAll(" ", "").replaceAll(".", "") });
+
+    logger.debug(`Creating Rule Journal Page ${pageData.name}`);
+    await journal.createEmbeddedDocuments("JournalEntryPage", [pageData] as any, { keepId: true });
+    const newPage = journal.pages.find((p: JournalEntryPage.Implementation) => DDBDataUtils.classIdentifierName(p.name) === ruleIdentifier);
+    return newPage;
+  }
+
+  async _generateJournalRulePage(journal: JournalEntry | undefined, { ruleName, source, ruleContent = "" }: { ruleName?: string; source?: IRuleFactorySource; ruleContent?: string } = {}) {
+    if (!ruleName || !source) return;
+    if (!journal) {
+      // this previously logged and then crashed on the journal access below
+      logger.error(`Journal not found for ${source.label}`);
+      return;
+    }
+
+    const page = await this._getJournalRulePage(journal, ruleName, source);
+    const update = {
+      _id: page._id,
+      text: {
+        content: ruleContent,
+      },
+    };
+
+    logger.debug(`Updating Journal Page`, { update, page });
+    await journal.updateEmbeddedDocuments("JournalEntryPage", [update] as any);
+
+  }
+
+  async buildRule(source: IRuleFactorySource, name: string, content: string) {
+    if (!this.available) return;
+    if (!this.sources) return;
+    logger.debug(`Building Rule Journal for ${name} from source ${source.label}`);
+    const journal = await this._getRuleJournal(source);
+    await this._generateJournalRulePage(journal, { ruleName: name, source, ruleContent: content });
+  }
+
+  async registerRules() {
+    if (!this.available || !this.journalCompendium) return;
+    await this.init();
+
+    const ruleJournals = this.journalCompendium.index.filter((j) =>
+      foundry.utils.getProperty(j, "flags.ddbimporter.type") === this.flagName,
+    );
+
+    for (const journal of ruleJournals) {
+      logger.debug(`Processing journal ${journal.name} with ID ${journal._id} for rule injection`);
+      const journalEntry = await this.journalCompendium.getDocument(journal._id) as JournalEntry.Implementation;
+      const sourceId = foundry.utils.getProperty(journalEntry, "flags.ddbimporter.sourceId") as number;
+      const allowedSourceIds = getAllowedSourceIds();
+      if (!allowedSourceIds.includes(sourceId)) continue;
+      const rulePages = journalEntry.pages.filter((p: JournalEntryPage.Implementation) => p.type === "rule") as unknown as JournalEntryPage.Implementation[];
+      switch (this.flagTag) {
+        case "weapon-masteries": {
+          for (const page of rulePages) {
+            const masteryId = (foundry.utils.getProperty(page, "name") as string).toLowerCase().replaceAll(" ", "").replaceAll("-", "");
+            if (CONFIG.DND5E.weaponMasteries[masteryId]) continue;
+            CONFIG.DND5E.weaponMasteries[masteryId] = {
+              label: page.name,
+              reference: page.uuid ?? undefined,
+            };
+          }
+          break;
+        }
+        case "weapon-properties": {
+          for (const page of rulePages) {
+            const propertyId = (foundry.utils.getProperty(page, "name") as string).toLowerCase().replaceAll(" ", "").replaceAll("-", "");
+            const shortId = DICTIONARY.weapon.properties.find((p) => p.name.toLowerCase() === propertyId)?.value
+              ?? propertyId.slice(0, 3);
+            const isPHBProperty = ["PHB 2024", "BR", "PHB", "SRD 5.1", "SRD 5.2"].includes(foundry.utils.getProperty(journalEntry, "flags.ddbimporter.sourceCode") as string);
+
+            logger.verbose(`Adding ${page.name} as ${propertyId} (short: ${shortId}), isPHBProperty: ${isPHBProperty}`, {
+              isShort: foundry.utils.deepClone(CONFIG.DND5E.itemProperties[shortId]),
+              isFull: foundry.utils.deepClone(CONFIG.DND5E.itemProperties[propertyId]),
+              shortId,
+              propertyId,
+              isPHBProperty,
+            });
+            if (!CONFIG.DND5E.itemProperties[propertyId] && !CONFIG.DND5E.itemProperties[shortId] && !isPHBProperty) {
+              CONFIG.DND5E.itemProperties[propertyId] = {
+                label: page.name,
+                reference: page.uuid ?? undefined,
+              };
+              CONFIG.DND5E.validProperties["weapon"].add(propertyId);
+            } else if (CONFIG.DND5E.itemProperties[shortId]) {
+              if (!CONFIG.DND5E.itemProperties[shortId].reference) {
+                CONFIG.DND5E.itemProperties[shortId].reference = page.uuid ?? undefined;
+              }
+            } else if (CONFIG.DND5E.itemProperties[propertyId]) {
+              if (!CONFIG.DND5E.itemProperties[propertyId].reference) {
+                CONFIG.DND5E.itemProperties[propertyId].reference = page.uuid ?? undefined;
+              }
+            }
+
+          }
+          break;
+        }
+        // no default
+      }
+    }
+
+  }
+
+  static async createWeaponPropertyJournals() {
+    const factory = new DDBRuleJournalFactory({
+      journalName: "Weapon Properties",
+      flagName: "DDB Weapon Properties",
+      flagTag: "weapon-properties",
+    });
+
+    await factory.init();
+
+    if (game.user?.isGM) {
+      const allowedSourceIds = getAllowedSourceIds();
+      const allowedSources = factory.sources?.filter((s) => allowedSourceIds.includes(s.id)) ?? [];
+
+      for (const source of allowedSources) {
+        logger.debug(`Processing Weapon Properties for source ${source.label}`);
+        const ruleIds = WEAPON_PROPERTIES[source.acronym] ?? [];
+
+        const sourceRules = CONFIG.DDB.weaponProperties.filter((rule) => ruleIds.includes(rule.id));
+        logger.debug(`Found ${sourceRules.length} rules for source ${source.label}`, { ruleIds, sourceRules });
+        if (sourceRules.length === 0) continue;
+
+        for (const rule of sourceRules) {
+          await factory.buildRule(source, rule.name, rule.description);
+        }
+      }
+    }
+
+    await factory.registerRules();
+
+  }
+
+
+  static async createWeaponMasteryJournals() {
+    const factory = new DDBRuleJournalFactory({
+      journalName: "Weapon Masteries",
+      flagName: "DDB Weapon Masteries",
+      flagTag: "weapon-masteries",
+    });
+
+    await factory.init();
+
+    if (game.user?.isGM) {
+      const allowedSourceIds = getAllowedSourceIds();
+      const allowedSources = factory.sources?.filter((s) => allowedSourceIds.includes(s.id)) ?? [];
+
+      for (const source of allowedSources) {
+        logger.debug(`Processing Weapon Masteries for source ${source.label}`);
+        const ruleIds = WEAPON_MASTERY[source.acronym] ?? [];
+
+        const sourceRules = CONFIG.DDB.weaponProperties.filter((rule) => ruleIds.includes(rule.id));
+        logger.debug(`Found ${sourceRules.length} rules for source ${source.label}`, { ruleIds, sourceRules });
+        if (sourceRules.length === 0) continue;
+
+        for (const rule of sourceRules) {
+          await factory.buildRule(source, rule.name, rule.description);
+        }
+      }
+    }
+
+    await factory.registerRules();
+
+  }
+
+  static async registerWeaponIds() {
+    const addExtraBaseWeapons = utils.getSetting<boolean>("add-extra-base-weapons");
+    if (!addExtraBaseWeapons) return;
+    const allowedSourceIds = getAllowedSourceIds();
+    const sources = DDBRuleJournalFactory.getSources();
+    const allowedSources = sources.filter((s) => allowedSourceIds.includes(s.id));
+
+    const itemCompendium = CompendiumHelper.getCompendiumType("items");
+    if (!itemCompendium) {
+      logger.warn("registerWeaponIds: unable to load items compendium");
+      return;
+    }
+    await itemCompendium.getIndex({ fields: ITEM_INDEX_FIELDS });
+    for (const weapon of CONFIG.DDB.weapons) {
+      logger.verbose(`Processing DDB weapon: ${weapon.name}`);
+      const handledCase = DICTIONARY.actor.proficiencies
+        .find((prof) =>
+          prof.type === "Weapon" && weapon.name.toLowerCase() === prof.name.toLowerCase(),
+        );
+      if (handledCase && handledCase?.foundryValue !== "") continue;
+      const dnd5eNameArray = weapon.name.trim().toLowerCase().split(",");
+      const dnd5eName = dnd5eNameArray.length === 2
+        ? `${dnd5eNameArray[1].trim()}${dnd5eNameArray[0].trim()}`.replaceAll(" ", "")
+        : dnd5eNameArray[0].replaceAll(" ", "");
+      if (CONFIG.DND5E.weaponIds[dnd5eName]) continue;
+      const itemHit = itemCompendium.index.find((i) =>
+        foundry.utils.getProperty(i, "type") === "weapon"
+        && ((foundry.utils.getProperty(i, "name") as string).toLowerCase() === weapon.name.toLowerCase()),
+      ) as { name: string; uuid: string; system?: { source?: { book?: string } } } | undefined;
+      if (!itemHit) {
+        logger.info(`No item found in compendium for weapon ${weapon.name}`);
+        continue;
+      }
+      const itemSource = itemHit.system?.source?.book;
+      // console.warn({
+      //   itemHit,
+      //   allowedSources,
+      //   dnd5eName,
+      //   itemSource,
+      // });
+      if (!itemSource) continue;
+      if (!allowedSources.some((s) => s.acronym === itemSource)) {
+        logger.debug(`Not adding weapon ${weapon.name} as source ${itemSource} not allowed`);
+        continue;
+      }
+      logger.debug(`Adding weapon ${weapon.name} from ${itemSource} as ${dnd5eName} with UUID ${itemHit.uuid}`);
+      CONFIG.DND5E.weaponIds[dnd5eName] = itemHit.uuid;
+    }
+  }
+
+  static addGrimHollowAdvancedWeapons() {
+    const allowedSourceIds = getAllowedSourceIds();
+    if (!allowedSourceIds.includes(207)) return;
+    logger.debug("Adding Grim Hollow Advanced Weapons");
+    CONFIG.DND5E.weaponProficiencies["adv"] = "Advanced (Grim Hollow)";
+    CONFIG.DND5E.weaponProficienciesMap["advancedM"] = "adv";
+    CONFIG.DND5E.weaponProficienciesMap["advancedR"] = "adv";
+    CONFIG.DND5E.weaponTypeMap["advancedM"] = "melee";
+    CONFIG.DND5E.weaponTypeMap["advancedR"] = "ranged";
+    CONFIG.DND5E.weaponTypes["advancedM"] = "Advanced Melee (Grim Hollow)";
+    CONFIG.DND5E.weaponTypes["advancedR"] = "Advanced Ranged (Grim Hollow)";
+  }
+
+  static async registerAllWithWorld() {
+    DDBRuleJournalFactory.addGrimHollowAdvancedWeapons();
+    await DDBRuleJournalFactory.createWeaponMasteryJournals();
+    await DDBRuleJournalFactory.createWeaponPropertyJournals();
+    await DDBRuleJournalFactory.registerWeaponIds();
+  }
+
+}

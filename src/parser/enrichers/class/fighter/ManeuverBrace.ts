@@ -1,0 +1,56 @@
+import Maneuver from "./Maneuver";
+
+export default class ManeuverBrace extends Maneuver {
+
+  get type(): IDDBActivityType {
+    return Maneuver.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Brace",
+      activationType: "reaction",
+      addItemConsume: true,
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      this.extraDamageActivity(),
+    ];
+  }
+
+
+  get override(): IDDBOverrideData {
+    return {
+      midiManualReaction: true,
+      ignoredConsumptionActivities: this.ignoredConsumptionActivities,
+      data: {
+        name: this.data.name.replace("Maneuver Options:", "Maneuver:").replace("Maneuvers:", "Maneuver: "),
+      },
+    };
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Brace: Extra Damage (Automation)",
+        midiOnly: true,
+        activityMatch: "Brace",
+        daeSpecialDurations: ["1Attack:mwak" as const],
+        data: {
+          duration: {
+            value: 6,
+            expiry: "turnStart",
+            expired: null,
+          },
+        },
+        midiChanges: [
+          Maneuver.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.mwak.damage"),
+        ],
+      },
+    ];
+  }
+
+
+}

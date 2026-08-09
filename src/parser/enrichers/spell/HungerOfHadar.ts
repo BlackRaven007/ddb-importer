@@ -1,0 +1,90 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class HungerOfHadar extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.DDBMACRO;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Cast and Place Darkness",
+      data: {
+        img: "icons/magic/unholy/orb-glowing-purple.webp",
+        macro: {
+          name: "Toggle Darkness",
+          function: "ddb.generic.light",
+          visible: false,
+          parameters: `{"darkness":true,"distance":20,"isTemplate":true,"lightConfig":{"dim":0,"bright":20},"flag":"darkness"}`,
+        },
+      },
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Start of Turn Damage",
+          type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
+        },
+        build: {
+          generateSave: false,
+          generateDamage: true,
+          generateActivation: true,
+          generateConsumption: false,
+          noSpellslot: true,
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
+          damageParts: [
+            DDBEnricherData.basicDamagePart({
+              number: 2,
+              denomination: 6,
+              types: ["cold"],
+              scalingMode: this.is2014 ? "none" : "whole",
+              scalingNumber: this.is2014 ? null : 1,
+            }),
+          ],
+        },
+        overrides: {
+          targetType: "creature",
+          activationType: "special",
+          activationCondition: "Start of turn",
+          noTemplate: true,
+        },
+      },
+      {
+        init: {
+          name: "End of Turn Save vs Damage",
+          type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
+        },
+        build: {
+          generateSave: true,
+          generateDamage: true,
+          generateActivation: true,
+          generateConsumption: false,
+          noSpellslot: true,
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
+          damageParts: [
+            DDBEnricherData.basicDamagePart({
+              number: 2,
+              denomination: 6,
+              types: ["acid"],
+              scalingMode: this.is2014 ? "none" : "whole",
+              scalingNumber: this.is2014 ? null : 1,
+            }),
+          ],
+        },
+        overrides: {
+          targetType: "creature",
+          activationType: "special",
+          activationCondition: "End of turn",
+          noTemplate: true,
+        },
+      },
+    ];
+  }
+
+}
+

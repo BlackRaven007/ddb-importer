@@ -1,0 +1,34 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class Forbiddance extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Cast",
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Damage",
+          type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
+        },
+        build: {
+          generateDamage: true,
+        },
+        overrides: {
+          noSpellslot: true,
+          overrideTarget: true,
+          targetType: "creature",
+        },
+      },
+    ];
+  }
+
+}

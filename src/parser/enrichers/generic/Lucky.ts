@@ -1,0 +1,48 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class Lucky extends DDBEnricherData {
+
+  get type() {
+    if (this.featureType !== "feat") return null;
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData | null {
+    if (this.featureType !== "feat") return null;
+    return {
+      name: "Spend Luck Point",
+      activationType: "special",
+      addItemConsume: true,
+    };
+  }
+
+  get override(): IDDBOverrideData | null {
+    if (this.featureType !== "feat") return null;
+    const uses = this._getUsesWithSpent({
+      type: "feat",
+      name: "Luck Points",
+      max: this.is2014 ? "3" : "@prof",
+      period: "lr",
+    });
+    return {
+      uses,
+    };
+  }
+
+
+  get effects(): IDDBEffectHint[] {
+    if (this.featureType !== "race") return [];
+
+    return [
+      {
+        options: {
+          transfer: true,
+        },
+        changes: [
+          DDBEnricherData.ChangeHelper.overrideChange("true", 20, "flags.dnd5e.halflingLucky"),
+        ],
+      },
+    ];
+  }
+
+}

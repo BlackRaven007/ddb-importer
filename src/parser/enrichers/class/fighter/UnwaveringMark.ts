@@ -1,0 +1,74 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class UnwaveringMark extends DDBEnricherData {
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Mark Target",
+      activationType: "special",
+      addItemConsume: true,
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Bonus Damage",
+          type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
+        },
+        build: {
+          generateConsumption: false,
+          generateTarget: true,
+          generateRange: false,
+          generateActivation: true,
+          generateDamage: true,
+          activationOverride: {
+            type: "special",
+          },
+        },
+        overrides: {
+          data: {
+            damage: {
+              parts: [
+                DDBEnricherData.basicDamagePart({
+                  customFormula: "@classes.fighter.levels / 2",
+                  types: DDBEnricherData.allDamageTypes(),
+                }),
+              ],
+            },
+          },
+        },
+      },
+    ];
+  }
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Unwavering Mark",
+        options: {
+          durationSeconds: 6,
+          description: `Disadvantage on attack rolls against targets other than you until the start of your next turn`,
+        },
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.unsignedAddChange("!workflow.target.getName('@token.name')", 20, "flags.midi-qol.disadvantage.attack.all"),
+        ],
+        daeSpecialDurations: ["turnEndSource" as const],
+      },
+    ];
+  }
+
+  get override(): IDDBOverrideData {
+    return {
+      data: {
+        system: {
+          uses: {
+            max: "max(1, @abilities.str.mod)",
+          },
+        },
+      },
+    };
+  }
+
+}

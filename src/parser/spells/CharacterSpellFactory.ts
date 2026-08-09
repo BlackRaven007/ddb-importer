@@ -1,0 +1,1020 @@
+
+
+import { utils, logger, CompendiumHelper } from "../../lib/_module";
+
+// Import parsing functions
+import { getSpellCastingAbility, hasSpellCastingAbility, convertSpellCastingAbilityId } from "./ability";
+import DDBSpell from "./DDBSpell";
+import { DICTIONARY } from "../../config/_module";
+import { DDBDataUtils, DDBModifiers } from "../lib/_module";
+import type DDBCharacter from "../DDBCharacter";
+
+const SPELLIST_ADDITION_MATCHES = [
+  "using any spell slots you have of the appropriate level",
+  "using spell slots you have of the appropriate level",
+  "using any spell slots you have",
+];
+
+type ISpellFactorySpellHolder = IDDBSourceCategorized<I5eSpellItem[]>;
+
+interface IHandleGrantedSpellsFlags {
+  forceCopy?: boolean;
+  flags?: {
+    lookup?: TParseSpellLookup;
+  };
+}
+
+const SPELL_COMPENDIUM_INDEX_FIELDS = ["name", "flags.ddbimporter.definitionId"] as const;
+
+// result of getDDBSpellLookup; `data` is the matched DDB entry (trait, feat, class,
+// class option or inventory item) typed structurally for what call sites read
+interface IDDBSpellLookup {
+  id: number;
+  name: string;
+  classId?: number;
+  componentId?: number | null;
+  limitedUse?: unknown;
+  equipped?: boolean;
+  isAttuned?: boolean;
+  canAttune?: boolean;
+  canEquip?: boolean;
+  data?: {
+    name?: string;
+    definition?: { id?: number; name?: string; description?: string | null };
+  };
+}
+
+interface ISpellCompendiumIndexEntry {
+  name: string;
+  uuid: string;
+  flags?: {
+    ddbimporter?: {
+      definitionId?: number;
+    };
+  };
+}
+
+export default class CharacterSpellFactory {
+
+  processed: I5eSpellItem[] = [];
+
+  spellCounts: Record<string, number> = {};
+
+  _generated: ISpellFactorySpellHolder = {
+    class: [],
+    feat: [],
+    race: [],
+    background: [],
+    item: [],
+  };
+
+  _granted: ISpellFactorySpellHolder = {
+    class: [],
+    feat: [],
+    race: [],
+    background: [],
+    item: [],
+  };
+
+  ddb: IDDBData;
+  ddbCharacter: DDBCharacter;
+  proficiencyModifier: number;
+  healingBoost: number;
+  levelSlots: boolean;
+  pactSlots: boolean;
+  hasSlots: boolean;
+  generateSummons: boolean;
+  character: I5ePCData;
+  characterAbilities: I5eAbilities | undefined;
+  slots: I5eSpellSlots;
+
+  constructor(ddbCharacter: DDBCharacter) {
+    this.ddbCharacter = ddbCharacter;
+    if (!ddbCharacter.source) {
+      throw new Error("CharacterSpellFactory requires a DDBCharacter with loaded source data");
+    }
+    this.ddb = ddbCharacter.source.ddb;
+    this.character = ddbCharacter.raw.character;
+    this.proficiencyModifier = this.character.flags?.ddbimporter?.dndbeyond?.profBonus ?? 0;
+    this.characterAbilities = this.character.flags?.ddbimporter?.dndbeyond?.effectAbilities ?? undefined;
+    this.healingBoost = DDBModifiers
+      .filterBaseModifiers(this.ddb, "bonus", { subType: "spell-group-healing" })
+      .reduce((a, b) => a + parseInt(String(b.value)), 0);
+    this.slots = foundry.utils.getProperty(this.character, "system.spells") as I5eSpellSlots;
+    this.levelSlots = utils.arrayRange(9, 1, 1).some((i) => {
+      const slot = this.slots[`spell${i}` as keyof I5eSpellSlots];
+      return slot && Number(slot.max) !== 0;
+    });
+    this.pactSlots = Boolean(this.slots.pact?.max && parseInt(String(this.slots.pact.max)) > 0);
+    this.hasSlots = this.levelSlots || this.pactSlots;
+    this.generateSummons = ddbCharacter.enableSummons;
+  }
+
+  _getAbilityModifier(spellCastingAbility: T5eAbility): number {
+    const abilityValue = this.characterAbilities?.[spellCastingAbility]?.value;
+    if (abilityValue === undefined) {
+      logger.warn(`Unable to determine ability score for ${spellCastingAbility}, assuming modifier of 0`);
+      return 0;
+    }
+    return utils.calculateModifier(abilityValue);
+  }
+
+  static getDDBSpellLookup(ddb: IDDBData, type: string, id: number | null): IDDBSpellLookup | undefined {
+    let lookup: IDDBSpellLookup | undefined;
+
+    switch (type) {
+      case "race": {
+        let match = ddb.character.race.racialTraits.find((t) => {
+          return t.definition.id === id;
+        });
+        // id may be a race *option* id (e.g. an ASI choice) attached to a trait,
+        // not the trait id itself. Resolve option.definition.id -> option.componentId -> trait.
+        if (!match) {
+          const option = (ddb.character.options?.race ?? []).find((o) => o.definition.id === id);
+          if (option) {
+            match = ddb.character.race.racialTraits.find((t) => t.definition.id === option.componentId);
+          }
+        }
+        if (match) {
+          lookup = {
+            id: match.definition.id,
+            name: match.definition.name,
+            data: match,
+          };
+        }
+        break;
+      }
+      case "feat": {
+        const match = ddb.character.feats.find((f) => {
+          return f.definition.id === id;
+        });
+        if (match) {
+          lookup = {
+            id: match.definition.id,
+            name: match.definition.name,
+            componentId: match.componentId,
+            data: match,
+          };
+        }
+        break;
+      }
+      case "class": {
+        const match1 = ddb.character.classes.find((c) => {
+          return c.definition.id === id;
+        });
+        if (match1) {
+          lookup = {
+            id: match1.definition.id,
+            name: match1.definition.name,
+            data: match1,
+          };
+          break;
+        }
+        const match2 = ddb.character.classes.find((c) => {
+          return c.subclassDefinition && c.subclassDefinition.id === id;
+        });
+        if (match2?.subclassDefinition) {
+          lookup = {
+            id: match2.subclassDefinition.id,
+            name: match2.subclassDefinition.name,
+            data: match2.subclassDefinition,
+          };
+          break;
+        }
+        break;
+      }
+      case "classFeature": {
+        for (const c of ddb.character.classes) {
+          if (c.subclassDefinition && c.subclassDefinition.id === id) {
+            for (const option of ddb.classOptions) {
+
+              if (option.classId === c.subclassDefinition.id) {
+                lookup = {
+                  id: option.id,
+                  name: option.name,
+                  classId: c.subclassDefinition.id,
+                  data: option,
+                };
+                break;
+              }
+            }
+          }
+          if (lookup) break;
+
+          const match1 = c.classFeatures.find((f) => {
+            return f.definition.id === id;
+          });
+          if (match1) {
+            lookup = {
+              id: match1.definition.id,
+              name: match1.definition.name,
+              classId: match1.definition.classId,
+              componentId: match1.definition.componentId,
+              data: match1,
+            };
+            break;
+          }
+
+          for (const option of ddb.classOptions) {
+            if (option.classId === c.definition.id && option.id === id) {
+              lookup = {
+                id: option.id,
+                name: option.name,
+                classId: c.definition.id,
+                data: option,
+              };
+              break;
+            }
+          }
+        }
+        if (lookup) break;
+        const optionMatch = ddb.character.options.class?.find((o) => {
+          return o.definition.id === id;
+        });
+        if (optionMatch) {
+          lookup = {
+            id: optionMatch.definition.id,
+            name: optionMatch.definition.name,
+            componentId: optionMatch.componentId,
+            data: optionMatch,
+          };
+        }
+        break;
+      }
+      case "item": {
+        const match = ddb.character.inventory.find((i) => {
+          return i.definition.id === id;
+        });
+        if (match) {
+          lookup = {
+            id: match.definition.id,
+            name: match.definition.name,
+            limitedUse: match.limitedUse,
+            equipped: match.equipped,
+            isAttuned: match.isAttuned,
+            canAttune: match.definition.canAttune,
+            canEquip: match.definition.canEquip,
+            data: match,
+          };
+        }
+        break;
+      }
+      // no default
+    }
+
+    return lookup;
+  }
+
+  getLookup(type: string, id: number | null) {
+    return CharacterSpellFactory.getDDBSpellLookup(this.ddb, type, id);
+  }
+
+  _getSpellCount(name: string) {
+    if (!this.spellCounts[name]) {
+      this.spellCounts[name] = 0;
+    }
+    return ++this.spellCounts[name];
+  }
+
+  async _processClassSpell({
+    classInfo,
+    is2014Class,
+    playerClass,
+    spell,
+    spellCastingAbility,
+    abilityModifier,
+    cantripBoost,
+    unPreparedCantrip = null,
+  }: {
+    classInfo: IDDBClass;
+    is2014Class: boolean;
+    playerClass: IDDBClassSpell;
+    spell: IDDBSpellEntry;
+    spellCastingAbility: string;
+    abilityModifier: number;
+    cantripBoost: boolean;
+    unPreparedCantrip?: boolean | null;
+  }) {
+    // add some data for the parsing of the spells into the data structure
+    const flagData: IParseSpellFlagData = {
+      ddbimporter: {
+        dndbeyond: {
+          lookup: "classSpell",
+          class: classInfo.definition.name,
+          is2014Class,
+          level: classInfo.level,
+          characterClassId: playerClass.characterClassId,
+          spellLevel: spell.definition.level,
+          // spellSlots: character.system.spells,
+          ability: spellCastingAbility,
+          mod: abilityModifier,
+          dc: 8 + this.proficiencyModifier + abilityModifier,
+          cantripBoost,
+          overrideDC: false,
+          id: spell.id ?? undefined,
+          entityTypeId: spell.entityTypeId ?? undefined,
+          healingBoost: this.healingBoost,
+          usesSpellSlot: spell.usesSpellSlot,
+          forceMaterial: classInfo.definition.name === "Artificer",
+          homebrew: spell.definition.isHomebrew,
+          unPreparedCantrip,
+          alwaysPrepared: spell.alwaysPrepared,
+        },
+      },
+      "spell-class-filter-for-5e": {
+        parentClass: classInfo.definition.name.toLowerCase(),
+      },
+      "tidy5e-sheet": {
+        parentClass: classInfo.definition.name.toLowerCase(),
+      },
+      // "spellbook-assistant-manager": {
+      //   class: classInfo.definition.name.toLowerCase(),
+      // }
+    };
+
+    // Check for duplicate spells, normally domain ones
+    // We will import spells from a different class that are the same though
+    // as they may come from with different spell casting mods
+    const parsedSpell = await DDBSpell.parseSpell(spell, this.character, {
+      ddbData: this.ddb,
+      namePostfix: `${this._getSpellCount(spell.definition.name)}`,
+      generateSummons: this.generateSummons,
+      unPreparedCantrip,
+      flagData,
+    });
+    foundry.utils.setProperty(parsedSpell, "system.sourceClass", DDBDataUtils.classIdentifierName(classInfo.definition.name));
+    const duplicateSpell = this._generated.class.findIndex(
+      (existingSpell) => {
+        const existingName = (existingSpell.flags.ddbimporter?.originalName ?? existingSpell.name);
+        const parsedName = (parsedSpell.flags.ddbimporter?.originalName ?? parsedSpell.name);
+        // some spells come from different classes but end up having the same ddb id
+        const classIdMatch = classInfo.definition.name === existingSpell.flags.ddbimporter?.dndbeyond.class;
+        const spellIdMatch = spell.id === existingSpell.flags.ddbimporter?.dndbeyond.id;
+        const legacyMatch = (parsedSpell.flags.ddbimporter?.is2014 ?? true) === (existingSpell.flags.ddbimporter?.is2014 ?? true)
+          || (parsedSpell.flags.ddbimporter?.is2024 ?? false) === (existingSpell.flags.ddbimporter?.is2024 ?? false);
+        return existingName === parsedName && (classIdMatch || spellIdMatch) && legacyMatch;
+      });
+    const duplicateItem = this._generated.class[duplicateSpell];
+    if (!duplicateItem) {
+      this._generated.class.push(parsedSpell);
+    } else if (spell.alwaysPrepared || parsedSpell.system.method === "always"
+      || (spell.alwaysPrepared === duplicateItem.flags.ddbimporter?.dndbeyond.alwaysPrepared
+        && parsedSpell.system.method === duplicateItem.system.method
+        && parsedSpell.system.prepared === CONFIG.DND5E.spellPreparationStates.always.value
+        && duplicateItem.system.prepared === CONFIG.DND5E.spellPreparationStates.unprepared.value)) {
+      // if our new spell is always known we overwrite!
+      // it's probably domain
+      this._generated.class[duplicateSpell] = parsedSpell;
+    } else {
+      // we'll emit a console message if it doesn't match this case for future debugging
+      logger.info(`Duplicate Spell ${spell.definition.name} detected in class ${classInfo.definition.name}.`);
+    }
+  }
+
+  filterSpellsByAllowedCategories(spells: IDDBSpellEntry[]) {
+    return spells.filter((s) => {
+      const sourceIds = (s.definition.sources ?? []).map((sm) => sm.sourceId);
+      const hasActiveCategory = CONFIG.DDB.sources.some((ddbSource) =>
+        sourceIds.includes(ddbSource.id)
+        && this.ddb.character.activeSourceCategories.includes(ddbSource.sourceCategoryId),
+      );
+      return hasActiveCategory;
+    });
+  }
+
+  removeSpellsBySourceCategoryIds(spells: IDDBSpellEntry[], ids: number[] = []) {
+    return spells.filter((s) => {
+      const sourceIds = (s.definition.sources ?? []).map((sm) => sm.sourceId);
+      const isInRestrictedCategory = CONFIG.DDB.sources.some((ddbSource) =>
+        sourceIds.includes(ddbSource.id)
+        && ids.includes(ddbSource.sourceCategoryId),
+      );
+      return !isInRestrictedCategory;
+    });
+  }
+
+  async generateClassSpells() {
+    for (const playerClass of this.ddb.character.classSpells) {
+      const classInfo = this.ddb.character.classes.find((cls) => cls.id === playerClass.characterClassId);
+      if (!classInfo) {
+        logger.warn(`Unable to find class with id ${playerClass.characterClassId} for class spell parsing`);
+        continue;
+      }
+      const spellCastingAbility = getSpellCastingAbility(classInfo);
+      const abilityModifier = this._getAbilityModifier(spellCastingAbility);
+
+      const is2014Class = (classInfo.definition.sources ?? []).some((s) => Number.isInteger(s.sourceId) && s.sourceId < 145);
+      const is2024NewKnownCaster = ["Ranger", "Paladin"].includes(classInfo.definition.name);
+      if (!is2014Class && is2024NewKnownCaster) {
+        playerClass.spells = playerClass.spells.map((spell) => {
+          if (!spell.alwaysPrepared && spell.countsAsKnownSpell) spell.prepared = true;
+          return spell;
+        });
+      }
+      logger.debug("Spell parsing, class info", classInfo);
+
+      const cantripBoost
+        = DDBModifiers.getChosenClassModifiers(this.ddb).filter(
+          (mod) =>
+            mod.type === "bonus"
+            && mod.subType === `${classInfo.definition.name.toLowerCase()}-cantrip-damage`
+            && (mod.restriction === null || mod.restriction === ""),
+        ).length > 0;
+
+      const rawSpells = [
+        ...playerClass.spells,
+        ...(playerClass.alwaysPreparedSpells ?? []),
+      ];
+      if (utils.getSetting<boolean>("character-update-policy-import-full-spell-list")) {
+        const knownSpells = playerClass.alwaysKnownSpells ?? [];
+        const filteredAlwaysKnownSpells = utils.getSetting<boolean>("character-update-policy-use-active-sources")
+          ? this.filterSpellsByAllowedCategories(knownSpells)
+          : knownSpells;
+        rawSpells.push(...filteredAlwaysKnownSpells);
+      }
+
+      const removeIds = [];
+
+      if (utils.getSetting<boolean>("character-update-policy-remove-2024"))
+        removeIds.push(24);
+
+      if (utils.getSetting<boolean>("character-update-policy-remove-legacy"))
+        removeIds.push(23, 26);
+
+      const targetSpells: IDDBSpellEntry[] = removeIds.length > 0
+        ? this.removeSpellsBySourceCategoryIds(rawSpells, removeIds)
+        : rawSpells;
+
+      for (const spell of targetSpells) {
+        if (!spell.definition) continue;
+        await this._processClassSpell({
+          classInfo,
+          is2014Class,
+          playerClass,
+          spell,
+          spellCastingAbility,
+          abilityModifier,
+          cantripBoost,
+        });
+      }
+    }
+  }
+
+  async generateUnpreparedCantrips() {
+    for (const playerClass of this.ddb.character.classSpells) {
+      if (!playerClass.cantrips) continue;
+      if (playerClass.cantrips.length === 0) continue;
+      if (!utils.getSetting<boolean>("character-update-policy-import-all-cantrips")) continue;
+
+      const classInfo = this.ddb.character.classes.find((cls) => cls.id === playerClass.characterClassId);
+      if (!classInfo) {
+        logger.warn(`Unable to find class with id ${playerClass.characterClassId} for cantrip parsing`);
+        continue;
+      }
+      const spellCastingAbility = getSpellCastingAbility(classInfo);
+      const abilityModifier = this._getAbilityModifier(spellCastingAbility);
+
+      const is2014Class = (classInfo.definition.sources ?? []).some((s) => Number.isInteger(s.sourceId) && s.sourceId < 145);
+      const is2024NewKnownCaster = ["Ranger", "Paladin"].includes(classInfo.definition.name);
+      if (!is2014Class && is2024NewKnownCaster) {
+        playerClass.spells = playerClass.spells.map((spell) => {
+          if (!spell.alwaysPrepared && spell.countsAsKnownSpell) spell.prepared = true;
+          return spell;
+        });
+      }
+      logger.debug("Spell parsing, class info", classInfo);
+
+      const cantripBoost
+        = DDBModifiers.getChosenClassModifiers(this.ddb).filter(
+          (mod) =>
+            mod.type === "bonus"
+            && mod.subType === `${classInfo.definition.name.toLowerCase()}-cantrip-damage`
+            && (mod.restriction === null || mod.restriction === ""),
+        ).length > 0;
+
+      const allCantrips = (playerClass.cantrips ?? []).map((cantrip) => {
+        cantrip.unPreparedCantrip = true;
+        return cantrip;
+      });
+
+      const filteredCantrips = utils.getSetting<boolean>("character-update-policy-use-active-sources")
+        ? this.filterSpellsByAllowedCategories(allCantrips)
+        : allCantrips;
+
+      const removeIds = [];
+
+      if (utils.getSetting<boolean>("character-update-policy-remove-2024"))
+        removeIds.push(24);
+
+      if (utils.getSetting<boolean>("character-update-policy-remove-legacy"))
+        removeIds.push(23, 26);
+
+      const targetSpells = removeIds.length > 0
+        ? this.removeSpellsBySourceCategoryIds(filteredCantrips, removeIds)
+        : filteredCantrips;
+
+      for (const spell of targetSpells) {
+        if (!spell.definition) continue;
+        await this._processClassSpell({
+          classInfo,
+          is2014Class,
+          playerClass,
+          spell,
+          spellCastingAbility,
+          abilityModifier,
+          cantripBoost,
+          unPreparedCantrip: spell.unPreparedCantrip ?? null,
+        });
+      }
+    }
+  }
+
+
+  async generateSpecialClassSpells() {
+    for (const spell of this.ddb.character.spells.class ?? []) {
+      if (!spell.definition) continue;
+      // If the spell has an ability attached, use that
+      let spellCastingAbility: T5eAbility;
+      const featureId = DDBDataUtils.determineActualFeatureId(this.ddb, spell.componentId);
+      const classInfo = this.getLookup("classFeature", featureId);
+
+      logger.debug("Class spell parsing, class info", classInfo);
+      // Sometimes there are spells here which don't have an class Info
+      // this seems to be part of the optional tasha's rules, lets not parse for now
+      // as ddb implementation is not yet finished
+      // / options.class.[].definition.id
+      if (!classInfo) {
+        logger.warn(`Unable to add ${spell.definition.name}`);
+      }
+      if (!classInfo) continue;
+      let klass = DDBDataUtils.getClassFromOptionID(this.ddb, spell.componentId);
+
+      if (!klass) klass = DDBDataUtils.findClassByFeatureId(this.ddb, spell.componentId);
+
+      logger.debug("Class spell, class found?", klass);
+
+      if (DICTIONARY.parsing.featureSpellsIgnore.includes(classInfo.name)) {
+        logger.debug(`Skipping ${spell.definition.name} for ${classInfo.name} as included in feature`);
+        continue;
+      }
+
+      const featureName = classInfo.data?.definition?.name ?? classInfo.data?.name;
+      if (featureName && DICTIONARY.parsing.ignoreSpellsGrantedByClassFeatures.includes(featureName)) {
+        logger.debug(`Skipping ${spell.definition.name} for ${classInfo.name} as included in feature ignore list`, {
+          featureName,
+          classInfo,
+        });
+        continue;
+      }
+
+      if (hasSpellCastingAbility(spell.spellCastingAbilityId)) {
+        spellCastingAbility = convertSpellCastingAbilityId(spell.spellCastingAbilityId);
+      } else if (klass) {
+        spellCastingAbility = getSpellCastingAbility(klass);
+        // force these spells to always be prepared
+        spell.alwaysPrepared = true;
+      } else {
+        // if there is no ability on spell, we default to wis
+        spellCastingAbility = "wis";
+      }
+
+      if (!spell.alwaysPrepared && !spell.prepared && !spell.countsAsKnownSpell && spell.usesSpellSlot
+        && !spell.limitedUse
+      ) {
+        spell.alwaysPrepared = true;
+      }
+
+      const abilityModifier = this._getAbilityModifier(spellCastingAbility);
+
+      const klassName = klass?.definition?.name;
+      const cantripBoost
+        = DDBModifiers.getChosenClassModifiers(this.ddb).filter(
+          (mod) =>
+            mod.type === "bonus"
+            && mod.subType === `${klassName?.toLowerCase()}-cantrip-damage`
+            && (mod.restriction === null || mod.restriction === ""),
+        ).length > 0;
+
+      // add some data for the parsing of the spells into the data structure
+      const flagData: IParseSpellFlagData = {
+        ddbimporter: {
+          dndbeyond: {
+            class: klassName,
+            lookup: "classFeature",
+            lookupName: classInfo.name,
+            lookupId: classInfo.id,
+            level: this.character.flags?.ddbimporter?.dndbeyond?.totalLevels ?? undefined,
+            ability: spellCastingAbility,
+            mod: abilityModifier,
+            dc: 8 + this.proficiencyModifier + abilityModifier,
+            overrideDC: false,
+            id: spell.id ?? undefined,
+            entityTypeId: spell.entityTypeId ?? undefined,
+            healingBoost: this.healingBoost,
+            cantripBoost,
+            usesSpellSlot: spell.usesSpellSlot,
+            forceMaterial: klass?.definition?.name === "Artificer",
+            homebrew: spell.definition.isHomebrew,
+            forcePact: klass?.definition?.name === "Warlock",
+            alwaysPrepared: spell.alwaysPrepared,
+          },
+        },
+        "tidy5e-sheet": {
+          parentClass: (klass) ? klass.definition.name : undefined,
+        },
+      };
+
+      // Check for duplicate spells, normally domain ones
+      // We will import spells from a different class that are the same though
+      // as they may come from with different spell casting mods
+      const duplicateSpell = klass
+        ? this._generated.class.findIndex((existingSpell) =>
+          (existingSpell.flags.ddbimporter?.originalName ?? existingSpell.name) === spell.definition.name
+          && klass.definition.name === existingSpell.flags.ddbimporter?.dndbeyond.class
+          && spell.usesSpellSlot && existingSpell.flags.ddbimporter?.dndbeyond.usesSpellSlot,
+        )
+        : -1;
+      if (!this._generated.class[duplicateSpell]) {
+        const parsedSpell = await DDBSpell.parseSpell(spell, this.character, {
+          ddbData: this.ddb,
+          namePostfix: `${this._getSpellCount(spell.definition.name)}`,
+          generateSummons: this.generateSummons,
+          flagData,
+        });
+        if (flagData.ddbimporter.dndbeyond.class) foundry.utils.setProperty(parsedSpell, "system.sourceClass", DDBDataUtils.classIdentifierName(flagData.ddbimporter.dndbeyond.class));
+        this._granted.class.push(parsedSpell);
+
+        // check for class granted spells here
+        if (parsedSpell.flags.ddbimporter?.is2024
+          && CharacterSpellFactory.CLASS_GRANTED_SPELLS_2024.includes(parsedSpell.flags.ddbimporter.originalName ?? "")
+        ) {
+          await this.handleGrantedSpells(spell, "class", flagData, {
+            forceCopy: true,
+            flags: {
+              lookup: "classFeature",
+            },
+          });
+        }
+
+      } else if (spell.alwaysPrepared) {
+        // if our new spell is always known we overwrite!
+        // it's probably domain
+        const parsedSpell = await DDBSpell.parseSpell(spell, this.character, {
+          ddbData: this.ddb,
+          namePostfix: `${this._getSpellCount(spell.definition.name)}`,
+          generateSummons: this.generateSummons,
+        });
+        if (flagData.ddbimporter.dndbeyond.class)
+          foundry.utils.setProperty(parsedSpell, "system.sourceClass", DDBDataUtils.classIdentifierName(flagData.ddbimporter.dndbeyond.class));
+        this._generated.class[duplicateSpell] = parsedSpell;
+      } else {
+        // we'll emit a console message if it doesn't match this case for future debugging
+        logger.info(`Duplicate Spell ${spell.definition.name} detected in class ${classInfo.name}.`);
+      }
+    }
+  }
+
+  static CLASS_GRANTED_SPELLS_2024 = [
+    "Hunter's Mark",
+  ];
+
+  canCast(spell: IDDBSpellEntry) {
+    if (spell.limitedUse || spell.definition.level === 0) return true;
+    if (!this.slots) return false;
+    if (this.pactSlots) return true;
+    const levelSlots = utils.arrayRange(9, 1, 1).some((i) => {
+      if (spell.definition.level > i) return false;
+      const slot = this.slots[`spell${i}` as keyof I5eSpellSlots];
+      return slot && Number(slot.max) !== 0;
+    });
+    return levelSlots;
+  }
+
+  async handleGrantedSpells(spell: IDDBSpellEntry,
+    type: keyof ISpellFactorySpellHolder,
+    flagData: IParseSpellFlagData,
+    { forceCopy = false, flags = {} }: IHandleGrantedSpellsFlags = {},
+  ) {
+    if (spell.definition.level === 0) return;
+    if (!forceCopy && !spell.limitedUse) return;
+    if (!forceCopy && !this.slots) return;
+    const levelSlots = utils.arrayRange(9, 1, 1).some((i) => {
+      if (spell.definition.level > i) return false;
+      const slot = this.slots[`spell${i}` as keyof I5eSpellSlots];
+      return slot && Number(slot.max) !== 0;
+    });
+
+    if (!levelSlots && !this.pactSlots) return;
+
+    const dups = (this.ddb.character.spells[type] ?? []).filter((otherSpell) =>
+      otherSpell.definition
+      && otherSpell.definition.name === spell.definition.name).length > 1;
+
+    if (dups) {
+      for (const spells of Object.values(this._generated)) {
+        const duplicateSpell: I5eSpellItem = spells.some(
+          (existingSpell: I5eSpellItem) =>
+            (existingSpell.flags.ddbimporter?.originalName ?? existingSpell.name) === spell.definition.name
+            && existingSpell.flags.ddbimporter?.dndbeyond.usesSpellSlot,
+        );
+        if (duplicateSpell) {
+          logger.debug(`Skipping duplicate granted spell ${spell.definition.name} as multiple instances exist`);
+          return;
+        }
+      }
+    }
+
+    // also parse spell as non-limited use
+    const unlimitedSpell = foundry.utils.duplicate(spell) as IDDBSpellEntry;
+    const unlimitedFlags = foundry.utils.deepClone(flagData) as IParseSpellFlagData;
+    unlimitedSpell.limitedUse = null;
+    unlimitedSpell.usesSpellSlot = true;
+    unlimitedSpell.alwaysPrepared = true;
+    unlimitedFlags.ddbimporter.dndbeyond.usesSpellSlot = true;
+    unlimitedFlags.ddbimporter.dndbeyond.granted = true;
+    // not entirely true, might end up with a class here
+    unlimitedFlags.ddbimporter.dndbeyond.lookup = flags.lookup ?? type as TParseSpellLookup;
+    delete unlimitedSpell.id;
+    delete unlimitedFlags.ddbimporter.dndbeyond.id;
+    const parsedSpell = await DDBSpell.parseSpell(unlimitedSpell, this.character, {
+      ddbData: this.ddb,
+      namePrefix: `Gr`,
+      namePostfix: `${this._getSpellCount(unlimitedSpell.definition.name)}`,
+      generateSummons: this.generateSummons,
+      flagData: unlimitedFlags,
+    });
+
+    if (parsedSpell.system.source.rules === "2014"
+      && DICTIONARY.parsing.spellListGrantsIgnore["2014"].some((i) => unlimitedFlags.ddbimporter.dndbeyond.lookupName?.includes(i) ?? false)
+    ) {
+      logger.debug(`Ignoring 2014 granted spell as not a spell list grant ${parsedSpell.flags.ddbimporter?.originalName}`);
+      return;
+    }
+    this._generated[type].push(parsedSpell);
+  }
+
+  async generateRaceSpells() {
+    for (const spell of this.ddb.character.spells.race ?? []) {
+      if (!spell.definition) continue;
+      // for race spells the spell spellCastingAbilityId is on the spell
+      // if there is no ability on spell, we default to wis
+      let spellCastingAbility: T5eAbility = "wis";
+      if (hasSpellCastingAbility(spell.spellCastingAbilityId)) {
+        spellCastingAbility = convertSpellCastingAbilityId(spell.spellCastingAbilityId);
+      }
+
+      const abilityModifier = this._getAbilityModifier(spellCastingAbility);
+
+      let raceInfo = this.getLookup("race", spell.componentId);
+
+      if (!raceInfo) {
+        // for some reason we haven't matched the race option id with the spell
+        // this happens with at least the SCAG optional spells casting half elf
+        raceInfo = {
+          name: "Racial spell",
+          id: spell.componentId,
+        };
+      }
+
+      // add some data for the parsing of the spells into the data structure
+      const flagData: IParseSpellFlagData = {
+        ddbimporter: {
+          dndbeyond: {
+            lookup: "race",
+            lookupName: raceInfo.name,
+            lookupId: raceInfo.id,
+            race: this.ddb.character.race.fullName,
+            level: spell.castAtLevel ?? undefined,
+            ability: spellCastingAbility,
+            mod: abilityModifier,
+            dc: 8 + this.proficiencyModifier + abilityModifier,
+            overrideDC: false,
+            id: spell.id ?? undefined,
+            entityTypeId: spell.entityTypeId ?? undefined,
+            healingBoost: this.healingBoost,
+            usesSpellSlot: spell.usesSpellSlot,
+            homebrew: spell.definition.isHomebrew,
+            alwaysPrepared: spell.alwaysPrepared,
+          },
+        },
+      };
+
+      if ((this.ddb.character.spells.race ?? []).filter((sp) =>
+        sp.definition
+        && sp.definition.name === spell.definition.name).length === 1
+      ) {
+        await this.handleGrantedSpells(spell, "race", flagData);
+      }
+      if (!this.canCast(spell)) continue;
+      const parsedSpell = await DDBSpell.parseSpell(spell, this.character, {
+        ddbData: this.ddb,
+        namePostfix: `${this._getSpellCount(spell.definition.name)}`,
+        generateSummons: this.generateSummons,
+        flagData,
+      });
+      // this._generated.race.push(parsedSpell);
+      this._granted.race.push(parsedSpell);
+    }
+  }
+
+  async generateFeatSpells() {
+    for (const spell of this.ddb.character.spells.feat ?? []) {
+      if (!spell.definition) continue;
+      // If the spell has an ability attached, use that
+      // if there is no ability on spell, we default to wis
+      let spellCastingAbility: T5eAbility = "wis";
+      if (hasSpellCastingAbility(spell.spellCastingAbilityId)) {
+        spellCastingAbility = convertSpellCastingAbilityId(spell.spellCastingAbilityId);
+      }
+
+      const abilityModifier = this._getAbilityModifier(spellCastingAbility);
+
+      let featInfo = this.getLookup("feat", spell.componentId);
+
+      if (!featInfo) {
+        // for some reason we haven't matched the feat option id with the spell
+        // we fiddle the result
+        featInfo = {
+          name: "Feat option spell",
+          id: spell.componentId,
+        };
+      }
+
+      const featName = featInfo.data?.definition?.name ?? featInfo.data?.name;
+      if (featName && DICTIONARY.parsing.ignoreSpellsGrantedByFeats.includes(featName)) {
+        logger.debug(`Skipping ${spell.definition.name} for ${featInfo.name} as included in feature ignore list`, {
+          featName,
+          featInfo,
+        });
+        continue;
+      }
+
+      // add some data for the parsing of the spells into the data structure
+      const flagData: IParseSpellFlagData = {
+        ddbimporter: {
+          dndbeyond: {
+            lookup: "feat",
+            lookupName: featInfo.name,
+            lookupId: featInfo.id,
+            level: spell.castAtLevel ?? undefined,
+            ability: spellCastingAbility,
+            mod: abilityModifier,
+            dc: 8 + this.proficiencyModifier + abilityModifier,
+            overrideDC: false,
+            id: spell.id ?? undefined,
+            entityTypeId: spell.entityTypeId ?? undefined,
+            healingBoost: this.healingBoost,
+            usesSpellSlot: spell.usesSpellSlot,
+            homebrew: spell.definition.isHomebrew,
+            alwaysPrepared: spell.alwaysPrepared,
+          },
+        },
+      };
+
+      if ((this.ddb.character.spells.feat ?? []).filter((sp) =>
+        sp.definition
+        && sp.definition.name === spell.definition.name).length === 1
+      ) {
+        const forceCopy = SPELLIST_ADDITION_MATCHES.some((t) => (featInfo.data?.definition?.description ?? "").toLowerCase().includes(t));
+        if (forceCopy) {
+          await this.handleGrantedSpells(spell, "feat", flagData, {
+            forceCopy,
+          });
+        }
+      }
+      if (!this.canCast(spell)) continue;
+      const parsedSpell = await DDBSpell.parseSpell(spell, this.character, {
+        ddbData: this.ddb,
+        namePostfix: `${this._getSpellCount(spell.definition.name)}`,
+        generateSummons: this.generateSummons,
+        flagData,
+      });
+      // if (spell.definition.level === 0) {
+      //   this._generated.feat.push(parsedSpell);
+      // } else {
+      //   this._granted.feat.push(parsedSpell);
+      // }
+      this._granted.feat.push(parsedSpell);
+    }
+  }
+
+  async generateBackgroundSpells() {
+    if (!this.ddb.character.spells.background) this.ddb.character.spells.background = [];
+    for (const spell of this.ddb.character.spells.background) {
+      if (!spell.definition) continue;
+      // If the spell has an ability attached, use that
+      // if there is no ability on spell, we default to wis
+      let spellCastingAbility: T5eAbility = "wis";
+      if (hasSpellCastingAbility(spell.spellCastingAbilityId)) {
+        spellCastingAbility = convertSpellCastingAbilityId(spell.spellCastingAbilityId);
+      }
+
+      const abilityModifier = this._getAbilityModifier(spellCastingAbility);
+
+      // add some data for the parsing of the spells into the data structure
+      const flagData: IParseSpellFlagData = {
+        ddbimporter: {
+          dndbeyond: {
+            lookup: "background",
+            lookupName: "Background",
+            level: spell.castAtLevel ?? undefined,
+            ability: spellCastingAbility,
+            mod: abilityModifier,
+            dc: 8 + this.proficiencyModifier + abilityModifier,
+            overrideDC: false,
+            id: spell.id ?? undefined,
+            entityTypeId: spell.entityTypeId ?? undefined,
+            healingBoost: this.healingBoost,
+            usesSpellSlot: spell.usesSpellSlot,
+            homebrew: spell.definition.isHomebrew,
+            alwaysPrepared: spell.alwaysPrepared,
+          },
+        },
+      };
+
+      if (this.ddb.character.spells.background.filter((sp) => sp.definition
+        && sp.definition.name === spell.definition.name).length === 1
+      ) {
+        await this.handleGrantedSpells(spell, "background", flagData);
+      }
+      if (!this.canCast(spell)) continue;
+      const parsedSpell = await DDBSpell.parseSpell(spell, this.character, {
+        ddbData: this.ddb,
+        namePostfix: `${this._getSpellCount(spell.definition.name)}`,
+        generateSummons: this.generateSummons,
+        flagData,
+      });
+      this._generated.background.push(parsedSpell);
+    }
+  }
+
+  async _setCompendiumSource() {
+    const spellCompendium = CompendiumHelper.getCompendiumType("spells", false);
+    if (!spellCompendium) {
+      logger.warn("Unable to find spell compendium for spell compendium source linking");
+      return;
+    }
+    await CompendiumHelper.loadCompendiumIndex("spells", {
+      fields: SPELL_COMPENDIUM_INDEX_FIELDS,
+    });
+
+    // captured in a local so the narrowing above applies inside the closure
+    const spellCompendiumIndex = spellCompendium.index;
+
+    function setLink(spell: I5eSpellItem) {
+      if (!spell) return;
+      const lookup = spellCompendiumIndex.find((s1) => {
+        const s = s1 as unknown as ISpellCompendiumIndexEntry;
+        if (!s.flags?.ddbimporter?.definitionId) return false;
+        if (!spell.flags?.ddbimporter?.definitionId) return false;
+        return s.flags.ddbimporter.definitionId === spell.flags.ddbimporter.definitionId;
+      });
+
+      if (lookup) foundry.utils.setProperty(spell, "_stats.compendiumSource", lookup.uuid);
+      else {
+        logger.warn(`Spell ${spell.name} not found in compendium for spell list linking`);
+      }
+    }
+
+    for (const [key, spells] of Object.entries(this._generated)) {
+      for (const spell of spells) {
+        setLink(spell);
+      }
+      this._generated[key as keyof ISpellFactorySpellHolder] = spells;
+    }
+
+    for (const [key, spells] of Object.entries(this._granted)) {
+      for (const spell of spells) {
+        setLink(spell);
+      }
+      this._granted[key as keyof ISpellFactorySpellHolder] = spells;
+    }
+  }
+
+  async generateCharacterSpells() {
+    // each class has an entry here, each entry has spells
+    // we loop through each class and process
+    await this.generateClassSpells();
+
+    // Parse any spells granted by class features, such as Barbarian Totem
+    await this.generateSpecialClassSpells();
+
+    // unprepared cantrips
+    await this.generateUnpreparedCantrips();
+
+    // Race spells are handled slightly differently
+    await this.generateRaceSpells();
+
+    // feat spells are handled slightly differently
+    await this.generateFeatSpells();
+
+    // background spells are handled slightly differently
+    await this.generateBackgroundSpells();
+
+    await this._setCompendiumSource();
+
+    this.processed = Object.values(this._generated).flat();
+
+    return this.processed.sort((a, b) => a.name.localeCompare(b.name));
+  }
+}

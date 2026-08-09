@@ -1,0 +1,1247 @@
+import {
+  logger,
+  utils,
+  Iconizer,
+  DDBItemImporter,
+  FileHelper,
+  FrameAnimator,
+  FrameKeyframeRenderer,
+  CompendiumHelper,
+  DDBMacros,
+  DDBRunContext,
+} from "../lib/_module";
+import { DICTIONARY, SETTINGS } from "../config/_module";
+import DDBCharacter, { IDDBCharacterDataStub } from "../parser/DDBCharacter";
+import { DDBDataUtils } from "../parser/lib/_module";
+import { abilityOverrideEffect } from "../effects/abilityOverrides";
+import { createInfusedItems, linkSelectedEnchantments } from "../parser/character/infusions";
+import { setConditions } from "../parser/character/conditions";
+import { ExternalAutomations } from "../effects/_module";
+
+interface IDDBCharacterImporter {
+  actorId: string;
+  ddbCharacter?: DDBCharacter | null;
+  notifier?: NotifierV1;
+}
+
+export default class DDBCharacterImporter {
+
+  actor: TImporterActor;
+  actorOriginal: I5ePCData;
+  // set in the constructor when provided, otherwise assigned in importCharacter() before processing
+  ddbCharacter!: DDBCharacter;
+  notifier: (title: any, { message, isError }?: NotifierV1Props) => void;
+  // assigned via getSettings() in the constructor
+  settings!: {
+    updatePolicyName: boolean;
+    updatePolicyHP: boolean;
+    updatePolicyHitDie: boolean;
+    updatePolicyCurrency: boolean;
+    updatePolicyBio: boolean;
+    updatePolicyXP: boolean;
+    updatePolicySpellUse: boolean;
+    updatePolicyLanguages: boolean;
+    updatePolicyImage: boolean;
+    activeEffectCopy: boolean;
+    addCharacterEffects: boolean;
+    ignoreNonDDBItems: boolean;
+    useExistingCompendiumItems: boolean;
+    useOverrideCompendiumItems: boolean;
+    useChrisPremades: boolean;
+    midiConfig: any;
+  };
+  nonMatchedItemIds: string[];
+  // the following are assigned at the start of processCharacterData() before any read
+  result!: IDDBCharacterDataStub;
+  effectBackup!: I5eEffectData[];
+  importId!: string;
+
+  constructor({ actorId, ddbCharacter = null, notifier }: IDDBCharacterImporter) {
+    this.actor = game.actors.get(actorId) as TImporterActor;
+    this.migrateMetadata();
+    // I5ePCData is our own type definition
+    this.actorOriginal = foundry.utils.duplicate(this.actor) as unknown as I5ePCData;
+    logger.debug("Current Actor (Original):", this.actorOriginal);
+    this.nonMatchedItemIds = [];
+    this.getSettings();
+    if (ddbCharacter) {
+      this.ddbCharacter = ddbCharacter;
+    }
+    this.notifier = notifier ?? ((title, { message = false, isError = false } = {}) => {
+      logger.info(title, { message, isError });
+    });
+  }
+
+  migrateMetadata() {
+    if (this.actor.flags?.ddbimporter?.dndbeyond) {
+      const url = this.actor.flags.ddbimporter.dndbeyond.url;
+
+      if (url && !this.actor.flags.ddbimporter.dndbeyond.characterId) {
+        const characterId = DDBCharacter.getCharacterId(url);
+        if (characterId) {
+          this.actor.flags.ddbimporter.dndbeyond.characterId = characterId;
+          this.actor.flags.ddbimporter.dndbeyond.url = url;
+        } else {
+          // clear the url, because it's malformed anyway
+          this.actor.flags.ddbimporter.dndbeyond.url = null;
+        }
+      }
+    }
+  }
+
+
+  static getCharacterUpdatePolicyTypes(invert = false) {
+    let itemTypes = ["background", "race"];
+
+    if (invert) {
+      if (!utils.getSetting<boolean>("character-update-policy-class")) {
+        itemTypes.push("class");
+        itemTypes.push("subclass");
+      }
+      if (!utils.getSetting<boolean>("character-update-policy-feat")) itemTypes.push("feat");
+      if (!utils.getSetting<boolean>("character-update-policy-weapon")) itemTypes.push("weapon");
+      if (!utils.getSetting<boolean>("character-update-policy-equipment"))
+        itemTypes = itemTypes.concat(DICTIONARY.types.equipment);
+      if (!utils.getSetting<boolean>("character-update-policy-spell")) itemTypes.push("spell");
+    } else {
+      if (utils.getSetting<boolean>("character-update-policy-class")) {
+        itemTypes.push("class");
+        itemTypes.push("subclass");
+      }
+      if (utils.getSetting<boolean>("character-update-policy-feat")) itemTypes.push("feat");
+      if (utils.getSetting<boolean>("character-update-policy-weapon")) itemTypes.push("weapon");
+      if (utils.getSetting<boolean>("character-update-policy-equipment"))
+        itemTypes = itemTypes.concat(DICTIONARY.types.equipment);
+      if (utils.getSetting<boolean>("character-update-policy-spell")) itemTypes.push("spell");
+    }
+    return itemTypes;
+  }
+
+
+  /**
+   * Filters the character items based on the user's selection in the settings.
+   * The invert flag inverts the selection (i.e. instead of including the selected items, it excludes them)
+   * @param {boolean} [invert=false] flag to invert the selection
+   * @returns {object[]} the filtered array of items
+   */
+  filterItemsByUserSelection(invert = false) {
+    let items: I5eItemData[] = [];
+    const validItemTypes = DDBCharacterImporter.getCharacterUpdatePolicyTypes(invert);
+
+    for (const section of ["classes", "race", "features", "actions", "inventory", "spells"]) {
+      const newItems: I5eItemData[] = foundry.utils.getProperty(this.result, section) as I5eItemData[] || [];
+      items = items.concat(newItems).filter((item) => validItemTypes.includes(item.type));
+    }
+    return items;
+  }
+
+  filterActorItemsByUserSelection(invert = false) {
+    const validItemTypes = DDBCharacterImporter.getCharacterUpdatePolicyTypes(invert);
+
+    const items = (this.actorOriginal.items ?? []).filter((item) => validItemTypes.includes(item.type));
+
+    return items;
+  }
+
+  /**
+   * Loops through a characters items and updates flags
+   * @param {*} items
+   */
+  async copySupportedCharacterItemFlags(items: I5eItemData[]) {
+    items.forEach((item) => {
+      const originalItem = this.actorOriginal.items?.find(
+        (originalItem) => item.name === originalItem.name && item.type === originalItem.type,
+      );
+      if (originalItem) {
+        DDBItemImporter.copySupportedItemFlags(originalItem as unknown as Item.Implementation, item);
+      }
+    });
+  }
+
+  copyExistingJournalNotes() {
+    if (!this.actorOriginal) return;
+    const journalFields = [
+      "notes1name",
+      "notes2name",
+      "notes3name",
+      "notes4name",
+      "notes1",
+      "notes2",
+      "notes3",
+      "notes4",
+      "notes",
+    ];
+    journalFields.forEach((field) => {
+      const originalValue = foundry.utils.getProperty(this.actorOriginal, `system.details.${field}`);
+      if (originalValue) {
+        foundry.utils.setProperty(this.result.character, `system.details.${field}`, originalValue);
+      }
+    });
+  }
+
+  async copyCharacterItemEffects(items: TAll5eItemDocuments[]): Promise<TAll5eItemDocuments[]> {
+    return new Promise((resolve) => {
+      resolve(
+        items.map((item) => {
+          const originalItem = this.actorOriginal.items?.find((originalItem) =>
+            item.name === originalItem.name
+            && item.type === originalItem.type
+            && item.flags?.ddbimporter?.id === originalItem.flags?.ddbimporter?.id,
+          );
+          if (originalItem) {
+            if (!item.effects) item.effects = [];
+            if (originalItem.effects) {
+              logger.info(`Copying Effects for ${originalItem.name}`);
+              item.effects = originalItem.effects.map((m) => {
+                delete m._id;
+                return m;
+              });
+            }
+          }
+          return item;
+        }),
+      );
+    });
+  }
+
+  static async removeItems(itemList: TAll5eItemDocuments[], itemsToRemove: TAll5eItemDocuments[]): Promise<TAll5eItemDocuments[]> {
+    return new Promise((resolve) => {
+      resolve(
+        itemList.filter(
+          (item) =>
+            !itemsToRemove.some((newItem) => {
+              const originalNameMatch = newItem.flags?.ddbimporter?.originalItemName
+                ? newItem.flags.ddbimporter.originalItemName === item.name
+                : false;
+              const nameMatch = item.name === newItem.name || originalNameMatch;
+              const linkMatch = newItem.flags?.ddbimporter?.replacedId === item._id
+                && item.flags?.ddbimporter?.overrideId === newItem.flags?.ddbimporter?.overrideId;
+              return linkMatch || (nameMatch && item.type === newItem.type);
+            }),
+        ),
+      );
+    });
+  }
+
+
+  /**
+   * Deletes items from the inventory bases on which sections a user wants to update
+   * Possible sections:
+   * - class
+   * - feat
+   * - weapon
+   * - equipment
+   * - inventory: consumable, loot, tool and container
+   * - spell
+   * @param {Array} excludedList list of items to not remove
+   * @returns {Promise<Array<string>>} list of item ids removed
+   */
+  async clearItemsByUserSelection(excludedList: Item.Implementation[] = []): Promise<string[]> {
+    const includedItems = DDBCharacterImporter.getCharacterUpdatePolicyTypes();
+    // collect all items belonging to one of those inventory item categories
+    const ownedItems = this.actor.getEmbeddedCollection("Item");
+    const toRemove = ownedItems
+      .filter(
+        (item) =>
+          includedItems.includes(item.type)
+          && !excludedList.some((excluded) => excluded._id === item.id)
+          && !this.nonMatchedItemIds.includes(item.id),
+      )
+      .filter((item) => !foundry.utils.getProperty(item, "flags.ddbimporter.ignoreItemImport"))
+      .map((item) => item.id);
+
+    logger.debug("Removing the following character items", toRemove);
+    if (toRemove.length > 0) {
+      await this.actor.deleteEmbeddedDocuments("Item", toRemove);
+    }
+    return toRemove;
+  }
+
+  async updateImage() {
+    const source = this.ddbCharacter.source;
+    if (!source) throw new Error("DDBCharacterImporter: no DDB character source data available for image update");
+    const data = source.ddb;
+    logger.debug("Checking if image needs updating");
+    // updating the image?
+    let imagePath = this.actor.img;
+    const decorations = data.character.decorations;
+    const userHasPermission = !(utils.getSetting<boolean>("restrict-to-trusted") && !game.user.isTrusted);
+    if (
+      userHasPermission
+      && decorations?.avatarUrl
+      && decorations.avatarUrl !== ""
+      && (!imagePath
+        || this.settings.updatePolicyImage
+        || utils.isDefaultOrPlaceholderImage(imagePath))
+    ) {
+      this.notifier("Uploading avatar image");
+      const filename = utils.referenceNameString(`${data.character.id}-${data.character.name}`);
+
+      const uploadDirectory = utils.getSetting<string>("image-upload-directory").replace(/^\/|\/$/g, "");
+      imagePath = await FileHelper.uploadRemoteImage(decorations.avatarUrl, uploadDirectory, filename);
+      this.result.character.img = imagePath ?? undefined;
+      if (decorations?.frameAvatarUrl && decorations.frameAvatarUrl !== "") {
+        const extras = decorations.avatarFrameExtras;
+        let framePath: string | null = null;
+        let blob: Blob | null = null;
+        if (FrameAnimator.isSpriteExtras(extras)) {
+          this.notifier("Building animated avatar frame");
+          // DDB hides the base frame PNG via CSS display:none whenever sprite
+          // extras are present; omit baseUrl to keep the portrait cut-out.
+          blob = await FrameAnimator.buildWebM({
+            baseUrl: null,
+            spriteUrl: extras.animatedAvatarFrameUrl,
+            reflectionUrl: extras.reflectionAvatarFrameUrl,
+            frameWidth: extras.frameWidth,
+            frameHeight: extras.frameHeight,
+            frameCount: extras.frameCount,
+            gridCols: extras.gridCols,
+            gridRows: extras.gridRows,
+            durationMs: extras.animationDurationMs,
+            cssAnimationName: extras.cssAnimationName,
+          });
+        } else if (FrameKeyframeRenderer.isKeyframeExtras(extras)) {
+          this.notifier("Building keyframe-animated avatar frame");
+          // Keyframe extras DO draw the base frame; the overlays animate on top.
+          blob = await FrameKeyframeRenderer.buildWebM({
+            baseFrameUrl: decorations.frameAvatarUrl,
+            extras,
+          });
+        }
+        if (blob) {
+          framePath = await FileHelper.uploadBlob(blob, uploadDirectory, `frame-${filename}`, "webm");
+        } else if (extras) {
+          logger.warn("Animated frame build failed, falling back to static frame PNG");
+        }
+        if (!framePath) {
+          framePath = await FileHelper.uploadRemoteImage(decorations.frameAvatarUrl, uploadDirectory, `frame-${filename}`);
+        }
+        foundry.utils.setProperty(this.result.character, "flags.ddbimporter.framePath", framePath);
+        if (framePath) {
+          // Tokenizer-2 caches its frame loaders; bust the cache so the new
+          // file shows up on the next Frame Browser open.
+          const { clearDDBFrameCache } = await import("../hooks/init/tokenizer2Frames");
+          clearDDBFrameCache();
+        }
+      }
+    } else {
+      this.result.character.img = this.actor.img ?? undefined;
+    }
+
+    const originalToken = this.actorOriginal.prototypeToken;
+    if (utils.isDefaultOrPlaceholderImage(originalToken?.texture?.src)) {
+      foundry.utils.setProperty(this.result.character, "prototypeToken.texture.src", this.result.character.img);
+    } else if (originalToken && foundry.utils.hasProperty(this.actorOriginal, "prototypeToken.texture.src")) {
+      // we only adjust the prototype token if we have an original
+      foundry.utils.setProperty(this.result.character, "prototypeToken.texture.src", originalToken.texture?.src);
+      foundry.utils.setProperty(this.result.character, "prototypeToken.texture.scaleX", originalToken.texture?.scaleX);
+      foundry.utils.setProperty(this.result.character, "prototypeToken.texture.scaleY", originalToken.texture?.scaleY);
+      foundry.utils.setProperty(this.result.character, "prototypeToken.width", originalToken.width);
+      foundry.utils.setProperty(this.result.character, "prototypeToken.height", originalToken.height);
+      foundry.utils.setProperty(this.result.character, "prototypeToken.ring", originalToken.ring);
+    }
+  }
+
+
+  async enrichCharacterItems(items: TAll5eItemDocuments[]): Promise<TAll5eItemDocuments[]> {
+
+    await Iconizer.preFetchDDBIconImages();
+
+    // if we still have items to add, add them
+    if (items.length > 0) {
+      this.notifier("Copying existing data flags");
+      await this.copySupportedCharacterItemFlags(items);
+
+      if (this.settings.activeEffectCopy) {
+        this.notifier("Copying Item Active Effects");
+        items = await this.copyCharacterItemEffects(items);
+      }
+
+      const iconizerSettings = {
+        ddbItem: utils.getSetting<boolean>("character-update-policy-use-ddb-item-icons"),
+        inBuilt: utils.getSetting<boolean>("character-update-policy-use-inbuilt-icons"),
+        srdIcons: utils.getSetting<boolean>("character-update-policy-use-srd-icons"),
+        ddbSpell: utils.getSetting<boolean>("character-update-policy-use-ddb-spell-icons"),
+        ddbGenericItem: utils.getSetting<boolean>("character-update-policy-use-ddb-generic-item-icons"),
+        excludeCheck: true,
+      };
+
+      items = await Iconizer.updateIcons({
+        settings: iconizerSettings,
+        documents: items,
+        srdIconUpdate: utils.getSetting<boolean>("character-update-policy-use-srd-icons"),
+      }) as TAll5eItemDocuments[]; // we know these are right, as we pass in the same docs
+    }
+
+    items = items.map((item) => {
+      if (!item.effects) item.effects = [];
+      const itemDescription = item.system.description;
+      const description = foundry.utils.getProperty(item, "system.description.value");
+      if (itemDescription && description) {
+        itemDescription.value = `<div class="ddb">
+${description}
+</div>`;
+        itemDescription.chat = (itemDescription.chat ?? "").trim() !== ""
+          ? `<div class="ddb">
+${itemDescription.chat}
+</div>`
+          : "";
+      }
+      return item;
+    });
+
+    return items;
+  }
+
+  async createCharacterItems(items: TAll5eItemDocuments[], keepIds = false) {
+    const options: {
+      keepId?: boolean;
+      applyFeatures?: boolean;
+      addFeatures?: boolean;
+      promptAddFeatures?: boolean;
+    } = foundry.utils.duplicate(SETTINGS.DISABLE_FOUNDRY_UPGRADE);
+    if (keepIds) options["keepId"] = true;
+
+    // we have to break these out into class and non-class because of
+    // https://gitlab.com/foundrynet/foundryvtt/-/issues/5312
+    const klassItems = items.filter((item) => ["class", "subclass"].includes(item.type));
+    const nonKlassItems = items.filter((item) => !["class", "subclass"].includes(item.type));
+
+    if (klassItems.length > 0) {
+      logger.debug(`Adding the following class items, keep Ids? ${keepIds}`, { options, items: foundry.utils.duplicate(klassItems) });
+      for (const klassItem of klassItems) {
+        // console.warn(`Importing ${klassItem.name}`, klassItem);
+        await this.actor.createEmbeddedDocuments("Item", [klassItem as any], options);
+      }
+    }
+    if (nonKlassItems.length > 0) {
+      logger.debug(`Adding the following non-class items, keep Ids? ${keepIds}`, { options, items: foundry.utils.duplicate(nonKlassItems) });
+      if (CONFIG.DDBI.DEV.enabled && CONFIG.DDBI.DEV.itemImportSingle) {
+        for (const nonKlassItem of nonKlassItems) {
+          logger.info(`Importing ${nonKlassItem.name}`, nonKlassItem);
+          await this.actor.createEmbeddedDocuments("Item", [nonKlassItem as any], options);
+        }
+      } else {
+        await this.actor.createEmbeddedDocuments("Item", nonKlassItems as any, options);
+      }
+
+    }
+  }
+
+  async importCharacterItems(items: TAll5eItemDocuments[], keepIds = false) {
+    if (items.length > 0) {
+      this.notifier("Adding items to character");
+
+      const newItems = items.filter((i) => !i._id || i._id === null || i._id === undefined);
+      const updateItems = items.filter((i) => i._id && i._id !== null && i._id !== undefined);
+
+      await this.createCharacterItems(newItems, false);
+      await this.createCharacterItems(updateItems, keepIds);
+    }
+  }
+
+  async keepNonDDBItems(ddbItems: TAll5eItemDocuments[]) {
+    const lastImportId = foundry.utils.getProperty(this.actorOriginal, "flags.ddbimporter.importId");
+    if (this.settings.ignoreNonDDBItems) {
+      const items = this.actor.getEmbeddedCollection("Item");
+      await items.forEach((item) => {
+        const ddbMatchedItem = ddbItems.some((ddbItem) =>
+          item.name === ddbItem.name
+          && item.type === ddbItem.type
+          && foundry.utils.getProperty(item, "flags.ddbimporter.id") === foundry.utils.getProperty(ddbItem, "flags.ddbimporter.id"),
+        );
+        if (!ddbMatchedItem) {
+          // if item not replaced by compendium swap or
+          if (foundry.utils.getProperty(item, "flags.ddbimporter.importId") !== lastImportId) {
+            this.nonMatchedItemIds.push(item.id);
+          }
+        }
+      });
+    }
+  }
+
+  static async getIndividualOverrideItems(overrideItems: TAll5eItemDocuments[]): Promise<TAll5eItemDocuments[]> {
+    const label = CompendiumHelper.getCompendiumLabel("custom");
+    const compendium = CompendiumHelper.getCompendium(label);
+    if (!compendium) throw new Error(`DDBCharacterImporter: unable to find override compendium "${label}"`);
+
+    const compendiumItems: TAll5eItemDocuments[] = await Promise.all(overrideItems
+      .filter((item) => foundry.utils.hasProperty(item, "flags.ddbimporter.overrideId")
+        && compendium.index.has(foundry.utils.getProperty(item, "flags.ddbimporter.overrideId") as string))
+      .map(async (item) => {
+        const doc = await compendium.getDocument(foundry.utils.getProperty(item, "flags.ddbimporter.overrideId") as string) as Item.Implementation;
+        const compendiumItem: TAll5eItemDocuments = foundry.utils.duplicate(doc) as unknown as TAll5eItemDocuments;
+        foundry.utils.setProperty(compendiumItem, "flags.ddbimporter.pack", `${compendium.metadata.id}`);
+        if (foundry.utils.hasProperty(item, "flags.ddbimporter.overrideItem")) {
+          foundry.utils.setProperty(compendiumItem, "flags.ddbimporter.overrideItem", foundry.utils.getProperty(item, "flags.ddbimporter.overrideItem"));
+        } else {
+          foundry.utils.setProperty(compendiumItem, "flags.ddbimporter.overrideItem", {
+            name: item.name,
+            type: item.type,
+            ddbId: item.flags.ddbimporter?.id,
+          });
+        }
+
+        return compendiumItem;
+      }));
+
+    const matchingOptions = {
+      looseMatch: false,
+      monster: false,
+      keepId: true,
+      keepDDBId: true,
+      overrideId: true,
+      linkItemFlags: true,
+    };
+    const remappedItems: TAll5eItemDocuments[] = await DDBItemImporter.updateMatchingItems(overrideItems, compendiumItems, matchingOptions) as TAll5eItemDocuments[];
+
+    return remappedItems;
+  }
+
+  static restoreDDBMatchedFlags(existingItem: I5ePCItem, item: I5ePCItem) {
+    const ddbItemFlags = foundry.utils.getProperty(existingItem, "flags.ddbimporter") as IDDBImporterFlags;
+    logger.debug(`Item flags for ${existingItem.name}`, ddbItemFlags);
+    // we retain some flags that might change the nature of the import for this item
+    // these flags are used elsewhere
+    [
+      "ignoreItemForChrisPremades",
+      "ignoreItemImport",
+      "ignoreItemUpdate",
+      "overrideId",
+      "overrideItem",
+      "ddbCustomAdded",
+    ].forEach((flag) => {
+      if (foundry.utils.hasProperty(ddbItemFlags, flag)) {
+        logger.debug(`Overriding ${flag} for ${item.name} to ${ddbItemFlags[flag]}`);
+        foundry.utils.setProperty(item, `flags.ddbimporter.${flag}`, ddbItemFlags[flag]);
+      }
+    });
+    // some items get ignored completly, if so we don't match these
+    if (!(foundry.utils.getProperty(ddbItemFlags, "ignoreItemImport") ?? false)) {
+      logger.debug(`Updating ${item.name} with id`);
+      item["_id"] = foundry.utils.getProperty(existingItem, "id") as string
+        ?? foundry.utils.getProperty(existingItem, "_id") as string;
+      if (foundry.utils.getProperty(ddbItemFlags, "ignoreIcon") ?? false) {
+        logger.debug(`Retaining icons for ${item.name}`);
+        foundry.utils.setProperty(item, "flags.ddbimporter.matchedImg", existingItem.img);
+        foundry.utils.setProperty(item, "flags.ddbimporter.ignoreIcon", true);
+      }
+      if (foundry.utils.getProperty(ddbItemFlags, "retainResourceConsumption") ?? false) {
+        logger.debug(`Retaining resources for ${item.name}`);
+        if ("activities" in item.system && "activities" in existingItem.system) {
+          for (const [key, activity] of Object.entries(item.system.activities)) {
+            const original = existingItem.system.activities[key];
+            if (original) {
+              activity.consumption = original.consumption;
+              item.system.activities[key] = activity;
+            }
+          }
+        }
+        if (foundry.utils.hasProperty(existingItem.system, "uses") && foundry.utils.hasProperty(item.system, "uses")) {
+          item.system.uses.recovery = foundry.utils.deepClone(existingItem.system.uses.recovery);
+        }
+        foundry.utils.setProperty(item, "flags.ddbimporter.retainResourceConsumption", true);
+        if (foundry.utils.hasProperty(existingItem, "flags.link-item-resource-5e") ?? false) {
+          foundry.utils.setProperty(item, "flags.link-item-resource-5e", foundry.utils.getProperty(existingItem, "flags.link-item-resource-5e"));
+        }
+      }
+      if (foundry.utils.hasProperty(existingItem.system, "uses") && foundry.utils.hasProperty(item.system, "uses")) {
+        if (foundry.utils.getProperty(ddbItemFlags, "retainUseSpent") ?? false) {
+          item.system.uses.spent = foundry.utils.deepClone(existingItem.system.uses.spent);
+        }
+      }
+    }
+    if (foundry.utils.getProperty(ddbItemFlags, "ddbCustomAdded") ?? false) {
+      item.system = foundry.utils.deepClone(existingItem.system) as any;
+      item.type = foundry.utils.deepClone(existingItem.type) as any;
+    }
+    return item;
+  }
+
+  // checks for existing items, and depending on options will keep or replace with imported item
+  async mergeExistingItems(items: I5ePCItem[]) {
+    if (this.actorOriginal.flags?.ddbimporter) {
+      const ownedItems = this.actor.getEmbeddedCollection("Item") as unknown as TImporterItem[];
+
+      const nonMatchedItems = [];
+      const matchedItems = [];
+
+      for (let item of items) {
+        const existingItem = DDBDataUtils.findMatchedDDBItem(item, ownedItems, matchedItems);
+        logger.debug(`Checking ${item.name} for existing match`, existingItem);
+
+        if (existingItem) {
+          // we use flags on the item to determine if we keep various properties
+          // NOW IS THE TIME!
+          item = DDBCharacterImporter.restoreDDBMatchedFlags(existingItem as unknown as I5ePCItem, item);
+          // we can now determine if we are going to ignore this item or not,
+          // this effectively filters out the items we don't want and they don't
+          // get returned from this function
+          const ignoreItemImport = foundry.utils.getProperty(item, "flags.ddbimporter.ignoreItemImport") ?? false;
+          if (!ignoreItemImport) {
+            logger.debug(`Importing matched item ${item.name}`);
+            matchedItems.push(item);
+          }
+        } else {
+          nonMatchedItems.push(item);
+        }
+      }
+
+      logger.debug("Finished retaining items");
+      return nonMatchedItems.concat(matchedItems);
+    } else {
+      return items;
+    }
+  }
+
+  async fetchCharacterItems() {
+    logger.debug("Calculating items to create and update...");
+    this.notifier("Calculating items to create and update...");
+    let items = this.filterItemsByUserSelection();
+
+    logger.debug("Checking existing items for details...");
+    this.notifier("Checking existing items for details...");
+
+    items = await this.mergeExistingItems(items);
+    await this.keepNonDDBItems(items);
+
+    logger.debug("Removing found items...");
+    this.notifier("Clearing items for recreation...");
+    await this.clearItemsByUserSelection();
+
+    const spellsAsActivities = utils.getSetting<boolean>("spells-on-items-as-activities");
+    // If there is no magicitems module fall back to importing the magic
+    // item spells as normal spells fo the character
+    if (!spellsAsActivities) {
+      logger.debug("No magic items module(s) found, adding spells to sheet.");
+      items.push(
+        ...(this.result.itemSpells.filter((item) => {
+          const active = item.flags.ddbimporter?.dndbeyond?.active === true;
+          if (!active) logger.info(`Missing active flag on item spell ${item.name}`);
+          return active;
+        })),
+      );
+    }
+    logger.debug("Finished item fetch");
+    return items;
+  }
+
+  async processCharacterItems(items: I5eItemData[]) {
+    let compendiumItems: I5eItemData[] = [];
+    let overrideCompendiumItems: I5eItemData[] = [];
+    let individualCompendiumItems: I5eItemData[] = [];
+
+    // First we do items that are individually marked as override
+    const individualOverrideItems = items.filter((item: any) => {
+      const overrideId = foundry.utils.getProperty(item, "flags.ddbimporter.overrideId");
+      return overrideId !== undefined && overrideId !== "NONE";
+    });
+
+    if (individualOverrideItems.length > 0) {
+      const individualOverrideCompendiumItems = await DDBCharacterImporter.getIndividualOverrideItems(individualOverrideItems);
+      individualCompendiumItems = individualOverrideCompendiumItems;
+      // remove existing items from those to be imported
+      logger.info("Removing matching Override compendium items");
+      items = await DDBCharacterImporter.removeItems(items, individualCompendiumItems);
+    }
+
+    /**
+     * First choice is override compendium
+     */
+    if (this.settings.useOverrideCompendiumItems) {
+      logger.info("Removing matching Override compendium items");
+      const compendiumOverrideItems = await DDBItemImporter.getCompendiumItems(items, "custom", { linkItemFlags: true });
+      overrideCompendiumItems = compendiumOverrideItems;
+      // remove existing items from those to be imported
+      items = await DDBCharacterImporter.removeItems(items, overrideCompendiumItems);
+    }
+
+    if (this.settings.useExistingCompendiumItems) {
+      logger.info("Removing compendium items");
+      const compendiumFeatureItems = await DDBItemImporter.getCompendiumItems(items, "features");
+      const compendiumInventoryItems = await DDBItemImporter.getCompendiumItems(items, "inventory");
+      const compendiumSpellItems = await DDBItemImporter.getCompendiumItems(items, "spells");
+      const compendiumClassItems = await DDBItemImporter.getCompendiumItems(items, "class");
+      const compendiumSubClassItems = await DDBItemImporter.getCompendiumItems(items, "subclass");
+      const compendiumRaceItems = await DDBItemImporter.getCompendiumItems(items, "race");
+      const compendiumTraitsItems = await DDBItemImporter.getCompendiumItems(items, "trait");
+      const compendiumBackgroundsItems = await DDBItemImporter.getCompendiumItems(items, "background");
+
+      compendiumItems = compendiumItems.concat(
+        compendiumInventoryItems,
+        compendiumSpellItems,
+        compendiumFeatureItems,
+        compendiumClassItems,
+        compendiumSubClassItems,
+        compendiumRaceItems,
+        compendiumTraitsItems,
+        compendiumBackgroundsItems,
+      );
+      // remove existing items from those to be imported
+      items = await DDBCharacterImporter.removeItems(items, compendiumItems);
+    }
+
+    // import remaining items to character
+    if (items.length > 0) {
+      this.notifier("Adding DDB generated items");
+      logger.debug(`Adding DDB generated items...`, items);
+      items = await this.enrichCharacterItems(items);
+      await this.importCharacterItems(items, true);
+    }
+
+    // now import any compendium items that we matched
+    if (this.settings.useExistingCompendiumItems) {
+      this.notifier("Adding DDB compendium items");
+      logger.info("Adding DDB compendium items:", compendiumItems);
+      await this.createCharacterItems(compendiumItems, false);
+    }
+
+    if (this.settings.useOverrideCompendiumItems) {
+      this.notifier("Adding Override compendium items");
+      logger.info("Adding Override compendium items:", overrideCompendiumItems);
+      await this.createCharacterItems(overrideCompendiumItems, false);
+    }
+
+    if (individualCompendiumItems.length > 0) {
+      this.notifier("Adding Individual Override compendium items");
+      logger.info("Adding Individual Override compendium items:", individualCompendiumItems);
+      await this.createCharacterItems(individualCompendiumItems, false);
+    }
+
+    logger.debug("Finished importing items");
+  }
+
+  async preActiveEffects() {
+    this.effectBackup = foundry.utils.duplicate(this.actor.effects) as unknown as I5eEffectData[];
+    for (const e of this.effectBackup) {
+      if (e.origin?.includes(".Item.")) {
+        const parent: I5ePCItem | undefined = await fromUuid(e.origin) as unknown as I5ePCItem;
+        logger.debug("Effect Backup flags", { e, parent });
+        if (parent) foundry.utils.setProperty(e, "flags.ddbimporter.type", parent.type);
+      }
+    }
+    await this.actor.deleteEmbeddedDocuments("ActiveEffect", [], { deleteAll: true });
+  }
+
+  async processActiveEffects() {
+    logger.debug("Removing active effects");
+
+    // remove current active effects
+    const excludedItems = this.filterActorItemsByUserSelection(true);
+    const ignoredItemIds = (this.actorOriginal.items ?? [])
+      .filter((item) =>
+        item.effects
+        && item.effects.length > 0
+        && (item.flags.ddbimporter?.ignoreItemImport
+          || excludedItems.some((ei) => ei._id === item._id)
+          || (item._id !== undefined && this.nonMatchedItemIds.includes(item._id))
+        ),
+      )
+      .map((item) => item._id);
+
+    const itemEffects = this.effectBackup.filter((ae) =>
+      ae.origin?.includes(".Item."),
+    );
+    const ignoredEffects = this.effectBackup.filter((ae) =>
+      ignoredItemIds.includes(ae.origin?.split(".").slice(-1)[0]),
+    );
+    const coreStatusEffects = this.effectBackup.filter((ae) => {
+      const isStatus = (ae.statuses?.length ?? 0) > 0;
+      const itemEffect = ae.origin?.includes(".Item.");
+      return isStatus && !itemEffect;
+    });
+    // effects on the character that are not from items, or corestatuses
+    // nor added by ddb importer
+    const charEffects = this.effectBackup.filter((ae) =>
+      !ignoredItemIds.some((id) => ae._id === id)
+      && !ae.flags?.ddbimporter?.characterEffect
+      && !((ae.statuses?.length ?? 0) > 0)
+      && !ae.origin?.includes(".Item."),
+    );
+    // effects that are added by the ddb importer that are not item effects
+    const ddbGeneratedCharEffects = this.effectBackup.filter((ae) =>
+      !ae.origin?.includes(".Item.") && ae.flags?.ddbimporter?.characterEffect,
+    );
+
+    const spellEffects: I5eEffectData[] = [];
+    for (const e of itemEffects) {
+      const isOther = coreStatusEffects.some((ae) => ae._id === e._id)
+        || charEffects.some((ae) => ae._id === e._id)
+        || ddbGeneratedCharEffects.some((ae) => ae._id === e._id);
+      if (!isOther && foundry.utils.getProperty(e, "flags.ddbimporter.type") === "spell") {
+        spellEffects.push(e);
+      }
+    }
+
+    const remainingEffects = this.effectBackup
+      .filter((e) =>
+        // remove existing active item effects
+        !itemEffects.map((ae) => ae._id).includes(e._id)
+        // clear down ddb generated character effects such as skill bonuses
+        && !ddbGeneratedCharEffects.map((ae) => ae._id).includes(e._id)
+        // ignored effects always remain
+        && !ignoredEffects.map((ae) => ae._id).includes(e._id)
+        // clear down char effects
+        && !charEffects.map((ae) => ae._id).includes(e._id)
+        // clear down status effects
+        && !coreStatusEffects.map((ae) => ae._id).includes(e._id)
+        // ignore spell effects
+        && !spellEffects.map((ae) => ae._id).includes(e._id),
+      );
+
+    logger.debug("Effect Removal Results", {
+      ignoredItemIds, itemEffects, ignoredEffects, charEffects, coreStatusEffects, spellEffects,
+      ddbGeneratedCharEffects, remainingEffects, backupEffects: this.effectBackup,
+    });
+
+    // are we trying to retain existing effects?
+    if (this.settings.activeEffectCopy) {
+      // add retained character effects to result
+      const effects = ignoredEffects.concat(charEffects, coreStatusEffects, spellEffects, remainingEffects);
+      this.result.character.effects = (this.result.character.effects ?? []).concat(effects);
+    } else {
+      this.result.character.effects = (this.result.character.effects ?? []).concat(ignoredEffects);
+    }
+  }
+
+  fixUpCharacterEffects() {
+    // if (!CONFIG.ActiveEffect.legacyTransferral) return;
+    const abilityOverrideData = this.result.character.flags?.ddbimporter?.dndbeyond?.abilityOverrides;
+    const abilityOverrides = abilityOverrideData ? abilityOverrideEffect(abilityOverrideData) : null;
+    if (abilityOverrides && (abilityOverrides.system?.changes?.length ?? 0) > 0) {
+      this.result.character.effects = (this.result.character.effects ?? []).concat(abilityOverrides);
+    }
+    this.result.character.effects = (this.result.character.effects ?? []).filter((e) => e !== undefined);
+    this.result.character.effects.forEach((effect) => {
+      const origins = ["Ability.Override", "AC", `Actor.${this.actor.flags.ddbimporter?.dndbeyond?.characterId}`];
+      if (effect.origin && origins.includes(effect.origin)) {
+        effect.origin = `Actor.${this.actor.id}`;
+      }
+    });
+  }
+
+  async addImportIdToItems() {
+    const importId = this.importId;
+    function addImportId<T extends I5eItemData>(items: T[]): T[] {
+      return items.map((item) => {
+        foundry.utils.setProperty(item, "flags.ddbimporter.importId", importId);
+        return item;
+      });
+    }
+    this.result.actions = addImportId(this.result.actions);
+    this.result.classes = addImportId(this.result.classes);
+    this.result.features = addImportId(this.result.features);
+    this.result.inventory = addImportId(this.result.inventory);
+    this.result.itemSpells = addImportId(this.result.itemSpells);
+    this.result.spells = addImportId(this.result.spells);
+  }
+
+  async resetActor() {
+    await this.actor.deleteEmbeddedDocuments("Item", [], {
+      deleteAll: true,
+    });
+    await this.actor.deleteEmbeddedDocuments("ActiveEffect", [], { deleteAll: true });
+    await this.actor.update(this.actorOriginal as unknown as Actor.UpdateInput, { recursive: true, keepId: true } as unknown as Parameters<typeof this.actor.update>[1]);
+  }
+
+  getSettings() {
+    this.settings = {
+      updatePolicyName: utils.getSetting<boolean>("character-update-policy-name"),
+      updatePolicyHP: utils.getSetting<boolean>("character-update-policy-hp"),
+      updatePolicyHitDie: utils.getSetting<boolean>("character-update-policy-hit-die"),
+      updatePolicyCurrency: utils.getSetting<boolean>("character-update-policy-currency"),
+      updatePolicyBio: utils.getSetting<boolean>("character-update-policy-bio"),
+      updatePolicyXP: utils.getSetting<boolean>("character-update-policy-xp"),
+      updatePolicySpellUse: utils.getSetting<boolean>("character-update-policy-spell-use"),
+      updatePolicyLanguages: utils.getSetting<boolean>("character-update-policy-languages"),
+      updatePolicyImage: utils.getSetting<boolean>("character-update-policy-image"),
+      activeEffectCopy: utils.getSetting<boolean>("character-update-policy-active-effect-copy"),
+      addCharacterEffects: utils.getSetting<boolean>("character-update-policy-add-midi-effects"),
+      ignoreNonDDBItems: utils.getSetting<boolean>("character-update-policy-ignore-non-ddb-items"),
+      useExistingCompendiumItems: false, // utils.getSetting<boolean>("character-update-policy-use-existing"),
+      useOverrideCompendiumItems: utils.getSetting<boolean>("character-update-policy-use-override"),
+      useChrisPremades: utils.getSetting<boolean>("character-update-policy-use-chris-premades")
+        && (game.modules.get("chris-premades")?.active ?? false),
+      midiConfig: game.modules.get("midi-qol")?.active
+        ? foundry.utils.deepClone(utils.getSetting<Record<string, any>>("ConfigSettings", "midi-qol"))
+        : null,
+    };
+  }
+
+  async resetHitPoints() {
+    const hp = this.settings.updatePolicyHP
+      ? this.result.character.system.attributes?.hp
+      : this.actorOriginal.system.attributes?.hp;
+
+    if (!hp) {
+      logger.warn("DDBCharacterImporter: no hit point data found, skipping hit point reset");
+      return;
+    }
+
+    if (this.settings.updatePolicyHP) {
+      const removedHitPoints = this.result.character.flags?.ddbimporter?.removedHitPoints ?? 0;
+      const totalHP = this.result.character.flags?.ddbimporter?.totalHP ?? 0;
+      hp.value = totalHP - removedHitPoints;
+    }
+
+    await this.actor.update({
+      "system.attributes.hp": hp,
+    } as unknown as Actor.UpdateInput);
+  }
+
+  async setAtLeastOneHP() {
+    const hp = foundry.utils.getProperty(this.actor, "system.attributes.hp") as I5ePCHitPoints;
+
+    if (!hp.bonuses) hp.bonuses = {};
+    hp.bonuses.overall = `${hp.bonuses.overall ?? 0} + 1`;
+    hp.value = (hp.value ?? 0) + 1;
+    await this.actor.update({
+      "system.attributes.hp": hp,
+    } as unknown as Actor.UpdateInput);
+  }
+
+  async setSafeMidiQolConfig() {
+    if (this.settings.midiConfig) {
+      const newConfig = foundry.utils.deepClone(this.settings.midiConfig);
+      newConfig.midiDeadCondition = "none";
+      newConfig.midiUnconsciousCondition = "none";
+      newConfig.addDead = "none";
+      await game.settings.set("midi-qol", "ConfigSettings", newConfig);
+    }
+  }
+
+  async restoreMidiQolConfig() {
+    if (this.settings.midiConfig) {
+      await game.settings.set("midi-qol", "ConfigSettings", this.settings.midiConfig);
+    }
+  }
+
+  async processCharacterData() {
+    this.getSettings();
+    if (!CONFIG.DDBI.EFFECT_CONFIG.MODULES.configured) {
+      CONFIG.DDBI.EFFECT_CONFIG.MODULES.configured = await DDBMacros.configureDependencies();
+    }
+    await this.setSafeMidiQolConfig();
+    this.result = foundry.utils.deepClone(this.ddbCharacter.data);
+
+    // disable active sync
+    logger.debug("Disabling dynamic updates for character import");
+    const activeUpdateState = this.ddbCharacter.getCurrentDynamicUpdateState();
+    await this.ddbCharacter.disableDynamicUpdates();
+    await this.setAtLeastOneHP();
+
+    try {
+      this.importId = foundry.utils.randomID();
+      foundry.utils.setProperty(this.result.character, "flags.ddbimporter.importId", this.importId);
+      logger.debug(`Set import ID to ${this.importId} to items`);
+      await this.addImportIdToItems();
+
+      // handle active effects
+      this.notifier("Calculating Active Effect Changes");
+      logger.debug("Calculating Active Effect Changes");
+      this.fixUpCharacterEffects();
+      await this.preActiveEffects();
+      // we need to process the items first to find out if we are ignoring any effects
+      logger.debug("Fetching character items for import and clearing current character");
+      const items = await this.fetchCharacterItems();
+      logger.debug("Processing active effects for import");
+      await this.processActiveEffects();
+
+      // update image
+      logger.debug("Updating character image if required");
+      await this.updateImage();
+
+      // manage updates of basic character data more intelligently
+      // revert some data if update not wanted
+      logger.debug("Processing character data updates based on user settings");
+      if (!this.settings.updatePolicyName) {
+        this.result.character.name = this.actorOriginal.name;
+        if (this.result.character.prototypeToken) {
+          this.result.character.prototypeToken.name = this.actorOriginal.prototypeToken?.name;
+        }
+      }
+      if (!this.settings.updatePolicyHP && this.result.character.system.attributes) {
+        this.result.character.system.attributes.hp = this.actorOriginal.system.attributes?.hp;
+      }
+      if (!this.settings.updatePolicyXP && this.result.character.system.details) {
+        this.result.character.system.details.xp = this.actorOriginal.system.details?.xp;
+      }
+      if (!this.settings.updatePolicyHitDie) {
+        this.result.classes = this.result.classes.map((klass) => {
+          const originalKlass: I5eClassItem = (this.actorOriginal.items ?? []).find(
+            (original) => original.name === klass.name && original.type === "class",
+          ) as I5eClassItem;
+          if (originalKlass && klass.type === "class" && klass.system.hd && originalKlass.system.hd) {
+            klass.system.hd.spent = originalKlass.system.hd.spent;
+          }
+          return klass;
+        });
+      }
+      if (!this.settings.updatePolicyCurrency) {
+        this.result.character.system.currency = this.actorOriginal.system.currency;
+      }
+      if (!this.settings.updatePolicyBio) {
+        const bioUpdates = ["alignment", "appearance", "background", "biography", "bond", "flaw", "ideal", "trait"];
+        bioUpdates.forEach((option) => {
+          foundry.utils.setProperty(this.result.character, `system.details.${option}`, foundry.utils.getProperty(this.actorOriginal, `system.details.${option}`));
+        });
+      }
+      if (!this.settings.updatePolicySpellUse) {
+        this.result.character.system.spells = this.actorOriginal.system.spells;
+      }
+      if (!this.settings.updatePolicyLanguages && this.result.character.system.traits) {
+        this.result.character.system.traits.languages = this.actorOriginal.system.traits?.languages;
+      }
+      // if resource mode is in disable and not asking, then we use the previous resources
+      const resourceFlags = foundry.utils.getProperty(this.result.character, "flags.ddbimporter.resources") as IDDBImporterFlagsResources;
+      if (resourceFlags.type === "disable") {
+        this.result.character.system.resources = foundry.utils.duplicate(this.actorOriginal.system.resources);
+      }
+
+      // flag as having items ids
+      const importerFlags = this.result.character.flags?.ddbimporter;
+      if (!importerFlags) throw new Error("DDBCharacterImporter: parsed character is missing ddbimporter flags");
+      importerFlags.syncItemReady = true;
+      importerFlags.syncActionReady = true;
+      importerFlags.activeUpdate = false;
+      importerFlags.activeSyncSpells = true;
+      // remove unneeded flags (used for character parsing)
+      if (importerFlags.dndbeyond) {
+        importerFlags.dndbeyond.templateStrings = null;
+        importerFlags.dndbeyond.characterValues = null;
+        importerFlags.dndbeyond.proficiencies = null;
+        importerFlags.dndbeyond.proficienciesIncludingEffects = null;
+        importerFlags.dndbeyond.effectAbilities = null;
+        importerFlags.dndbeyond.abilityOverrides = null;
+      }
+      foundry.utils.setProperty(this.result.character, "flags.ddb-importer.version", CONFIG.DDBI.version);
+
+      if (this.actorOriginal.flags?.dnd5e?.wildMagic === true) {
+        foundry.utils.setProperty(this.result.character, "flags.dnd5e.wildMagic", true);
+      }
+
+      // midi fixes
+      const actorOnUseMacroName = foundry.utils.getProperty(this.result.character, "flags.midi-qol.onUseMacroName");
+      if (!actorOnUseMacroName || actorOnUseMacroName === "") {
+        foundry.utils.setProperty(this.result.character, "flags.midi-qol.onUseMacroName", "[postActiveEffects]");
+      }
+
+      // copy existing journal
+      logger.debug("Copying existing journal notes");
+      this.copyExistingJournalNotes();
+
+      // basic import
+      this.notifier("Updating core character information");
+      logger.debug("Character data importing: ", this.result.character);
+      await this.actor.update(this.result.character as unknown as Actor.UpdateInput);
+
+      // items import
+      logger.debug("Processing character items");
+      await this.processCharacterItems(items);
+
+      if (this.settings.activeEffectCopy) {
+        logger.debug("Checking existing effects to copy");
+        // find effects with a matching name that existed on previous actor
+        // and that have a different active state and activate them
+        const targetEffects = this.actor.effects.filter((ae: ActiveEffect.Implementation) => {
+          const previousEffectDiff = this.actorOriginal.effects?.find(
+            (oae) => oae.name === ae.name && oae.disabled !== ae.disabled,
+          );
+          if (previousEffectDiff) return true;
+          return false;
+        });
+        const updatedEffects: I5eEffectData[] = targetEffects.map((ae: ActiveEffect.Implementation) => {
+          return { _id: ae._id ?? undefined, disabled: !ae.disabled };
+        });
+        await this.actor.updateEmbeddedDocuments("ActiveEffect", updatedEffects as unknown as any);
+      }
+
+      const favorites = foundry.utils.deepClone(this.actorOriginal.system.favorites ?? []);
+      if (favorites.length > 0) {
+        await this.actor.update({ system: { favorites } } as any);
+      }
+
+      this.notifier(`Consumption linking...`);
+      logger.debug("Linking consumptions...");
+      await this.ddbCharacter.autoLinkConsumption();
+
+      // add infusions to actors items
+      logger.debug("Creating infused items...");
+      const ddbSource = this.ddbCharacter.source;
+      if (!ddbSource) throw new Error("DDBCharacterImporter: no DDB character source data available");
+      await createInfusedItems(ddbSource.ddb, this.actor);
+      await linkSelectedEnchantments(this.actor);
+
+      if (this.settings.useChrisPremades) {
+        this.notifier(`Applying CPR...`);
+        logger.debug("Applying CPR effects...");
+        await ExternalAutomations.addChrisEffectsToActorDocuments(this.actor as unknown as Actor);
+      }
+      this.notifier(`Updating conditions...`);
+      logger.debug("Updating conditions...");
+      await setConditions(this.actor, ddbSource.ddb, this.settings.activeEffectCopy);
+
+      logger.debug("Final hit point adjustments");
+      await this.resetHitPoints();
+
+    } catch (error) {
+      logger.error("Error importing character: ", { error, ddbCharacter: this.ddbCharacter, result: this.result });
+      if (error instanceof Error) logger.error(error.stack);
+      this.notifier("Error importing character, attempting rolling back, see console (F12) for details.", { message: utils.errorMessage(error), isError: true });
+      await this.resetActor();
+      throw new Error("ImportFailure", {
+        cause: error,
+      });
+    } finally {
+      await this.ddbCharacter.updateDynamicUpdates(activeUpdateState);
+      await this.restoreMidiQolConfig();
+      this.actor.render();
+      if (CONFIG.DDBI.DEV.downloadFinalActorJSON) {
+        FileHelper.download(JSON.stringify(this.actor._source), `${this.actor.name}-${this.actor.id}.json`, "application/json");
+      }
+    }
+
+    await Hooks.callAll("ddb-importer.characterProcessDataComplete", { actor: this.actor, ddbCharacter: this.ddbCharacter });
+  }
+
+
+  async importCharacter({ characterId = null }: { characterId?: string | null } = {}) {
+
+    try {
+      this.notifier("Getting Character data");
+      const derivedCharacterId = characterId ?? this.actor.flags?.ddbimporter?.dndbeyond?.characterId;
+      const ddbCharacterOptions = {
+        currentActor: this.actor,
+        characterId: derivedCharacterId,
+        selectResources: true,
+        enableCompanions: true,
+      };
+      const getOptions = {
+        syncId: null as string | null,
+        localCobaltPostFix: this.actor.id ?? undefined,
+      };
+      const runResult = await DDBRunContext.runWith({
+        keyPostfix: this.actor.id,
+        useLocal: foundry.utils.getProperty(this.actor, "flags.ddbimporter.useLocalPatreonKey") as boolean | undefined ?? false,
+      }, async () => {
+        this.ddbCharacter = new DDBCharacter(ddbCharacterOptions);
+        await this.ddbCharacter.getCharacterData(getOptions);
+        logger.debug("import.js getCharacterData result", this.ddbCharacter);
+        if (utils.getSetting<boolean>("debug-json")) {
+          FileHelper.download(JSON.stringify(this.ddbCharacter.source), `${derivedCharacterId}.json`, "application/json");
+        }
+        if (this.ddbCharacter.source?.success) {
+          // begin parsing the character data
+          await this.ddbCharacter.process();
+          await this.processCharacterData();
+          this.notifier("Loading Character data", { message: "Done." });
+          logger.debug("Character Load complete", { ddbCharacter: this.ddbCharacter, result: this.result, actor: this.actor, actorOriginal: this.actorOriginal });
+          return true;
+        }
+        // there will be a message here if success is false
+        this.notifier(foundry.utils.getProperty(this.ddbCharacter, "source.message"), { isError: true });
+        return false;
+      });
+      if (!runResult) return false;
+    } catch (error) {
+      switch (utils.errorMessage(error)) {
+        case "ImportFailure":
+          logger.error("Failure", { ddbCharacter: this.ddbCharacter, result: this.result });
+          break;
+        case "Forbidden":
+          this.notifier("Error retrieving Character: " + error, { message: String(error), isError: true });
+          break;
+        default:
+          logger.error(error);
+          if (error instanceof Error) logger.error(error.stack);
+          this.notifier("Error processing Character: " + error, { message: String(error), isError: true });
+          logger.error("Failure", { ddbCharacter: this.ddbCharacter, result: this.result });
+          break;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  static async importCharacter({ actor, notifier } : { actor: TImporterActor; notifier?: (title: any, { message, isError }?: NotifierV1Props) => void }) {
+    try {
+      const actorData = actor.toObject() as unknown as I5ePCData;
+      if (!actorData._id) throw new Error("DDBCharacterImporter: actor data is missing an id");
+      const characterId = actorData.flags?.ddbimporter?.dndbeyond?.characterId;
+      if (!characterId) throw new Error("DDBCharacterImporter: actor is missing a D&D Beyond character id");
+
+      const ddbCharacterOptions = {
+        currentActor: actor,
+        characterId,
+        selectResources: true,
+      };
+      const getOptions = {
+        syncId: null as string | null,
+        localCobaltPostFix: actorData._id,
+      };
+      const ddbCharacter = new DDBCharacter(ddbCharacterOptions);
+      await ddbCharacter.getCharacterData(getOptions);
+      await ddbCharacter.process();
+
+      logger.debug("import.js importCharacter getCharacterData result", ddbCharacter.source);
+      if (utils.getSetting<boolean>("debug-json")) {
+        FileHelper.download(JSON.stringify(ddbCharacter.source), `${characterId}.json`, "application/json");
+      }
+      if (ddbCharacter.source?.success) {
+        // begin parsing the character data
+
+        const importer = new DDBCharacterImporter({
+          actorId: actorData._id,
+          ddbCharacter,
+          notifier,
+        });
+
+        await importer.processCharacterData();
+        importer.notifier("Loading Character data", { message: "Done." });
+        logger.info("Loading Character data");
+        return true;
+      } else {
+        // there will be a message here if success is false
+        logger.error("Error Loading Character data", { message: foundry.utils.getProperty(ddbCharacter, "source.message"), ddbCharacter });
+        return false;
+      }
+    } catch (error) {
+      switch (utils.errorMessage(error)) {
+        case "ImportFailure":
+          logger.error("Failure");
+          break;
+        case "Forbidden":
+          logger.error("Error retrieving Character: ", error);
+          break;
+        default:
+          logger.error("Error processing Character: ", error);
+          if (error instanceof Error) logger.error(error.stack);
+          break;
+      }
+      return false;
+    }
+  }
+
+  static async importCharacterById(characterId: string | number, notifier: any, folderId: string | null = null) {
+    const createData = {
+      name: "New Actor",
+      type: "character",
+      folder: folderId,
+      flags: {
+        ddbimporter: {
+          dndbeyond: {
+            characterId: characterId,
+            url: `https://www.dndbeyond.com/characters/${characterId}`,
+          },
+        },
+      },
+    };
+    // fvtt-types Actor.Implementation does not carry the ddbimporter flag shape,
+    // so cast the freshly created actor to the importer view of it
+    const actor = await Actor.create(createData as unknown as Actor.CreateInput) as unknown as TImporterActor;
+
+    const result = await DDBCharacterImporter.importCharacter({ actor, notifier });
+    return result;
+  }
+
+}

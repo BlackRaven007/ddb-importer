@@ -1,0 +1,478 @@
+import DDBCookie from "../../apps/DDBCookie";
+import DDBCharacterManager from "../../apps/DDBCharacterManager";
+import { logger, Secrets, utils } from "../../lib/_module";
+import DDBSetup from "../../apps/DDBSetup";
+import { DDBAdventureFlags } from "../../apps/DDBAdventureFlags";
+import DDBPartySync from "../../apps/DDBPartySync";
+
+const API_ENDPOINT = "https://character-service.dndbeyond.com/character/v5/character/";
+// reference to the D&D Beyond popup
+const POPUPS: Record<string, Window | null> = {
+  json: null,
+  web: null,
+};
+const renderPopup = (type: string, url: string) => {
+  if (POPUPS[type] && !POPUPS[type].close) {
+    POPUPS[type].focus();
+    POPUPS[type].location.href = url;
+  } else {
+    const ratio = window.innerWidth / window.innerHeight;
+    const width = Math.round(window.innerWidth * 0.5);
+    const height = Math.round(window.innerWidth * 0.5 * ratio);
+    POPUPS[type] = window.open(
+      url,
+      "ddb_sheet_popup",
+      `resizeable,scrollbars,location=no,width=${width},height=${height},toolbar=1`,
+    );
+  }
+  return true;
+};
+
+function callDDBCharacterManager(actor: TImporterActor) {
+  const characterImport = new DDBCharacterManager(actor);
+  characterImport.render({ force: true });
+}
+
+async function characterButtonClick(event: MouseEvent | JQuery.ClickEvent, document: Record<string, any>, actor: TImporterActor) {
+  const url = foundry.utils.hasProperty(document, "flags.ddbimporter.dndbeyond.url")
+    ? foundry.utils.getProperty(document, "flags.ddbimporter.dndbeyond.url") as string
+    : null;
+
+  const jsonURL = foundry.utils.hasProperty(document, "flags.ddbimporter.dndbeyond.json")
+    ? foundry.utils.getProperty(document, "flags.ddbimporter.dndbeyond.json") as string
+    : null;
+  if (event.shiftKey && (event.ctrlKey || event.metaKey)) {
+    new DDBAdventureFlags(document, {}).render(true);
+  } else if (event.shiftKey && url) {
+    event.preventDefault();
+    return renderPopup("web", url);
+  } else if (event.altKey && jsonURL) {
+    event.preventDefault();
+    return renderPopup("json", jsonURL);
+  } else if (event.altKey && !jsonURL) {
+    // get the character ID
+    const characterId = url?.split("/").pop();
+    if (characterId) {
+      event.preventDefault();
+      return renderPopup("json", API_ENDPOINT + characterId);
+    }
+  } else if ((!event.shiftKey && !event.ctrlKey && !event.altKey) || url === null) {
+    const setupComplete = DDBSetup.isSetupComplete(game.user.isGM);
+
+    if (setupComplete) {
+      if (game.user.isGM) {
+        callDDBCharacterManager(actor);
+      } else {
+        const timeout = setTimeout(async() => {
+          ui.notifications.error("Unable to connect to DDB Importer Proxy. Please check your DDB Importer settings and internet connection and try again.");
+          return new DDBSetup({
+            actor: actor,
+          }).render({ force: true });
+        }, 10000);
+        const checkCobalt = await Secrets.checkCobalt(actor.id ?? undefined);
+        clearTimeout(timeout);
+        if (checkCobalt.success) {
+          callDDBCharacterManager(actor);
+          return true;
+        } else {
+          ui.notifications.warn("Cobalt cookie is invalid or expired. Please update or add your Cobalt cookie.");
+          new DDBCookie({
+            actor: actor,
+            localCobalt: true,
+            callback: () => {
+              callDDBCharacterManager(actor);
+            },
+          }).render(true);
+        }
+      }
+
+    } else {
+      new DDBSetup({
+        actor: actor,
+      }).render({ force: true });
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
+function characterButtonClickV2(this: { document: I5ePCData; actor: TImporterActor }, event: MouseEvent, _target: HTMLElement) {
+  characterButtonClick(event, this.document, this.actor);
+}
+
+function getCharacterButton(document: I5ePCData, actor: TImporterActor) {
+  const buttonText = "<button type=\"button\" id=\"ddbImporterButton\" class=\"inactive\"><i class=\"fab fa-d-and-d-beyond\"></button>";
+
+  const url = foundry.utils.hasProperty(document, "flags.ddbimporter.dndbeyond.url")
+    ? foundry.utils.getProperty(document, "flags.ddbimporter.dndbeyond.url") as string
+    : null;
+
+  const button = $(buttonText);
+  if (!url || url.trim() === "") button.removeClass("inactive");
+
+  button.click((event) => characterButtonClick(event, document, actor));
+
+  return button;
+}
+
+function npcButtonClick(event: MouseEvent | JQuery.ClickEvent, document: Record<string, any>) {
+  const url = document.flags.monsterMunch.url;
+  if (event.shiftKey && (event.ctrlKey || event.metaKey)) {
+    new DDBAdventureFlags(document, {}).render(true);
+  } else {
+    logger.debug(`Clicked for url ${url}`);
+    renderPopup("web", url);
+  }
+}
+
+function npcButtonClickV2(this: { document: I5eMonsterData | I5eVehicleData }, event: MouseEvent, _target: HTMLElement) {
+  npcButtonClick(event, this.document);
+}
+
+function getNPCButton(document: Record<string, any>) {
+  const button = $("<button type=\"button\" id=\"ddbImporterButton\"><i class=\"fab fa-d-and-d-beyond\"></button>");
+  button.click((event) => npcButtonClick(event, document));
+  return button;
+}
+
+function groupButtonClickV2(this: { document?: TImporterActor | null; actor?: TImporterActor | null }, _event: MouseEvent, _target: HTMLElement) {
+  const actor = this.document ?? this.actor;
+  if (!actor) return false;
+  DDBPartySync.open({ actor });
+  return true;
+}
+
+function groupButtonClick(_event: MouseEvent | JQuery.ClickEvent, document: TImporterActor) {
+  if (!document) return false;
+  DDBPartySync.open({ actor: document });
+  return true;
+}
+
+function getGroupButton(document: TImporterActor) {
+  const button = $("<button type=\"button\" id=\"ddbImporterButton\"><i class=\"fab fa-d-and-d-beyond\"></button>");
+  button.click((event) => groupButtonClick(event, document));
+  return button;
+}
+
+
+function handlePCHeaderButton(config: Record<string, any>, buttons: Record<string, any>[], label = true) {
+  const whiteTitle = (utils.getSetting<boolean>("link-title-colour-white")) ? " white" : "";
+  buttons.unshift({
+    label: label ? `DDB Importer` : undefined,
+    class: "ddb-open-url",
+    icon: `fab fa-d-and-d-beyond${whiteTitle}`,
+    onclick: (event: MouseEvent) => characterButtonClick(event, config.document, config.actor),
+  });
+}
+
+function handleNPCHeaderButton(config: Record<string, any>, buttons: Record<string, any>[], label = true) {
+  const whiteTitle = (utils.getSetting<boolean>("link-title-colour-white")) ? " white" : "";
+  buttons.unshift({
+    label: label ? `DDB Importer` : undefined,
+    class: "ddb-open-url",
+    icon: `fab fa-d-and-d-beyond${whiteTitle}`,
+    onclick: (event: MouseEvent) => npcButtonClick(event, config.document),
+  });
+}
+
+function createActorHeaderButtons(config: Record<string, any>, buttons: Record<string, any>[], label = true) {
+  const isCharacterSheet = config.actor?.type === "character";
+  const isNpcSheet = config.actor?.type === "npc";
+
+  if (!isCharacterSheet && !isNpcSheet) return;
+
+  if (!utils.getSetting<boolean>("character-link-title") && isCharacterSheet) return;
+  if (!utils.getSetting<boolean>("monster-link-title") && isNpcSheet) return;
+
+  if (isCharacterSheet) {
+    handlePCHeaderButton(config, buttons, label);
+  } else if (isNpcSheet) {
+    if (!config.object.flags?.monsterMunch?.url) return;
+    handleNPCHeaderButton(config, buttons, label);
+  }
+}
+
+function handlePCHeaderButtonV2(config: Record<string, any>, buttons: Record<string, any>[], label = true) {
+  const whiteTitle = (utils.getSetting<boolean>("link-title-colour-white")) ? " white" : "";
+  config.options.actions["ddbclick"] = characterButtonClickV2;
+  buttons.unshift({
+    label: label ? `DDB Importer` : undefined,
+    icon: `fab fa-d-and-d-beyond${whiteTitle}`,
+    action: "ddbclick",
+    ownership: "OWNER",
+  });
+}
+
+function handleNPCHeaderButtonV2(config: Record<string, any>, buttons: Record<string, any>[], label = true) {
+  const whiteTitle = (utils.getSetting<boolean>("link-title-colour-white")) ? " white" : "";
+  config.options.actions["ddbclick"] = npcButtonClickV2;
+  buttons.unshift({
+    label: label ? `DDB Importer` : undefined,
+    icon: `fab fa-d-and-d-beyond${whiteTitle}`,
+    action: "ddbclick",
+    ownership: "OWNER",
+  });
+}
+
+function handleGroupHeaderButtonV2(config: Record<string, any>, buttons: Record<string, any>[], label = true) {
+  const whiteTitle = (utils.getSetting<boolean>("link-title-colour-white")) ? " white" : "";
+  config.options.actions["ddbpartysync"] = groupButtonClickV2;
+  buttons.unshift({
+    label: label ? `DDB Party Sync` : undefined,
+    icon: `fab fa-d-and-d-beyond${whiteTitle}`,
+    action: "ddbpartysync",
+    ownership: "OWNER",
+  });
+}
+
+
+function createActorHeaderButtonsV2(config: Record<string, any>, buttons: Record<string, any>[], label = true) {
+  const actor = config.actor ?? config.document;
+  const isCharacterSheet = actor?.type === "character";
+  const isNpcSheet = actor?.type === "npc";
+  const isPartyGroupSheet = actor?.type === "group";
+
+  if (isCharacterSheet) {
+    handlePCHeaderButtonV2(config, buttons, label);
+  } else if (isNpcSheet) {
+    if (!config.document.flags?.monsterMunch?.url) return;
+    handleNPCHeaderButtonV2(config, buttons, label);
+  } else if (isPartyGroupSheet) {
+    handleGroupHeaderButtonV2(config, buttons, label);
+  }
+}
+
+function createOldSheetHeaderButtons(config: Record<string, any>, buttons: Record<string, any>[]) {
+  if (!config.object.isOwner) return;
+  if (!(config.object instanceof Actor)) return;
+
+  const isCharacterSheet = config.constructor.name === "ActorSheet5eCharacter2";
+  const isNpcSheet = config.constructor.name === "ActorSheet5eNPC2";
+
+  if (isCharacterSheet || isNpcSheet) return;
+  createActorHeaderButtons(config, buttons, false);
+}
+
+function createDefault5eButtons(config: Record<string, any>, buttons: Record<string, any>[]) {
+  if (!config.object.isOwner) return;
+  if (!(config.object instanceof Actor)) return;
+
+  const isCharacterSheet = config.constructor.name === "ActorSheet5eCharacter2";
+  const isNpcSheet = config.constructor.name === "ActorSheet5eNPC2";
+
+  if (!isCharacterSheet && !isNpcSheet) {
+    logger.debug(`Unknown Character Sheet`, {
+      config,
+    });
+    return;
+  }
+  createActorHeaderButtons(config, buttons, true);
+}
+
+function createDefault5eButtonsV2(config: Record<string, any>, buttons: Record<string, any>[]) {
+  if (!config.document.isOwner) return;
+  if (!(config.document instanceof Actor)) return;
+
+  const isCharacterSheet = config.constructor.name === "CharacterActorSheet";
+  const isNpcSheet = config.constructor.name === "NPCActorSheet";
+  const isGroupSheet = config.constructor.name === "GroupActorSheet";
+
+  if (!isCharacterSheet && !isNpcSheet && !isGroupSheet) {
+    logger.debug(`Unknown Character Sheet`, {
+      config,
+    });
+    return;
+  }
+  createActorHeaderButtonsV2(config, buttons, true);
+}
+
+function tidySheets() {
+  /**
+   * All Tidy integrations for DDBI
+   * @param {*} api the Tidy 5e Sheets API found at https://kgar.github.io/foundry-vtt-tidy-5e-sheets/classes/Tidy5eSheetsApi.html
+   */
+  function runTidyIntegrations(api: any) {
+
+    // Prepare content injections for non-title DDBI logo on character sheets.
+    const html = `<div class="ddbCharacterName"></div>`;
+
+    const enabled = (data: Record<string, any>) => {
+      const trustedUsersOnly = utils.getSetting<boolean>("restrict-to-trusted");
+      const allowAllSync = utils.getSetting<boolean>("allow-all-sync");
+      const titleLink = utils.getSetting<boolean>("character-link-title");
+      const onlyTrustedUser = !allowAllSync && trustedUsersOnly && !game.user.isTrusted;
+      return (data.owner || onlyTrustedUser) && !titleLink;
+    };
+
+    const onRender = (params: Record<string, any>) => {
+      const $ddbCharacterName = $(params.element).find(".ddbCharacterName");
+      const button = getCharacterButton(params.app.document, params.data.actor);
+      $ddbCharacterName.append(button);
+    };
+
+    const classicContent = {
+      html: html,
+      injectParams: {
+        selector: `[data-tidy-sheet-part="name-header-row"]`,
+        position: "afterbegin",
+      },
+      enabled: enabled,
+      onRender: onRender,
+    };
+
+    // Register content on Tidy's classic sheet
+    api.registerCharacterContent(new api.models.HtmlContent(classicContent), {
+      layout: "classic",
+    });
+
+    const quadroneContent = {
+      html: html,
+      injectParams: {
+        selector: `.sheet-header-actions`,
+        position: "afterbegin",
+      },
+      enabled: enabled,
+      onRender: onRender,
+    };
+
+    // Register content on Tidy's quadrone sheet
+    api.registerCharacterContent(new api.models.HtmlContent(quadroneContent), {
+      layout: "quadrone",
+    });
+
+    // Provider header controls to Tidy Character and NPC sheets in the App V2 manner
+    Hooks.on("getHeaderControlsActorSheetV2", (config, buttons) => {
+      const sheetConfig = config as { object?: { isOwner?: boolean }; document?: { isOwner?: boolean } };
+      const doc = sheetConfig.object ?? sheetConfig.document;
+      if (!doc?.isOwner) return;
+      if (!(doc instanceof Actor)) return;
+
+      const isCharacterSheet = api.isTidy5eCharacterSheet(config);
+      const isNpcSheet = api.isTidy5eNpcSheet(config);
+      const isGroupSheet = api.isTidy5eGroupSheet(config);
+
+      if (!isCharacterSheet && !isNpcSheet && !isGroupSheet) {
+        return;
+      }
+
+      createActorHeaderButtonsV2(config, buttons, true);
+    });
+  }
+
+  // onceReady timeout necessitates the two methods of getting the API.
+  const api = (game.modules.get("tidy5e-sheet") as { api?: unknown } | undefined)?.api;
+  if (api) {
+    runTidyIntegrations(api);
+  } else {
+    Hooks.once("tidy5e-sheet.ready", (api) => {
+      runTidyIntegrations(api);
+    });
+  }
+}
+
+const addPartySyncContext = (_html: HTMLElement | JQuery<HTMLElement>, options: any[]) => {
+  options.push({
+    name: "DDB Party Sync",
+    icon: "<i class=\"fa-duotone fa-solid fa-rotate\"></i>",
+    condition: (li: any) => {
+      const actorId = li instanceof HTMLElement
+        ? li.dataset.entryId ?? li.dataset.documentId
+        : li.data?.("entryId") ?? li.data?.("documentId");
+      const actor = actorId ? game.actors.get(actorId) : null;
+      return actor?.type === "group" && actor.isOwner;
+    },
+    callback: (li: any) => {
+      const actorId = li instanceof HTMLElement
+        ? li.dataset.entryId ?? li.dataset.documentId
+        : li.data?.("entryId") ?? li.data?.("documentId");
+      const actor = actorId ? game.actors.get(actorId) : null;
+      if (actor) DDBPartySync.open({ actor: actor as TImporterActor });
+    },
+  });
+};
+
+Hooks.once("getActorContextOptions", addPartySyncContext);
+
+export default function () {
+  /**
+   * Character sheets
+   */
+  const pcSheetNames = Object.values(CONFIG.Actor.sheetClasses.character)
+    .map((sheetClass) => (sheetClass as unknown as { cls: { name: string } }).cls)
+    .map((sheet) => sheet.name);
+
+  const trustedUsersOnly = utils.getSetting<boolean>("restrict-to-trusted");
+  const allowAllSync = utils.getSetting<boolean>("allow-all-sync");
+  const characterLink = utils.getSetting<boolean>("character-link-title");
+  const monsterLink = utils.getSetting<boolean>("monster-link-title");
+
+  // const buttonText = characterLink
+  //   ? `<a class="ddb-open-url" title="DDB Importer"><i class="fab fa-d-and-d-beyond${whiteTitle}"></i></a>`
+  //   : '<button type="button" id="ddbImporterButton" class="inactive"><i class="fab fa-d-and-d-beyond"></button>';
+
+  tidySheets();
+  Hooks.on("getHeaderControlsBaseActorSheet", createDefault5eButtonsV2);
+  Hooks.on("getActorSheet5eHeaderButtons", createDefault5eButtons);
+  Hooks.on("getActorSheetHeaderButtons", createOldSheetHeaderButtons);
+  pcSheetNames.forEach((sheetName) => {
+    Hooks.on(`render${sheetName}`, (app, html, data) => {
+      // only for GMs or the owner of this character
+      if (!data.owner || !data.actor || (!allowAllSync && trustedUsersOnly && !game.user.isTrusted)) return;
+      if ($(html).find("#ddbImporterButton").length > 0) return;
+
+      if (!characterLink) {
+        const button = getCharacterButton(app.document, data.actor);
+        const wrap = $("<div class=\"ddbCharacterName\"></div>");
+        $(html).find("input[name='name']").wrap(wrap);
+        $(html).find("input[name='name']").parent().prepend(button);
+      }
+    });
+  });
+
+
+  /**
+   * NPC sheets
+   */
+  const npcSheetNames = Object.values(CONFIG.Actor.sheetClasses.npc)
+    .map((sheetClass) => (sheetClass as unknown as { cls: { name: string } }).cls)
+    .map((sheet) => sheet.name);
+
+  npcSheetNames.forEach((sheetName) => {
+    Hooks.on(`render${sheetName}`, (app, html, data) => {
+      // only for GMs or the owner of this npc
+      if (!data.owner || !data.actor) return;
+      if (!app.document.flags?.monsterMunch?.url) return;
+      if ($(html).find("#ddbImporterButton").length > 0) return;
+
+      if (!monsterLink) {
+        const button = getNPCButton(app.document);
+        const wrap = $("<div class=\"ddbCharacterName\"></div>");
+        $(html).find("input[name='name']").wrap(wrap);
+        $(html).find("input[name='name']").parent().prepend(button);
+      }
+    });
+  });
+
+
+  const groupSheetNames = Object.values(CONFIG.Actor.sheetClasses.group)
+    .map((sheetClass) => (sheetClass as unknown as { cls: { name: string } }).cls)
+    .map((sheet) => sheet.name);
+
+  groupSheetNames.forEach((sheetName) => {
+    Hooks.on(`render${sheetName}`, (_app, html, data) => {
+      // only for GMs or the owner of this character
+      if (!data.owner || !data.actor || (!allowAllSync && trustedUsersOnly && !game.user.isTrusted)) return;
+      if ($(html).find("#ddbImporterButton").length > 0) return;
+
+      if (!characterLink) {
+        const button = getGroupButton(data.actor);
+        const wrap = $("<div class=\"ddbCharacterName\"></div>");
+        $(html).find("input[name='name']").wrap(wrap);
+        $(html).find("input[name='name']").parent().prepend(button);
+      }
+    });
+  });
+
+}

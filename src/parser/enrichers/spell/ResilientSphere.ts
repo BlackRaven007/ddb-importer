@@ -1,0 +1,19 @@
+import DDBEnricherData from "../data/DDBEnricherData";
+
+export default class ResilientSphere extends DDBEnricherData {
+
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Encased",
+        options: {
+          durationSeconds: 60,
+        },
+        changes: [
+          DDBEnricherData.ChangeHelper.customChange("* 0.5", 20, "system.attributes.movement.all"),
+          DDBEnricherData.ChangeHelper.customChange("ALL", 20, "system.traits.di.value"),
+        ],
+      },
+    ];
+  }
+}

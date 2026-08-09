@@ -1,0 +1,60 @@
+// import { utils } from "../../../../lib/_module";
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class Proboscis extends DDBEnricherData {
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.ATTACK;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      targetType: "creature",
+      noTemplate: true,
+      data: {
+        damage: {
+          parts: [
+            DDBEnricherData.basicDamagePart({
+              number: 1,
+              denomination: 6,
+              bonus: "@mod",
+              types: ["piercing"],
+            }),
+          ],
+        },
+      },
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Attached Damage",
+          type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
+        },
+        build: {
+          generateDamage: true,
+          generateTarget: true,
+        },
+        overrides: {
+          targetType: "creature",
+          activationType: "turnStart",
+          activationCondition: "Start of the Stirge's turn",
+          noTemplate: true,
+          data: {
+            damage: {
+              parts: [
+                DDBEnricherData.basicDamagePart({
+                  number: 2,
+                  denomination: 4,
+                  types: ["necrotic"],
+                }),
+              ],
+            },
+          },
+        },
+      },
+    ];
+  }
+
+}

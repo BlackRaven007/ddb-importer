@@ -1,0 +1,97 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class NobleScion extends DDBEnricherData {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      name: "Activate Noble Scion",
+      addItemConsume: true,
+      targetType: "self",
+      activationType: "bonus",
+      noTemplate: true,
+    };
+  }
+
+  get additionalActivities(): IDDBAdditionalActivity[] {
+    return [
+      {
+        init: {
+          name: "Minor Wish",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateTarget: true,
+          generateConsumption: false,
+          generateActivation: true,
+          generateUtility: true,
+        },
+        overrides: {
+          targetType: "ally",
+          data: {
+            range: {
+              value: "@scale.paladin.aura-of-protection",
+              long: null,
+              units: "ft",
+            },
+          },
+        },
+      },
+      {
+        init: {
+          name: "Spend Spell Slot to Restore Use",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateConsumption: true,
+          generateTarget: true,
+          generateActivation: true,
+          generateUtility: true,
+          activationOverride: {
+            type: "none",
+            value: null,
+            condition: "",
+          },
+          consumptionOverride: {
+            scaling: { allowed: true, max: "5" },
+            targets: [
+              {
+                type: "itemUses",
+                target: "",
+                value: -1,
+                scaling: { mode: "", formula: "" },
+              },
+              {
+                type: "spellSlots",
+                value: "1",
+                target: "5",
+                scaling: { mode: "level", formula: "" },
+              },
+            ],
+          },
+        },
+      },
+    ];
+  }
+
+
+  get effects(): IDDBEffectHint[] {
+    return [{
+      options: {
+        durationSeconds: 600,
+      },
+      changes: [
+        DDBEnricherData.ChangeHelper.upgradeChange("60", 2, "system.attributes.movement.fly"),
+        DDBEnricherData.ChangeHelper.upgradeChange("true", 2, "system.attributes.movement.hover"),
+      ],
+    }];
+  }
+
+  get clearAutoEffects() {
+    return true;
+  }
+
+}

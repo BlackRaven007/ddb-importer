@@ -1,0 +1,46 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+import type DDBClassFeatureEnricher from "../../DDBClassFeatureEnricher";
+
+export default class TouchOfTheLongDeath extends DDBEnricherData<DDBClassFeatureEnricher> {
+
+  get type() {
+    return DDBEnricherData.ACTIVITY_TYPES.SAVE;
+  }
+
+  get activity(): IDDBActivityData {
+    return {
+      addScalingMode: "amount",
+      itemConsumeTargetName: this.ddbEnricher.isParentClass2014 ? "Ki" : "Monk's Focus",
+      addItemConsume: true,
+      addScalingFormula: "1",
+      data: {
+        save: {
+          ability: ["con"],
+          dc: { calculation: "wis", formula: "" },
+        },
+        damage: {
+          parts: [
+            DDBEnricherData.basicDamagePart({
+              customFormula: "(@scaling)d10",
+              type: "necrotic",
+            }),
+          ],
+        },
+        consumption: {
+          spellSlot: true,
+          scaling: {
+            allowed: true,
+            max: "10",
+          },
+        },
+      },
+    };
+  }
+
+  get override(): IDDBOverrideData {
+    return {
+      replaceActivityUses: true,
+    };
+  }
+
+}

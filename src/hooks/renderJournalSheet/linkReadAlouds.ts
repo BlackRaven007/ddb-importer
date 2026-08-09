@@ -1,0 +1,47 @@
+import { utils } from "../../lib/_module";
+import { createAndShowPlayerHandout } from "./shared";
+
+export function showReadAlouds(html: HTMLElement | JQuery<HTMLElement>, data: Record<string, any>) {
+  if (!game.user.isGM) return;
+  const displayImages = utils.getSetting<boolean>("show-read-alouds-button");
+  if (!displayImages) return;
+
+  // mark all read alouds
+  $(html)
+    .find("aside, blockquote, .read-aloud-text, .read-aloud, .adventure-read-aloud-text, .ddb-blockquote")
+    .each((_index, element) => {
+      const showPlayersJournalButton = $("<a class='ddbimporter-show-image'><i class='fas fa-book-open'></i>&nbsp;Create and Show Handout</a>");
+      const toChatButton = $("<a class='ddbimporter-to-chat'><i class='fas fa-comment '></i>&nbsp;To Chat</a>");
+
+      $(element).wrap("<div class='ddbimporter-image-container'></div>");
+      // show the button on mouseenter of the image
+      $(element)
+        .parent()
+        .mouseenter(function addHover() {
+
+          $(this).append(showPlayersJournalButton);
+          $(showPlayersJournalButton).click(async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const name = await utils.namePrompt("What would you like to call the Handout?");
+            if (name && name !== "") {
+              const bookCode = (data.data?.flags?.ddb?.bookCode ?? null) as string | null;
+              createAndShowPlayerHandout(name as string, element.outerHTML, "text", bookCode);
+            }
+          });
+
+          $(this).append(toChatButton);
+          $(toChatButton).click((event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            ChatMessage.create({ content: element.outerHTML } as unknown as ChatMessage.CreateInput);
+          });
+        });
+      $(element)
+        .parent()
+        .mouseleave(function removeHover() {
+
+          $(this).find("a.ddbimporter-show-image, a.ddbimporter-to-chat").remove();
+        });
+    });
+}

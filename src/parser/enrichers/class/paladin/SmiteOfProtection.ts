@@ -1,0 +1,41 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+
+export default class SmiteOfProtection extends DDBEnricherData {
+  get effects(): IDDBEffectHint[] {
+    return [
+      {
+        statuses: ["coverHalf"],
+        options: {
+          durationSeconds: 6,
+        },
+        daeStackable: "noneNameOnly",
+        data: {
+          flags: {
+            ActiveAuras: {
+              aura: "Allies",
+              radius: `@scale.paladin.${this.data.name.toLowerCase().replaceAll(" ", "-")}`,
+              isAura: true,
+              inactive: false,
+              hidden: false,
+              displayTemp: true,
+              statuses: ["coverHalf"],
+            },
+          },
+        },
+        auraeffects: {
+          applyToSelf: true,
+          bestFormula: "",
+          canStack: false,
+          collisionTypes: ["move"],
+          combatOnly: false,
+          disableOnHidden: true,
+          distanceFormula: `@scale.paladin.${this.data.name.toLowerCase().replaceAll(" ", "-")}`,
+          disposition: 1,
+          evaluatePreApply: true,
+          overrideName: "",
+          script: "",
+        },
+      },
+    ];
+  }
+}
