@@ -22,7 +22,7 @@ describe("FetchHelper correlation propagation smoke", () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const options = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    const options = (fetchSpy.mock.calls[0]?.[1] as unknown) as RequestInit;
     const headers = new Headers(options.headers);
     expect(headers.get("x-correlation-id")).toBe("cid-smoke-123");
   });

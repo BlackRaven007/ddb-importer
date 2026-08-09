@@ -954,7 +954,7 @@ ${item.system.description.chat}
     await ImportRunTracker.setResumableCount(run.id, resumedItemCount);
 
     for (const skipped of skippedItems) {
-      await this.#markImportStatus(skipped.name, "skipped");
+      await this.#markImportStatus(skipped.name ?? "", "skipped");
     }
 
     let results: TImportedDocumentResult[] = [];
