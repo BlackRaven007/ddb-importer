@@ -1,0 +1,107 @@
+name: Release Foundry Module
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ddb-importer-release-main
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Type checks
+        run: npm run typecheck
+
+  release:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build module
+        run: npm run build
+
+      - name: Generate release metadata
+        id: release_meta
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "tag=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate module manifest
+        shell: bash
+        run: |
+          mkdir -p dist
+          node tools/build-module-json.js > dist/module.json
+
+      - name: Build release archive
+        shell: bash
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          zip -r dist/ddb-importer.zip \
+            dist \
+            icons \
+            handlebars \
+            css \
+            img \
+            lang \
+            data \
+            vendor \
+            macros \
+            README.md \
+            -x "dist/ddb-importer.zip"
+
+      - name: Publish GitHub release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.release_meta.outputs.tag }}
+          name: Release ${{ steps.release_meta.outputs.tag }}
+          artifacts: "dist/module.json,dist/ddb-importer.zip"
+          artifactErrorsFailBuild: true
+          allowUpdates: true
+          replacesArtifacts: true
+          makeLatest: true
+          generateReleaseNotes: true
