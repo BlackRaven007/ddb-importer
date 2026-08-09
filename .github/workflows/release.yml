@@ -80,19 +80,33 @@ jobs:
       - name: Build release archive
         shell: bash
         run: |
-          cd "$GITHUB_WORKSPACE"
-          zip -r dist/ddb-importer.zip \
-            dist \
-            icons \
-            handlebars \
-            css \
-            img \
-            lang \
-            data \
-            vendor \
-            macros \
-            README.md \
-            -x "dist/ddb-importer.zip"
+          # Create a temporary staging directory matching the module ID
+          STAGING="package_staging/ddb-importer"
+          mkdir -p "$STAGING"
+
+          # Copy compiled assets into staging
+          cp -r dist/* "$STAGING/"
+          
+          # Copy optional static directories if they exist
+          for dir in icons handlebars css img lang data vendor macros; do
+            if [ -d "$dir" ]; then
+              cp -r "$dir" "$STAGING/"
+            fi
+          done
+
+          # Copy README if present
+          if [ -f "README.md" ]; then
+            cp README.md "$STAGING/"
+          fi
+
+          # Ensure module.json is at the root of the staged package
+          cp dist/module.json "$STAGING/module.json"
+
+          # Zip the top-level ddb-importer folder
+          cd package_staging
+          zip -r ../dist/ddb-importer.zip ddb-importer
+          cd ..
+          rm -rf package_staging
 
       - name: Publish GitHub release
         uses: ncipollo/release-action@v1
