@@ -789,7 +789,7 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       return null;
     }
 
-  await this.#markImportStatus(itemName, "processing");
+    await this.#markImportStatus(itemName, "processing");
     foundry.utils.setProperty(updateItem, "flags.ddbimporter.importIdempotencyKey", this.#idempotencyKey(updateItem));
     foundry.utils.setProperty(updateItem, "flags.ddbimporter.lastImportPayloadHash", payloadHash);
 
