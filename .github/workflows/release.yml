@@ -80,29 +80,30 @@ jobs:
       - name: Build release archive
         shell: bash
         run: |
-          # Create a temporary staging directory matching the module ID
+          # 1. Create a clean staging folder
           STAGING="package_staging/ddb-importer"
           mkdir -p "$STAGING"
 
-          # Copy compiled assets into staging
-          cp -r dist/* "$STAGING/"
-          
-          # Copy optional static directories if they exist
+          # 2. Copy compiled dist contents (main.mjs, etc.) into staging/dist
+          mkdir -p "$STAGING/dist"
+          cp -r dist/* "$STAGING/dist/"
+
+          # 3. Move module.json out of staging/dist/ and place it at the root of the module
+          mv "$STAGING/dist/module.json" "$STAGING/module.json"
+
+          # 4. Copy optional static directories if they exist
           for dir in icons handlebars css img lang data vendor macros; do
             if [ -d "$dir" ]; then
               cp -r "$dir" "$STAGING/"
             fi
           done
 
-          # Copy README if present
+          # 5. Copy README if present
           if [ -f "README.md" ]; then
             cp README.md "$STAGING/"
           fi
 
-          # Ensure module.json is at the root of the staged package
-          cp dist/module.json "$STAGING/module.json"
-
-          # Zip the top-level ddb-importer folder
+          # 6. Zip everything with the top-level 'ddb-importer' folder
           cd package_staging
           zip -r ../dist/ddb-importer.zip ddb-importer
           cd ..
