@@ -101,8 +101,8 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
   targetLatencyMs = 350;
   phaseMetrics: Record<string, { count: number; failures: number; totalDurationMs: number }> = {};
   operationLatenciesMs: number[] = [];
-  itemIndexMemo = new Map<string, TIndexEntry[]>();
-  itemDocumentMemo = new Map<string, Item.Implementation[]>();
+  itemIndexMemo: Map<string, TIndexEntry[]> = new Map<string, TIndexEntry[]>();
+  itemDocumentMemo: Map<string, Item.Implementation[]> = new Map<string, Item.Implementation[]>();
 
   constructor(type: TDDBImporterTypes, documents: TType[], {
     matchFlags = [],
