@@ -112,6 +112,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ steps.release_meta.outputs.tag }}
+          commit: main
           name: Release ${{ steps.release_meta.outputs.tag }}
           artifacts: "dist/module.json,dist/ddb-importer.zip"
           artifactErrorsFailBuild: true
