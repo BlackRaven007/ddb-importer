@@ -187,6 +187,12 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
     return `${this.#getEntityId(item)}|${this.importOptionsHash}`;
   }
 
+  #getItemName(item: TType): string {
+    const itemName = foundry.utils.getProperty(item, "name");
+    if (typeof itemName === "string" && itemName.trim() !== "") return itemName;
+    return String(itemName ?? this.#getEntityId(item));
+  }
+
   #itemKeyByName(itemName: string): string | null {
     return this.currentImportItemKeyMap.get(itemName) ?? null;
   }
@@ -369,9 +375,13 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
   }
 
   #getEntityId(item: TType): string | number {
-    return foundry.utils.getProperty(item, "flags.ddbimporter.id")
-      ?? foundry.utils.getProperty(item, "flags.ddbimporter.definitionId")
-      ?? item.name;
+    const importerId = foundry.utils.getProperty(item, "flags.ddbimporter.id");
+    if (typeof importerId === "string" || typeof importerId === "number") return importerId;
+    const definitionId = foundry.utils.getProperty(item, "flags.ddbimporter.definitionId");
+    if (typeof definitionId === "string" || typeof definitionId === "number") return definitionId;
+    const itemName = foundry.utils.getProperty(item, "name");
+    if (typeof itemName === "string" && itemName.trim() !== "") return itemName;
+    return String(itemName ?? "unknown-item");
   }
 
   #assertNotCanceled() {
@@ -695,7 +705,8 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
    */
   async createCompendiumItem(item: TType): Promise<Item.Implementation | RollTable.Implementation | null> {
     this.#assertNotCanceled();
-    await this.#markImportStatus(item.name, "processing");
+    const itemName = this.#getItemName(item);
+    await this.#markImportStatus(itemName, "processing");
     foundry.utils.setProperty(item, "flags.ddbimporter.importIdempotencyKey", this.#idempotencyKey(item));
     foundry.utils.setProperty(item, "flags.ddbimporter.lastImportPayloadHash", this.#payloadHash(item));
     let newItem;
@@ -713,14 +724,14 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
           };
           newItem = new (Item.implementation as any)(item, options);
         } catch (err) {
-          logger.error(`Error creating ${item.name}`, { item, err });
+          logger.error(`Error creating ${itemName}`, { item, err });
           throw err;
         }
 
       }
     }
     if (!newItem) {
-      logger.error(`Item ${item.name} failed creation`, { item, newItem });
+      logger.error(`Item ${itemName} failed creation`, { item, newItem });
     }
     this.currentDocumentCount++;
 
@@ -728,24 +739,25 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       this.notifierV2?.({
         progress: { current: this.currentDocumentCount, total: this.totalDocuments },
         section: "level4",
-        message: `Creating ${item.name}`,
+        message: `Creating ${itemName}`,
         progressBar: "secondary",
       });
     } else {
-      this.notifier(`(${this.currentDocumentCount}/${this.totalDocuments}) Creating ${item.name}`);
+      this.notifier(`(${this.currentDocumentCount}/${this.totalDocuments}) Creating ${itemName}`);
     }
 
-    logger.debug(`Pushing ${item.name} to compendium (${this.currentDocumentCount}/${this.totalDocuments})`);
+    logger.debug(`Pushing ${itemName} to compendium (${this.currentDocumentCount}/${this.totalDocuments})`);
     // import document no longer retains the id
     // return this.compendium.importDocument(newItem, { keepId: true });
     const data = newItem.toCompendium(this.compendium, { keepId: true });
     const created = await newItem.constructor.create(data, { pack: this.compendium.collection, keepId: true });
-    await this.#markImportStatus(item.name, "succeeded");
+    await this.#markImportStatus(itemName, "succeeded");
     return created;
   }
 
   async updateCompendiumItem(updateItem: TType, existingItem: Item.Implementation): Promise<TImportedDocumentResult> {
     this.#assertNotCanceled();
+    const itemName = this.#getItemName(updateItem);
     // purge existing active effects on this item
     if (existingItem.flags) DDBItemImporter.copySupportedItemFlags(existingItem, updateItem);
     this.currentDocumentCount++;
@@ -753,14 +765,14 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       this.notifierV2?.({
         progress: { current: this.currentDocumentCount, total: this.totalDocuments },
         section: "level4",
-        message: `Updating ${updateItem.name}`,
+        message: `Updating ${itemName}`,
         progressBar: "secondary",
       });
     } else {
-      this.notifier(`(${this.currentDocumentCount}/${this.totalDocuments}) Updating ${updateItem.name}`);
+      this.notifier(`(${this.currentDocumentCount}/${this.totalDocuments}) Updating ${itemName}`);
     }
 
-    logger.debug(`Updating ${updateItem.name} compendium entry (${this.currentDocumentCount}/${this.totalDocuments})`, {
+    logger.debug(`Updating ${itemName} compendium entry (${this.currentDocumentCount}/${this.totalDocuments})`, {
       updateItem,
       existingItem,
       packId: this.compendium.metadata.id,
@@ -769,15 +781,15 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
     const payloadHash = this.#payloadHash(updateItem);
     const existingPayloadHash = foundry.utils.getProperty(existingItem, "flags.ddbimporter.lastImportPayloadHash") as string | undefined;
     if (existingPayloadHash && existingPayloadHash === payloadHash) {
-      await this.#markImportStatus(updateItem.name, "skipped");
-      logger.debug(`Skipping unchanged payload for ${updateItem.name}`, {
+      await this.#markImportStatus(itemName, "skipped");
+      logger.debug(`Skipping unchanged payload for ${itemName}`, {
         idempotencyKey: this.#idempotencyKey(updateItem),
         payloadHash,
       });
       return null;
     }
 
-    await this.#markImportStatus(updateItem.name, "processing");
+  await this.#markImportStatus(itemName, "processing");
     foundry.utils.setProperty(updateItem, "flags.ddbimporter.importIdempotencyKey", this.#idempotencyKey(updateItem));
     foundry.utils.setProperty(updateItem, "flags.ddbimporter.lastImportPayloadHash", payloadHash);
 
@@ -796,7 +808,7 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       recursive: this.recursive,
     } as unknown as Parameters<typeof existingItem.update>[1]);
     // const update = existingItem.update(updateItem, { pack: compendium.metadata.id, recursive: false, render: false });
-    await this.#markImportStatus(updateItem.name, "succeeded");
+    await this.#markImportStatus(itemName, "succeeded");
     return update;
   }
 
@@ -814,6 +826,7 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
   async updateCompendiumItems(inputItems: TType[]): Promise<TImportedDocumentResult[]> {
     const worker = async (item: TType): Promise<TImportedDocumentResult | null> => {
       this.#assertNotCanceled();
+      const itemName = this.#getItemName(item);
       try {
         const existingItems: Item.Implementation[] = await this.getFilteredItemDocuments(item);
         // we have a match, update first match
@@ -844,9 +857,9 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
         }
         return null;
       } catch (err) {
-        await this.#markImportStatus(item.name, "failed", err);
+        await this.#markImportStatus(itemName, "failed", err);
         this.#logStructuredEvent(item, "update", "failed", 0, 0);
-        logger.error(`Error updating ${item.name}`, { item, err });
+        logger.error(`Error updating ${itemName}`, { item, err });
         return null;
       }
     };
@@ -857,6 +870,7 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
   async createCompendiumItems(inputItems: TType[]): Promise<TImportedDocumentResult[]> {
     const worker = async (item: TType): Promise<TImportedDocumentResult | null> => {
       this.#assertNotCanceled();
+      const itemName = this.#getItemName(item);
       try {
         const existingItems = await this.getFilteredItemIndexes(item);
         // we have no matching items, create new
@@ -864,14 +878,14 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
           const newItem = await this.#runWithRetries(item, "create", () => this.createCompendiumItem(item));
           return newItem;
         } else {
-          await this.#markImportStatus(item.name, "skipped");
+          await this.#markImportStatus(itemName, "skipped");
           this.#logStructuredEvent(item, "create", "skipped", 0, 0);
           return null;
         }
       } catch (err) {
-        await this.#markImportStatus(item.name, "failed", err);
+        await this.#markImportStatus(itemName, "failed", err);
         this.#logStructuredEvent(item, "create", "failed", 0, 0);
-        logger.error(`Error creating ${item.name}`, { item, err });
+        logger.error(`Error creating ${itemName}`, { item, err });
         return null;
       }
     };
@@ -911,7 +925,7 @@ ${item.system.description.chat}
       return item;
     });
 
-    this.currentImportItemKeyMap = new Map(inputItems.map((item) => [item.name, this.#itemKey(item)]));
+    this.currentImportItemKeyMap = new Map<string, string>(inputItems.map((item) => [this.#getItemName(item), this.#itemKey(item)]));
     const allItemKeys = inputItems.map((item) => this.#itemKey(item));
     const sourceSnapshot = {
       totalInputItems: inputItems.length,
