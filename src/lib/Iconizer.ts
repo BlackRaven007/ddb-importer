@@ -734,9 +734,28 @@ export default class Iconizer {
 
 
   static async preFetchDDBIconImages() {
-    await Iconizer.getDDBGenericItemImages();
-    await Iconizer.getDDBGenericLootImages();
-    await Iconizer.getDDBSchoolSpellImages();
+    const prefetchSteps = [
+      {
+        name: "DDB generic item icons",
+        task: () => Iconizer.getDDBGenericItemImages(),
+      },
+      {
+        name: "DDB generic loot icons",
+        task: () => Iconizer.getDDBGenericLootImages(),
+      },
+      {
+        name: "spell school icons",
+        task: () => Iconizer.getDDBSchoolSpellImages(),
+      },
+    ];
+
+    for (const step of prefetchSteps) {
+      try {
+        await step.task();
+      } catch (error) {
+        logger.warn(`Skipping icon prefetch step for ${step.name}`, error);
+      }
+    }
   }
 
 

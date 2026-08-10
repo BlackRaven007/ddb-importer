@@ -322,6 +322,14 @@ export default class DDBMonsterFactory {
     const betaKey = PatreonHelper.getPatreonKey(useLocal);
     const parsingApi = DDBProxy.getProxy();
 
+    if (!cobaltCookie || `${cobaltCookie}`.trim() === "") {
+      const message = "Skipping monster fetch because no cobalt token is configured";
+      logger.warn(message);
+      this.notifier(message, { nameField: true, monsterNote: false });
+      this.source = [];
+      return this.source;
+    }
+
     const body: IDDBMonsterFetchBody = {
       cobalt: cobaltCookie,
       betaKey: betaKey,
@@ -389,24 +397,34 @@ export default class DDBMonsterFactory {
     };
 
     const fetchOverHttp = async () => {
-      const result = await postJson(url, body, { mode: "cors" }) as {
-        success: boolean;
-        message?: string;
-        data: IDDBMonsterSourceData[];
-      };
-      if (!result.success) {
-        this.notifier(`API Failure: ${result.message}`);
-        logger.error(`API Failure:`, result.message);
-        return Promise.reject(result.message);
+      try {
+        const result = await postJson(url, body, { mode: "cors" }) as {
+          success: boolean;
+          message?: string;
+          data: IDDBMonsterSourceData[];
+        };
+        if (!result.success) {
+          const message = result.message ?? "Unknown monster API failure";
+          this.notifier(`Monster fetch skipped: ${message}`);
+          logger.warn(`Monster fetch skipped:`, message);
+          this.source = [];
+          return this.source;
+        }
+        if (debugJson) {
+          FileHelper.download(JSON.stringify(result), `monsters-raw.json`, "application/json");
+        }
+        downloadRawMonstersByCategoryAndVersion(result.data);
+        this.notifier(`Retrieved ${result.data.length} monsters from DDB`, { nameField: true, monsterNote: false });
+        logger.info(`Retrieved ${result.data.length} monsters from DDB`);
+        this.source = applyCategoryFilter(result.data);
+        return this.source;
+      } catch (error) {
+        const message = (error as Error)?.message ?? String(error);
+        this.notifier(`Monster fetch skipped: ${message}`);
+        logger.warn(`Monster fetch skipped:`, message);
+        this.source = [];
+        return this.source;
       }
-      if (debugJson) {
-        FileHelper.download(JSON.stringify(result), `monsters-raw.json`, "application/json");
-      }
-      downloadRawMonstersByCategoryAndVersion(result.data);
-      this.notifier(`Retrieved ${result.data.length} monsters from DDB`, { nameField: true, monsterNote: false });
-      logger.info(`Retrieved ${result.data.length} monsters from DDB`);
-      this.source = applyCategoryFilter(result.data);
-      return this.source;
     };
 
     const fetchOverStream = async () => {
@@ -414,7 +432,13 @@ export default class DDBMonsterFactory {
       socket.connect();
       try {
         const authRes = await socket.auth({ betaKey, cobalt: cobaltCookie, characterId: null });
-        if (!authRes.ok) throw new Error(`Auth failed: ${authRes.message}`);
+        if (!authRes.ok) {
+          const message = `Auth failed: ${authRes.message}`;
+          this.notifier(`Monster fetch skipped: ${message}`);
+          logger.warn(`Monster fetch skipped:`, message);
+          this.source = [];
+          return this.source;
+        }
 
         let raw: IDDBMonsterSourceData[] = [];
         // Monster bulk fetches can be very long-running for large catalogues
@@ -435,6 +459,12 @@ export default class DDBMonsterFactory {
         this.notifier(`Retrieved ${raw.length} monsters from DDB`, { nameField: true, monsterNote: false });
         logger.info(`Retrieved ${raw.length} monsters from DDB`);
         this.source = applyCategoryFilter(raw);
+        return this.source;
+      } catch (error) {
+        const message = (error as Error)?.message ?? String(error);
+        this.notifier(`Monster fetch skipped: ${message}`);
+        logger.warn(`Monster fetch skipped:`, message);
+        this.source = [];
         return this.source;
       } finally {
         socket.close();
