@@ -303,20 +303,42 @@ export class FileHelper {
     const urlEncode = utils.getSetting<boolean>("cors-encode");
     const stripProtocol = utils.getSetting<boolean>("cors-strip-protocol");
     const corsPathPrefix = utils.getSetting<string>("cors-path-prefix");
-    let url = originalUrl.split("?")[0];
+    const originalUrlWithoutQuery = originalUrl.split("?")[0];
 
     try {
       const proxyEndpoint = DDBProxy.getCORSProxy();
-      const fiddledUrl = stripProtocol ? url.replace(/^https:\/\//, corsPathPrefix) : `${corsPathPrefix}${url}`;
+      const fiddledUrl = stripProtocol ? originalUrlWithoutQuery.replace(/^https:\/\//, corsPathPrefix) : `${corsPathPrefix}${originalUrlWithoutQuery}`;
       const target = urlEncode ? encodeURIComponent(fiddledUrl) : fiddledUrl;
-      url = useProxy ? proxyEndpoint + target : url;
-      const data = await FileHelper.downloadImage(url);
-      // hack as proxy returns ddb access denied as application/xml
-      if (data.type === "application/xml") return null;
-      const result = await FileHelper.uploadImage(data, targetDirectory, filename + "." + ext);
-      FileHelper.addFileToKnown(FileHelper.parseDirectory(targetDirectory), result);
-      CONFIG.DDBI.KNOWN.LOOKUPS.set(`${targetDirectory}/${baseFilename}`, result);
-      return result;
+      const candidateUrls = [] as string[];
+
+      if (useProxy) {
+        candidateUrls.push(`${proxyEndpoint}${target}`);
+      }
+      candidateUrls.push(originalUrlWithoutQuery);
+
+      let lastError: unknown;
+      for (const candidateUrl of candidateUrls) {
+        try {
+          const data = await FileHelper.downloadImage(candidateUrl);
+          // hack as proxy returns ddb access denied as application/xml
+          if (data.type === "application/xml") {
+            lastError = new Error(`Remote image fetch returned XML for ${candidateUrl}`);
+            continue;
+          }
+          const result = await FileHelper.uploadImage(data, targetDirectory, filename + "." + ext);
+          FileHelper.addFileToKnown(FileHelper.parseDirectory(targetDirectory), result);
+          CONFIG.DDBI.KNOWN.LOOKUPS.set(`${targetDirectory}/${baseFilename}`, result);
+          return result;
+        } catch (error) {
+          lastError = error;
+          logger.warn(`Image upload failed for ${candidateUrl}`, error);
+        }
+      }
+
+      const fallbackMessage = `Image upload failed. Please check your ddb-importer upload folder setting. ${originalUrl}`;
+      logger.error(fallbackMessage, lastError);
+      ui.notifications.warn(fallbackMessage);
+      return null;
     } catch (error) {
       logger.error("Image upload error", error);
       ui.notifications.warn(`Image upload failed. Please check your ddb-importer upload folder setting. ${originalUrl}`);
@@ -423,19 +445,19 @@ export class FileHelper {
       const imageExists = await FileHelper.fileExists(uploadDirectory, filename + "." + ext);
 
       if (imageExists && !force) {
-        // const image = await FileHelper.getFileUrl(uploadDirectory, filename + "." + ext);
         const image = CONFIG.DDBI.KNOWN.LOOKUPS.get(`${uploadDirectory}/${filename}.${ext}`);
-        return image.trim();
-      } else {
-        const image = await FileHelper.uploadRemoteImage(imageUrl, uploadDirectory, filename);
-        // did upload succeed? if not fall back to remote image path
-        if (image) {
-          return image.trim();
-        } else {
-          return null;
-        }
-
+        if (image) return image.trim();
       }
+
+      const image = await FileHelper.uploadRemoteImage(imageUrl, uploadDirectory, filename);
+      if (image) {
+        return image.trim();
+      }
+
+      if (remoteImage) {
+        return imageUrl.trim();
+      }
+      return null;
     } else if (imageUrl && remoteImage) {
       try {
         return imageUrl.trim();
