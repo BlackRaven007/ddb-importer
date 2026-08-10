@@ -17,18 +17,22 @@ export function addMuncher(app: any, html: HTMLElement) {
     ui.notifications.info("Checking your DDB details - this might take a few seconds!");
     const setupComplete = DDBSetup.isSetupComplete();
 
-    if (setupComplete) {
-      const cobaltStatus = await Secrets.checkCobalt();
-      if (cobaltStatus.success) {
-        const validKey = await PatreonHelper.isValidKey();
-        if (validKey) {
-          new DDBMuncher().render({ force: true });
-        }
-      } else {
-        new DDBCookie({ callMuncher: true }).render(true);
-      }
-    } else {
+    if (!setupComplete) {
       new DDBSetup({ callMuncher: true }).render({ force: true });
+      return;
+    }
+
+    const cobalt = Secrets.getCobalt();
+    const hasSavedCobalt = Boolean(cobalt && `${cobalt}`.trim() !== "");
+
+    if (!hasSavedCobalt) {
+      new DDBCookie({ callMuncher: true }).render(true);
+      return;
+    }
+
+    const validKey = await PatreonHelper.isValidKey();
+    if (validKey) {
+      new DDBMuncher().render({ force: true });
     }
   });
 
