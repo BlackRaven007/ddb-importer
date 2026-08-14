@@ -64,12 +64,14 @@ export async function fetchJson<T = any>(url: string, options: RequestInit = {})
 export async function postJson<T = any>(url: string, body: unknown, options: RequestInit = {}): Promise<T> {
   const mergedOptions = withCorrelationHeaders(options);
   const headers = new Headers(mergedOptions.headers ?? {});
+  
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  
   return fetchJson<T>(url, {
+    ...mergedOptions,            
     method: "POST",
     cache: "no-cache",
-    headers,
     body: JSON.stringify(body),
-    ...mergedOptions,
+    headers,                    
   });
 }
