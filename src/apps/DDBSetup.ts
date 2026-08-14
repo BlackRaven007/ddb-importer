@@ -187,7 +187,7 @@ export default class DDBSetup extends DDBAppV2 {
 
     // PROXY
     this.useCustomProxy = DDBProxy.isCustom();
-    this.defaultAddress = SETTINGS.URLS.PROXY;
+    this.defaultAddress = SETTINGS.DEFAULT_SETTINGS.READY.PROXY["api-endpoint"].default as string;
     this.proxyAddress = utils.getSetting<string>("api-endpoint");
 
     // enhancements

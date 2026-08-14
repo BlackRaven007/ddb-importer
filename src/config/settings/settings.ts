@@ -63,13 +63,6 @@ const GAME_FOLDER_LOOKUPS = [
   },
 ];
 
-const URLS = {
-  BASE: "ddb.blackraven007.co.uk",
-  PROXY: "https://proxy.ddb.blackraven007.co.uk",
-  CORS: "https://images.ddb.blackraven007.co.uk/",
-  DYNAMIC: "https://dynamic.ddb.blackraven007.co.uk",
-};
-
 const MUNCH_DEFAULTS: IMuncherDefaultSetting[] = [
   { name: "munching-policy-update-existing", needed: true },
   { name: "munching-policy-use-inbuilt-icons", needed: true },
@@ -1312,12 +1305,12 @@ const SETTINGS = {
         },
         "cors-endpoint": {
           type: String,
-          default: URLS.CORS,
+          default: "",
           requiresReload: true,
         },
         "dynamic-api-endpoint": {
           type: String,
-          default: URLS.DYNAMIC,
+          default: "",
           requiresReload: true,
         },
         "cors-encode": {
