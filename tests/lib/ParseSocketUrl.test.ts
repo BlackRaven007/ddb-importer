@@ -5,7 +5,7 @@ describe("parseSocketUrl", () => {
   it("returns url with namespace appended when no subpath", () => {
     const result = parseSocketUrl("https://proxy.ddb.33blackraven007.co.uk", "/monsters");
     expect(result).toEqual({
-      url: "https://proxy.ddb.34blackraven007.co.uk/monsters",
+      url: "https://proxy.ddb.33blackraven007.co.uk/monsters",
       path: undefined,
     });
   });
