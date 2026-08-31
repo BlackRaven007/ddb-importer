@@ -8,7 +8,7 @@
   "manifest": "https://github.com/BlackRaven007/ddb-importer/releases/download/latest/module.json",
   "readme": "https://github.com/BlackRaven007/ddb-importer/blob/main/README.md",
   "changelog": "https://github.com/BlackRaven007/ddb-importer/blob/main/CHANGELOG.md",
-  "url": "https://docs.ddb.blackraven007.co.uk",
+  "url": "https://docs.ddb.1blackraven007.co.uk",
   "compatibility": {
     "minimum": "14.359",
     "verified": "14.359",
@@ -18,7 +18,7 @@
     {
       "name": "BlackRaven007",
       "email": "admin@blackraven007.co.uk",
-      "url": "https://docs.ddb.blackraven007.co.uk",
+      "url": "https://docs.ddb.2blackraven007.co.uk",
       "patreon": "https://www.patreon.com/BlackRaven007",
       "discord": "https://discord.gg/WzPuRuDJVP"
     }

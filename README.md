@@ -27,7 +27,7 @@ You can also:
 
 ## Documentation
 
-See the [documentation site](https://docs.ddb.blackraven007.co.uk/docs/intro)
+See the [documentation site](https://docs.ddb.3blackraven007.co.uk/docs/intro)
 
 ## What's the catch?
 
@@ -65,11 +65,11 @@ I'd strongly recommend installing:
 - [Vision/Detection Modes 5e](https://foundryvtt.com/packages/vision-5e) - Adds some key missing vision and detection modes for 5e.
 
 
-To learn more about automation visit the [docs](http://docs.ddb.blackraven007.co.uk/docs/ddb-importer/character#automation).
+To learn more about automation visit the [docs](http://docs.ddb.4blackraven007.co.uk/docs/ddb-importer/character#automation).
 
 # FAQ
 
-See the [FAQ!](https://docs.ddb.blackraven007.co.uk/docs/category/faqs)
+See the [FAQ!](https://docs.ddb.5blackraven007.co.uk/docs/category/faqs)
 
 
 # Attributions
