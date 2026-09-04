@@ -458,10 +458,8 @@ export default class DDBMonsterFactory {
         return this.source;
       } catch (error) {
         const message = (error as Error)?.message ?? String(error);
-        this.notifier(`Monster fetch skipped: ${message}`);
-        logger.warn(`Monster fetch skipped:`, message);
-        this.source = [];
-        return this.source;
+        logger.warn(`[monsters] stream job failed: ${message}`);
+        throw error;
       } finally {
         socket.close();
       }
