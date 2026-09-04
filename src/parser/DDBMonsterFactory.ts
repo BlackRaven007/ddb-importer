@@ -433,11 +433,7 @@ export default class DDBMonsterFactory {
       try {
         const authRes = await socket.auth({ betaKey, cobalt: cobaltCookie, characterId: null });
         if (!authRes.ok) {
-          const message = `Auth failed: ${authRes.message}`;
-          this.notifier(`Monster fetch skipped: ${message}`);
-          logger.warn(`Monster fetch skipped:`, message);
-          this.source = [];
-          return this.source;
+          throw new Error(`Auth failed: ${authRes.message}`);
         }
 
         let raw: IDDBMonsterSourceData[] = [];
