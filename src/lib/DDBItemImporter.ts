@@ -1069,7 +1069,7 @@ ${item.system.description.chat}
     for (let offset = 0; offset < firstPassItems.length; offset += chunkSize) {
       const chunk = firstPassItems.slice(offset, offset + chunkSize);
       const chunkLoaded = await Promise.all(chunk.map((entry) => loadDocumentWithTimeout(entry)));
-      loadedItems.push(...chunkLoaded.filter(Boolean));
+      loadedItems.push(...chunkLoaded.filter((item): item is TAll5eDocuments => item !== null));
       this.notifierV2?.({
         section: "note",
         message: `Matched ${Math.min(offset + chunk.length, firstPassItems.length)}/${firstPassItems.length} existing ${this.type} entries...`,
