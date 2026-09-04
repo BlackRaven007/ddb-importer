@@ -1031,20 +1031,50 @@ ${item.system.description.chat}
       });
     });
 
-    const loadedItems = [];
-    for (const i of firstPassItems) {
-      const item = await this.compendium.getDocument(i._id).then((doc) => {
-        const docData = doc.toObject() as unknown as TAll5eDocuments;
-        if (deleteCompendiumId) delete docData._id;
-        delete docData.folder;
-        SETTINGS.COMPENDIUM_REMOVE_FLAGS.forEach((flag) => {
-          if (foundry.utils.hasProperty(docData, flag)) foundry.utils.setProperty(docData, flag, undefined);
+    this.notifier(`Matching ${firstPassItems.length} existing ${this.type} entries...`, { nameField: true });
+
+    const loadDocumentWithTimeout = async (entry: TIndexEntry, timeoutMs = 20000): Promise<TAll5eDocuments | null> => {
+      let timeoutHandle: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<null>((resolve) => {
+        timeoutHandle = setTimeout(() => resolve(null), timeoutMs);
+      });
+
+      const docPromise = this.compendium.getDocument(entry._id)
+        .then((doc) => {
+          if (!doc) return null;
+          const docData = doc.toObject() as unknown as TAll5eDocuments;
+          if (deleteCompendiumId) delete docData._id;
+          delete docData.folder;
+          SETTINGS.COMPENDIUM_REMOVE_FLAGS.forEach((flag) => {
+            if (foundry.utils.hasProperty(docData, flag)) foundry.utils.setProperty(docData, flag, undefined);
+          });
+          foundry.utils.setProperty(docData, "flags.ddbimporter.pack", `${this.compendium.metadata.id}`);
+          return docData;
+        })
+        .catch((error) => {
+          logger.warn(`Failed loading compendium document ${entry._id} for ${this.type}: ${(error as Error)?.message ?? String(error)}`);
+          return null;
         });
 
-        return docData;
+      const result = await Promise.race([docPromise, timeoutPromise]);
+      clearTimeout(timeoutHandle!);
+      if (result === null) {
+        logger.warn(`Timed out loading compendium document ${entry._id} for ${this.type}`);
+      }
+      return result;
+    };
+
+    const loadedItems = [];
+    const chunkSize = 25;
+    for (let offset = 0; offset < firstPassItems.length; offset += chunkSize) {
+      const chunk = firstPassItems.slice(offset, offset + chunkSize);
+      const chunkLoaded = await Promise.all(chunk.map((entry) => loadDocumentWithTimeout(entry)));
+      loadedItems.push(...chunkLoaded.filter(Boolean));
+      this.notifierV2?.({
+        section: "note",
+        message: `Matched ${Math.min(offset + chunk.length, firstPassItems.length)}/${firstPassItems.length} existing ${this.type} entries...`,
+        suppress: true,
       });
-      foundry.utils.setProperty(item, "flags.ddbimporter.pack", `${this.compendium.metadata.id}`);
-      loadedItems.push(item);
     }
     logger.debug(`compendium ${this.type} loaded items:`, loadedItems);
 
