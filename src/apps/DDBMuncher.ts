@@ -1475,6 +1475,11 @@ export default class DDBMuncher extends DDBAppV2 {
   }
 
   static async parseFeats(this: DDBMuncher, _event: any, _target: any) {
+    const mule = await DDBMuleHandler.getMuleAvailability();
+    if (!mule.available) {
+      ui.notifications.error(`Feat munch unavailable: ${mule.message}`);
+      return;
+    }
     if (!this.characterId) {
       ui.notifications.error("You must enter a valid D&D Beyond character URL to import feats.");
       return;
@@ -1494,6 +1499,11 @@ export default class DDBMuncher extends DDBAppV2 {
   }
 
   static async parseBackgrounds(this: DDBMuncher, _event: any, _target: any) {
+    const mule = await DDBMuleHandler.getMuleAvailability();
+    if (!mule.available) {
+      ui.notifications.error(`Background munch unavailable: ${mule.message}`);
+      return;
+    }
     if (!this.characterId) {
       ui.notifications.error("You must enter a valid D&D Beyond character URL to import backgrounds.");
       return;
@@ -1513,6 +1523,11 @@ export default class DDBMuncher extends DDBAppV2 {
   }
 
   static async parseClasses(this: DDBMuncher, _event: any, _target: any) {
+    const mule = await DDBMuleHandler.getMuleAvailability();
+    if (!mule.available) {
+      ui.notifications.error(`Class munch unavailable: ${mule.message}`);
+      return;
+    }
     if (!this.characterId) {
       ui.notifications.error("You must enter a valid D&D Beyond character URL to import classes.");
       return;
@@ -1532,6 +1547,11 @@ export default class DDBMuncher extends DDBAppV2 {
   }
 
   static async parseSpecies(this: DDBMuncher, _event: any, _target: any) {
+    const mule = await DDBMuleHandler.getMuleAvailability();
+    if (!mule.available) {
+      ui.notifications.error(`Species munch unavailable: ${mule.message}`);
+      return;
+    }
     if (!this.characterId) {
       ui.notifications.error("You must enter a valid D&D Beyond character URL to import species.");
       return;

@@ -113,6 +113,7 @@ interface IDDBMuleRequestBody {
 export default class DDBMuleHandler {
 
   static LOADING_MESSAGES = DICTIONARY.messages.loading;
+  static MULE_AVAILABILITY_CACHE: { available: boolean; message: string } | null = null;
   characterId: string | null = null;
   classId: number | null = null;
   // buffered by _ingestIterationItem() during load, before processing reads it (guarded where load may not have run)
@@ -1270,6 +1271,45 @@ export default class DDBMuleHandler {
 
     await foundry.utils.setProperty(CONFIG.DDBI.KNOWN, `MULE_LISTS.${type}.${sources ? sources.join("_") : "all"}`, data.data);
     return data.data as T[];
+  }
+
+  static async getMuleAvailability(force = false): Promise<{ available: boolean; message: string }> {
+    if (!force && DDBMuleHandler.MULE_AVAILABILITY_CACHE) {
+      return DDBMuleHandler.MULE_AVAILABILITY_CACHE;
+    }
+
+    const parsingApi = DDBProxy.getProxy();
+    const body = {
+      cobalt: Secrets.getCobalt(),
+      campaignId: null,
+      betaKey: PatreonHelper.getPatreonKey(),
+      sources: [1, 2],
+      includeEquipment: false,
+    };
+
+    try {
+      const data = await postJson(`${parsingApi}/proxy/classes`, body) as { success?: boolean; message?: string };
+      const message = String(data?.message ?? "");
+      const unsupported = /not implemented on this proxy instance/i.test(message);
+      const result = unsupported
+        ? {
+            available: false,
+            message: message || "Mule endpoints are not implemented on this proxy instance.",
+          }
+        : {
+            available: true,
+            message: "Mule endpoints available.",
+          };
+      DDBMuleHandler.MULE_AVAILABILITY_CACHE = result;
+      return result;
+    } catch (error) {
+      const result = {
+        available: false,
+        message: `Mule endpoints unavailable on configured proxy (${utils.errorMessage(error)}).`,
+      };
+      DDBMuleHandler.MULE_AVAILABILITY_CACHE = result;
+      return result;
+    }
   }
 
   /**

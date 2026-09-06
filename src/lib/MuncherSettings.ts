@@ -1254,6 +1254,18 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
 
     if (disableUse) return result;
 
+    const mule = await DDBMuleHandler.getMuleAvailability();
+    if (!mule.available) {
+      logger.warn(`Character munch endpoints unavailable: ${mule.message}`);
+      result.classFilterEnabled = false;
+      result.classMunchEnabled = false;
+      result.speciesFilterEnabled = false;
+      result.speciesMunchEnabled = false;
+      // This also disables feat/background munch buttons in templates.
+      foundry.utils.setProperty(result, "characterMunch", false);
+      return result;
+    }
+
     try {
 
       const chosenSourceIds = DDBSources.getChosenSourceIdSet();
