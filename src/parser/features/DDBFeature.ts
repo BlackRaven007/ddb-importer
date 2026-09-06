@@ -782,8 +782,9 @@ export default class DDBFeature extends DDBFeatureMixin {
       const chosenMatch = matchFeatId(ddbFeat.definition.id);
       if (!chosenMatch) {
         // Still emit the advancement (empty) so the player can assign in Foundry; only the
-        // automatic link is skipped. Usually means the feats have not been munched to the compendium.
-        logger.warn(`Unable to link background feat ${ddbFeat.definition.name}, this is probably because the feats have not been munched to the compendium`, { ddbFeat });
+        // automatic link is skipped. Adventure imports only auto-munch spells/items, so
+        // feats/backgrounds/species/classes may still need a Mule munch pass.
+        logger.warn(`Unable to link background feat ${ddbFeat.definition.name}. The feat is not in the DDB Feats compendium yet. Run Muncher -> Feats (and optionally Backgrounds/Species/Classes) to populate non-SRD sources.`, { ddbFeat });
       }
 
       const isChoice = (bgFeat?.featIds.length ?? 1) > 1;

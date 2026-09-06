@@ -688,7 +688,7 @@ export default class DDBRace {
       && foundry.utils.getProperty(i, "flags.ddbimporter.id") === feat.definition.id,
     );
     if (!featMatch) {
-      logger.warn(`Unable to link advancement to feat ${feat.definition.name}, this is probably because the feats have not been munched to the compendium`, { feat });
+      logger.warn(`Unable to link advancement to feat ${feat.definition.name}. The feat is not in the DDB Feats compendium yet. Run Muncher -> Feats (and optionally Backgrounds/Species/Classes) to populate non-SRD sources.`, { feat });
       return;
     }
 
