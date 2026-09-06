@@ -715,8 +715,7 @@ export default class DDBMuncher extends DDBAppV2 {
   _doEnableButtons() {
     const cobalt = Secrets.getCobalt() != "";
     if (!cobalt) return;
-    const tier = PatreonHelper.getPatreonTier();
-    const tiers = PatreonHelper.calculateAccessMatrix(tier);
+    const { tiers } = MuncherSettings.getMuncherSettings();
 
     const buttonSelectors = [
       "button[id^=\"adventure-config-start\"]",
