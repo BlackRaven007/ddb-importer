@@ -1290,16 +1290,18 @@ export default class DDBMuleHandler {
     try {
       const data = await postJson(`${parsingApi}/proxy/classes`, body) as { success?: boolean; message?: string };
       const message = String(data?.message ?? "");
-      const unsupported = /not implemented on this proxy instance/i.test(message);
-      const result = unsupported
-        ? {
-            available: false,
-            message: message || "Mule endpoints are not implemented on this proxy instance.",
-          }
-        : {
-            available: true,
-            message: "Mule endpoints available.",
-          };
+      const unsupported = (/not implemented on this proxy instance/i).test(message);
+      const result = {
+        available: false,
+        message: "",
+      };
+      if (unsupported) {
+        result.available = false;
+        result.message = message || "Mule endpoints are not implemented on this proxy instance.";
+      } else {
+        result.available = true;
+        result.message = "Mule endpoints available.";
+      }
       DDBMuleHandler.MULE_AVAILABILITY_CACHE = result;
       return result;
     } catch (error) {
