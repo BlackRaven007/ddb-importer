@@ -875,7 +875,7 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
       game.settings.set(SETTINGS.MODULE_ID, "adventure-policy-use2024-monsters", false);
     }
 
-    const characterMunch = (tiers.god || tiers.undying || tiers.experimentalMid) && cobalt;
+    const characterMunch = Boolean(cobalt);
 
     const resultData = {
       characterMunch,
@@ -1214,9 +1214,7 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
   },
 
   async getCharacterMuncherSettings(app?: { subClassMap?: Record<number, any[]> }) {
-    const tier = PatreonHelper.getPatreonTier();
-    const tiers = PatreonHelper.calculateAccessMatrix(tier);
-    const disableUse = !tiers.experimentalMid;
+    const disableUse = Secrets.getCobalt() === "";
 
     const muleURL = utils.getSetting<string>("munching-policy-character-url");
     let rulesVersion = utils.getSetting<T5eRulesVersion | "">("munching-policy-character-class-rules-version") ?? "";
