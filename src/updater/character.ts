@@ -1521,24 +1521,6 @@ async function updateDDBActionUseStatus(actor: TSyncCharacterActor, actions: (I5
 
 async function actionUseStatus(_actor: TSyncCharacterActor, _ddbCharacter: DDBCharacter): Promise<ISyncResult[]> {
   return [];
-  // action use disabled until feature/action parser sync
-
-  // if (syncActionReady && !utils.getSetting<boolean>("sync-policy-action-use")) return [];
-
-
-
-  //   (item.flags.ddbimporter?.action || item.type === "feat")
-  //   && item.flags.ddbimporter?.id && item.flags.ddbimporter?.entityTypeId
-  //   && ddbActions.some((dItem) =>
-  //     item.flags.ddbimporter.id === dItem.flags.ddbimporter.id
-  //     && item.flags.ddbimporter.entityTypeId === dItem.flags.ddbimporter.entityTypeId
-  //     && item.name === dItem.name && item.type === dItem.type
-  //     && Number.isInteger(parseInt(foundry.utils.getProperty(item, "system.uses.value") as string))
-  //     && Number.parseInt(foundry.utils.getProperty(item, "system.uses.value") as string) !== Number.parseInt(foundry.utils.getProperty(dItem, "system.uses.value") as string),
-  //   ),
-  // );
-
-  // return actionChanges;
 }
 
 async function _updateDDBCharacter(actor: TSyncCharacterActor): Promise<(ISyncResult | ISyncResult[])[]> {

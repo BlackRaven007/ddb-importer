@@ -9,7 +9,7 @@ const _GITHUB_MODULE_JSON_LATEST = `https://raw.githubusercontent.com/${MODULE_A
 const MINIMUM_5E_VERSION = "6.0.1";
 
 
-//#region Version Data
+// #region Version Data
 async function getLatestModuleVersion() {
   try {
     const { tag_name: latestVersion, prerelease } = await $.getJSON(_GITHUB_API_LATEST);
@@ -29,9 +29,9 @@ async function getCompatibility() {
   }
 }
 
-//#endregion
+// #endregion
 
-//#region Ready Hook
+// #region Ready Hook
 export default async () => {
   const moduleInfo = game.modules.get(MODULE_NAME);
   if (!moduleInfo) {
@@ -87,4 +87,4 @@ export default async () => {
   }
 };
 
-//#endregion
+// #endregion
