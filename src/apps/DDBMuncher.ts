@@ -1741,7 +1741,6 @@ export default class DDBMuncher extends DDBAppV2 {
     const sceneId = sceneSelect.value;
     const id = encounterSelect.value;
 
-    // console.warn("Munching encounter!", {
     //   encounterFactory: this.encounterFactory,
     //   event: _event,
     //   target: _target,

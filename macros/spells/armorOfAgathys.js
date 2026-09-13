@@ -1,4 +1,3 @@
-// console.warn({args, options, })
 
 if (args[0].macroPass === "isHit") {
     const reactingActor = options.actor;

@@ -213,7 +213,6 @@ export default class DDBModifiers {
   static isModAGrantedFeatMod(ddb: IDDBData, mod: IModifiersMod,
     { classFeatureIds = null, classId = null, requiredLevel = null, exactLevel = null }: IModFilterOptions = {},
   ) {
-    // const klassFeatureIds = classFeatureIds ? classFeatureIds : DDBDataUtils.getClassFeatureIds(ddb, { classId, requiredLevel, exactLevel });
     const feats: IDDBClassFeatureGrantedFeat[] = [];
     ddb.character.classes.forEach((klass) => {
       const validClass = classId === null
@@ -296,7 +295,6 @@ export default class DDBModifiers {
   ) {
     const klassFeatureIds = classFeatureIds ? classFeatureIds : DDBDataUtils.getClassFeatureIds(ddb, { classId, requiredLevel, exactLevel });
     const isClassFeature = DDBModifiers.isModClassFeature(ddb, mod, { classFeatureIds: klassFeatureIds, classId, requiredLevel, exactLevel });
-    // console.warn("isClassFeature", {isClassFeature, mod, klassFeatureIds, classId, requiredLevel, exactLevel});
     if (isClassFeature) return true;
     const isClassOption = DDBModifiers.isModClassOption(ddb, mod, { classFeatureIds: klassFeatureIds, classId, requiredLevel, exactLevel });
     if (isClassOption) return true;
@@ -306,7 +304,6 @@ export default class DDBModifiers {
     // new class feature choice
     const isOptionalClassChoice = DDBModifiers.isModOptionalClassChoice(ddb, mod, { classFeatureIds: klassFeatureIds, classId, requiredLevel, exactLevel });
     if (isOptionalClassChoice) return true;
-    // console.warn("isClassFeature2", {isClassFeature, mod, klassFeatureIds, classId, requiredLevel, exactLevel, isClassOption, isOptionalClassOption, isOptionalClassChoice});
     const isFeatMod = DDBModifiers.isModAGrantedFeatMod(ddb, mod, { classFeatureIds: klassFeatureIds, classId, requiredLevel, exactLevel });
     return isFeatMod;
   }
@@ -329,7 +326,6 @@ export default class DDBModifiers {
         return filterOnFeatureIds.includes(id);
       });
     // get items we are going to interact on
-    // console.warn("getChosenTypeModifiers", {
     //   mods: DDBModifiers.getModifiers(ddb, type, includeExcludedEffects, effectOnly, useUnfilteredModifiers),
     //   classFeatureIds,
     // });
@@ -345,7 +341,6 @@ export default class DDBModifiers {
         && DDBModifiers.isModAChosenClassMod(ddb, mod, { classFeatureIds, classId, requiredLevel, exactLevel }),
       );
 
-    // console.warn("getChosenClassModifiers", {classFeatureIds, modifiers});
     return modifiers;
   }
 

@@ -3,7 +3,6 @@ import DDBMonster from "../DDBMonster";
 DDBMonster.prototype._generateTreasure = function _generateTreasure(this: DDBMonster) {
 
   const result = new Set();
-  // console.warn("extraTreasure", { treasure: this.source.extraTreasure });
   if (this.source.extraTreasure) {
     const lower = this.source.extraTreasure.toLowerCase();
     if (lower !== "none") result.add(lower);

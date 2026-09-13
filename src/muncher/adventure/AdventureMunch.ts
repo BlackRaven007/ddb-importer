@@ -280,7 +280,6 @@ export default class AdventureMunch {
 
 
   async importFolder(folders: IAdventureMuncherFolder[], folderList: IAdventureMuncherFolder[]) {
-    // console.warn("Creating Folders", {
     //   folders,
     //   folderList,
     // });
@@ -1263,11 +1262,6 @@ export default class AdventureMunch {
         points,
         radius: drawing.radius ?? null,
       };
-      // delete drawing.type;
-      // delete drawing.height;
-      // delete drawing.width;
-      // delete drawing.points;
-      // delete drawing.radius;
     }
 
     // V14 rejects polygon drawings whose bounding box is degenerate
@@ -1470,7 +1464,6 @@ export default class AdventureMunch {
       this._pack = CompendiumHelper.getCompendiumType("adventure") as unknown as CompendiumCollection<"Adventure">;
       const existingAdventure = await this._getCompendiumAdventure(adventureData);
 
-      // console.warn("Adventure!", {
       //   pack: this._pack,
       //   adventureData: foundry.utils.deepClone(adventureData),
       //   temp: this.temporary,

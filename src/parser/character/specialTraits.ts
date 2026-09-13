@@ -59,10 +59,8 @@ DDBCharacter.prototype._setSpecialTraitFlags = function _setSpecialTraitFlags(th
   ddb.character.classes.forEach((cls) => {
     if (cls.subclassDefinition) {
       // Improved Critical
-      // const improvedCritical = cls.subclassDefinition.classFeatures.some(
       //   (feature) => feature.name === "Improved Critical" && cls.level >= feature.requiredLevel,
       // );
-      // const superiorCritical = cls.subclassDefinition.classFeatures.some(
       //   (feature) => feature.name === "Superior Critical" && cls.level >= feature.requiredLevel,
       // );
 

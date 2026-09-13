@@ -6,7 +6,6 @@ import FileHelper from "./FileHelper";
 import NameMatcher from "./NameMatcher";
 import AdventureMunchHelpers from "../muncher/adventure/AdventureMunchHelpers";
 
-// const BASE_PATH = ROUTE_PREFIX ? `/${ROUTE_PREFIX}` : "";
 
 const TYPE_MAP: Record<string, string> = {
   items: "items",
@@ -96,7 +95,6 @@ async function loadIconMap(type: string) {
   }
 
   CONFIG.DDBI.ICONS[type] = data;
-  // console.warn(iconMap);
 }
 
 function looseMatch(item: TDDBItemImporterDocument, typeValue: string) {

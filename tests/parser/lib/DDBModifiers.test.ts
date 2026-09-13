@@ -1,8 +1,6 @@
 import DDBModifiers from "../../../src/parser/lib/DDBModifiers";
 
-// =============================================================================
 // Test modifier data
-// =============================================================================
 const modifiers: any[] = [
   { type: "bonus", subType: "strength-score", value: 2, restriction: "", componentId: 100, componentTypeId: 1 },
   { type: "bonus", subType: "armor-class", value: 1, restriction: "while wearing armor", componentId: 101, componentTypeId: 1 },
@@ -13,9 +11,7 @@ const modifiers: any[] = [
   { type: "bonus", subType: "dexterity-score", value: 1, restriction: null, componentId: 106, componentTypeId: 1 },
 ];
 
-// =============================================================================
 // filterModifiers
-// =============================================================================
 describe("DDBModifiers.filterModifiers", () => {
   it("filters by type only (default restriction excludes non-empty/non-null)", () => {
     const result = DDBModifiers.filterModifiers(modifiers, "bonus");
@@ -68,9 +64,7 @@ describe("DDBModifiers.filterModifiers", () => {
   });
 });
 
-// =============================================================================
 // filterModifiersOld
-// =============================================================================
 describe("DDBModifiers.filterModifiersOld", () => {
   it("delegates to filterModifiers", () => {
     const result = DDBModifiers.filterModifiersOld(modifiers, "bonus", "strength-score");
@@ -85,9 +79,7 @@ describe("DDBModifiers.filterModifiersOld", () => {
   });
 });
 
-// =============================================================================
 // getEffectExcludedModifiers
-// =============================================================================
 describe("DDBModifiers.getEffectExcludedModifiers", () => {
   it("returns array for class type with features", () => {
     const result = DDBModifiers.getEffectExcludedModifiers("class", true, false);
@@ -120,9 +112,7 @@ describe("DDBModifiers.getEffectExcludedModifiers", () => {
   });
 });
 
-// =============================================================================
 // isModClassFeature
-// =============================================================================
 describe("DDBModifiers.isModClassFeature", () => {
   const ddb: any = {
     character: {
@@ -196,9 +186,7 @@ describe("DDBModifiers.isModClassFeature", () => {
   });
 });
 
-// =============================================================================
 // isModAChosenClassMod (integration of all isMod* checks)
-// =============================================================================
 describe("DDBModifiers.isModAChosenClassMod", () => {
   const ddb: any = {
     character: {

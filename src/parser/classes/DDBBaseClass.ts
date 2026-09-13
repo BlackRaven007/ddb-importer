@@ -834,7 +834,6 @@ export default abstract class DDBBaseClass {
 
   async _generateFeatureAdvancement(feature: IDDBClassDefinitionFeature, choices: IDDBChoiceEntry[]) {
     logger.debug(`Generating choice feature advancement for feature ${feature.name} with ${choices.length} choices`);
-    // console.warn({
     //   this: this,
     //   feature: feature,
     //   choices: choices,
@@ -906,7 +905,6 @@ export default abstract class DDBBaseClass {
 
     if (uuids.size === 0) {
       logger.warn(`No valid features found for advancement of feature ${feature.name}, you can ignore this message unless you think this feature should offer an advancement choice.`);
-      // console.warn({
       //   this: this,
       //   feature: feature,
       //   choices: choices,
@@ -942,7 +940,6 @@ export default abstract class DDBBaseClass {
     };
     advancement.updateSource(source as any);
 
-    // console.warn(`Generated choice advancement for feature ${feature.name}:`, {
     //   advancement,
     //   this: this,
     //   feature,
@@ -970,7 +967,6 @@ export default abstract class DDBBaseClass {
     }
     this._addAdvancements(this.featureAdvancements);
 
-    // console.warn({
     //   this: this,
     //   featureAdvancements: foundry.utils.deepClone(this.featureAdvancements),
     // });
@@ -979,7 +975,6 @@ export default abstract class DDBBaseClass {
     // for each feature with typ3 choices, build an item choice advancement
     // then search for matching features from the choicedefintiions.
     for (const feature of classFeatures) {
-      // console.warn(feature);
       const choices = (this.ddbData.character.choices.class ?? [])
         .filter((choice) =>
           choice.type === 3 // class choice feature
@@ -1255,7 +1250,6 @@ export default abstract class DDBBaseClass {
       for (const feature of skillFeatures) {
         const skillAdvancement = this._generateSkillAdvancement(feature, true, i);
         const languageAdvancement = this._generateLanguageAdvancement(feature, i);
-        // console.warn(`SkillOrLanguageAdvancements`, {
         //   i,
         //   feature,
         //   skillAdvancement,
@@ -1405,7 +1399,6 @@ export default abstract class DDBBaseClass {
   _generateWeaponMasteryAdvancements() {
     const advancements: I5eAdvancement[] = [];
 
-    // console.warn("Weapon Mastery Advancements", {
     //   this: this,
     // });
 

@@ -2,8 +2,6 @@ import { getAbilityMods } from "./helpers";
 import DDBMonster from "../DDBMonster";
 import { logger, utils } from "../../lib/_module";
 
-// <p><em><strong>Innate Spellcasting.</strong></em> The oblex&rsquo;s innate spellcasting ability is Intelligence (spell save DC 15). It can innately cast the following spells, requiring no components:</p>\r\n<p>3/day each: charm person (as 5th-level spell), color spray, detect thoughts, hold person (as 3rd-level spell)</p>
-
 DDBMonster.prototype.getSpellcasting = function(this: DDBMonster, text: string): T5eAbility {
   let spellcasting = "";
   const abilitySearch = /((?:spellcasting ability) (?:is|uses|using) (\w+)| (\w+)(?: as \w+ spellcasting ability))/;
@@ -47,8 +45,6 @@ DDBMonster.prototype._generateSpelldc = function(this: DDBMonster, text: string)
   let dc = 10;
   const dcSearch = "spell\\s+save\\s+DC\\s*(\\d+)(?:,|\\)|\\s)";
   const match = text.match(dcSearch);
-  // console.log("£££££")
-  // console.log(match);
   if (match) {
     dc = parseInt(match[1]);
   }
@@ -73,21 +69,6 @@ DDBMonster.prototype._generateSpellAttackBonus = function(this: DDBMonster, text
   }
   this.spellcasting.spellAttackBonus = spellAttackBonus;
 };
-
-// this.spellcasting = {
-//   spelldc: 10,
-//   spellcasting: "", // ability associated
-//   spellLevel: 0,
-//   spellAttackBonus: 0,
-// };
-// this.spellList = {
-//   class: [],
-//   pact: [],
-//   atwill: [],
-//   // {name: "", type: "srt/lng/day", value: 0} // check these values
-//   innate: [],
-//   edgeCases: [], // map { name: "", type: "", edge: "" }
-//   material: true,
 //   innateMatch: false,
 //   concentration: true,
 // };

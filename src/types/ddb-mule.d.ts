@@ -1,8 +1,6 @@
-// ---------------------------------------------------------------------------
 // DDB Mule Proxy Interfaces
 // Models the JSON returned by the DDB proxy API for the mule list endpoints.
 // See DDBMuleHandler.getList / getSubclasses / getSubclassesCached.
-// ---------------------------------------------------------------------------
 
 export {};
 

@@ -454,8 +454,6 @@ export default class ThirdPartyMunch extends FormApplication {
               ? this._pageFinders[noteJournal._id].getPageIdForElementId(noteDdbFlags.slugLink as string)
               : undefined;
 
-            // console.warn("MATCHES", { slugLinkPageId, contentChunkIdPageId, noteFlags: note.flags.ddb });
-            // console.warn("PageIds", noteJournal.pages.map((p) => {return {id: p._id, flags: p.flags.ddb}}));
             const journalPage = noteJournal.pages.find((pageDoc: unknown) => {
               // pages is typed differently between the base and strict configs; the ddb flag
               // shape is importer data, so view the page structurally for the match checks

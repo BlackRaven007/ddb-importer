@@ -171,7 +171,6 @@ export class DDBMonsterDamage {
     const damageHasMod = finalDamage.includes("@mod");
     const damageTypes = DDBMonsterDamage._getDamageTypes(this.hit, dmg.groups.type);
 
-    // console.warn("MODS", {
     //   parsedDiceDamage,
     //   finalDamage,
     //   damageHasMod,

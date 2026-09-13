@@ -244,7 +244,6 @@ export default class DDBMapMetaData {
   // flag normalisation, stairways flag reshape, wall doorSound default. The
   // meta-data proxy payload skips _loadDocumentAssets so we mirror its
   // cleansing here before merge / createEmbeddedDocuments.
-  //
   // Public so the native adventure importer can apply the same cleansing to
   // its own scene docs before create (NativeSceneBuilder).
   static cleanseSceneInfo(info: I5eSceneData): I5eSceneData {
@@ -607,7 +606,6 @@ export default class DDBMapMetaData {
   // This is more accurate than a width/height-ratio rescale because it
   // re-derives canvas coords using the new scene's reference frame instead
   // of compounding the muncher's earlier transform.
-  //
   // Mirrors DDBQuickplay._tileForSticker math, with the parameters now read
   // off the meta-applied scene:
   //   - imageWidth/imageHeight: from quickplayContext (DDB's source image
@@ -726,7 +724,6 @@ export default class DDBMapMetaData {
   // and embedded collections (which go through createEmbeddedDocuments).
   // Flags merge with the existing scene flags - the ddbimporter block must
   // not be clobbered.
-  //
   // Public so the native adventure importer can reuse this projection when
   // applying meta-data into pre-create scene docs (NativeSceneBuilder).
   static buildSceneUpdate(scene: Scene, info: I5eSceneData): Record<string, any> {
@@ -762,7 +759,6 @@ export default class DDBMapMetaData {
         // touching the deprecated scene-level field. The src is owned by
         // the muncher's locally-uploaded image and re-stamped separately
         // after merge.
-        //
         // Post-cleanse this branch is a no-op (info.background is deleted by
         // _migrateSceneDataToV14) - kept as a safety net for un-cleansed
         // input. The post-cleanse path goes through `key === "levels"` below.

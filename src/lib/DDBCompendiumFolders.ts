@@ -526,40 +526,6 @@ export class DDBCompendiumFolders {
     return this._createSourceFolder(details.name, details.flagTag);
   }
 
-  // async createItemTypeSourceFolderFromDocument(document) {
-  //   const sourceFolder = await this.#createSourceFolderFromDocument(document, "item");
-  //   let parentFolder = sourceFolder;
-
-  //   const details = DDBCompendiumFolders.getItemFolderNameForTypeSource(document, "item");
-  //   if (details.parent) {
-  //     const existingFolder = this.getFolder(details.parent.name, details.parent.flagTag);
-  //     if (existingFolder) {
-  //       parentFolder = existingFolder;
-  //     } else {
-  //       const newParentFolder = await this.createCompendiumFolder({
-  //         name: details.parent.name,
-  //         flagTag: details.parent.flagTag,
-  //         parentId: sourceFolder._id,
-  //       });
-  //       parentFolder = newParentFolder;
-  //       this.validFolderIds.push(newParentFolder._id);
-  //     }
-  //   }
-
-  //   logger.debug(`Checking for Item folder '${details.name}'`);
-  //   const existingFolder = this.getFolder(details.name, details.flagTag);
-  //   if (existingFolder) return existingFolder;
-  //   logger.debug(`Not found, creating Item folder '${details.name}'`);
-  //   const newFolder = await this.createCompendiumFolder({
-  //     name: details.name,
-  //     flagTag: details.flagTag,
-  //     color: details.parsed.color,
-  //     parentId: parentFolder._id,
-  //   });
-  //   this.validFolderIds.push(newFolder._id);
-  //   return newFolder;
-  // }
-
   async createItemTypeCompendiumFolder({
     folderName, type, color, bookCode,
     categoryId, categoryFolderId,
@@ -645,23 +611,17 @@ export class DDBCompendiumFolders {
   }
 
   // async createItemTypeFoldersWithSources() {
-  //   const index = await this.compendium.getIndex({ fields: this.#getIndexFields() });
   //   // const sources = new Set(index.filter((s) => s.system?.source.book).map((s) => s.system.source.book));
 
-  //   const sources = new Set();
-  //   const flagList = new Set();
 
   //   for (const i of index) {
-  //     const d = DDBCompendiumFolders.getItemFolderNameForTypeSource(i, "item");
   //     flagList.add(d.flagTag);
   //     sources.add(d.result.bookCode);
   //   }
 
-  //   const sourceFoldersData = DDBCompendiumFolders.getAllSourceFolders("item")
   //     .filter((f) => sources.has(f.bookCode));
 
   //   for (const data of sourceFoldersData) {
-  //     const sourceFolder = await this._createSourceFolder(data.name, data.flagTag);
   //     await this.createItemTypeCompendiumFolders({
   //       sourceFolderKey: data.bookCode,
   //       sourceFolderId: sourceFolder._id,
@@ -672,7 +632,6 @@ export class DDBCompendiumFolders {
 
   async createItemTypeFoldersWithSourceCategories(restrict = false) {
     const index = await this.compendium.getIndex({ fields: this.#getIndexFields() });
-    // const sources = new Set(index.filter((s) => s.system?.source.book).map((s) => s.system.source.book));
 
     const sources = new Set();
     const categories = new Set();
@@ -1017,12 +976,9 @@ export class DDBCompendiumFolders {
   }
 
   // async createSummonsSubFolder(type, subFolderName) {
-  //   const flagTag = `summons/${type}/${subFolderName}`;
   //   logger.debug(`Checking for Summons folder '${subFolderName}' with Base Folder '${subFolderName}'`);
 
-  //   const parentFolder = await this.createSummonsFolder(type);
 
-  //   const folder = this.getFolder(subFolderName, flagTag)
   //     ?? (await this.createCompendiumFolder({
   //       name: subFolderName,
   //       parentId: parentFolder._id,
@@ -1372,7 +1328,6 @@ export class DDBCompendiumFolders {
       result.name = "Unknown";
     }
 
-    // console.warn(`Folder Name for ${document.name}`, {
     //   result,
     //   subClassName,
     //   className,
@@ -1394,10 +1349,6 @@ export class DDBCompendiumFolders {
     // "flags.ddbimporter.baseName",
     // "flags.ddbimporter.subRaceShortName",
     // "flags.ddbimporter.isSubRace",
-    // const isSubRace = foundry.utils.getProperty(document, "flags.ddbimporter.isSubRace");
-    // const baseRaceName = foundry.utils.getProperty(document, "flags.ddbimporter.baseRaceName");
-    // const baseName = foundry.utils.getProperty(document, "flags.ddbimporter.baseName");
-    // const subRaceShortName = foundry.utils.getProperty(document, "flags.ddbimporter.subRaceShortName");
     const fullRaceName = foundry.utils.getProperty(document, "flags.ddbimporter.fullRaceName") as string;
     const groupName = foundry.utils.getProperty(document, "flags.ddbimporter.groupName") as string;
     const isLineage = foundry.utils.getProperty(document, "flags.ddbimporter.isLineage");
@@ -1796,9 +1747,7 @@ export class DDBCompendiumFolders {
   // async addToCompendiumFolder(document: TImporterItem) {
   //   logger.debug(`Checking ${document.name} in ${this.packName}`);
 
-  //   const folderName = this.getCompendiumFolderData(document);
   //   if (folderName) {
-  //     const folder = this.compendium.folders.find((f) => f.name == (folderName.name ?? folderName));
   //     if (folder) {
   //       logger.info(`Moving ${this.type} ${document.name} to folder ${folder.name}`);
   //       await document.update({ folder: folder._id } as any);

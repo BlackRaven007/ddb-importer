@@ -1,8 +1,6 @@
-// ---------------------------------------------------------------------------
 // DDB Spell Source Interfaces
 // Models the JSON returned by the DDB proxy API for spells.
 // Leaf objects that are not yet fully typed use `any`.
-// ---------------------------------------------------------------------------
 
 export {};
 

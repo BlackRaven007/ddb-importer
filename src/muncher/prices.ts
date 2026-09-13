@@ -67,7 +67,6 @@ export async function updateItemPrices({ keepExistingNonDDBPrices = true, keepEx
 
     if (noGpValue) return true;
     const existingDDBPrice = foundry.utils.getProperty(i, "flags.ddbimporter.price.xgte");
-    // console.warn(`checking ${i.name}`, { existingDDBPrice, keepExistingDDBPrices, keepExistingNonDDBPrices, i });
     if (!keepExistingDDBPrices && existingDDBPrice) return true;
     if (!keepExistingNonDDBPrices && !existingDDBPrice) return true;
     logger.info(`No update needed for ${i.name}`);
@@ -76,7 +75,6 @@ export async function updateItemPrices({ keepExistingNonDDBPrices = true, keepEx
 
   const updates = [];
 
-  // const items = await pack.getDocuments();
 
   for (const item of filteredItems) {
     const rarity = item.system.rarity;

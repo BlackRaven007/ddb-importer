@@ -886,7 +886,6 @@ export default class DDBFeatureMixin extends DDBActivityFactoryMixin<TDocumentTy
           && option.definition.entityTypeId == mod.componentTypeId // mod componentId matches option entity type id
           && String(choice.id) == String(mod.componentId), // choice id and mod id match
       );
-      // console.log(`choiceMatch ${choiceMatch}`);
       if (choiceMatch) return true;
     } else if (choice) {
       // && choice.parentChoiceId
@@ -1286,7 +1285,6 @@ export default class DDBFeatureMixin extends DDBActivityFactoryMixin<TDocumentTy
 
   async _generateCompanions() {
     if (!this.isSummons) return;
-    // console.warn(`Parsing Companion for ${this.data.name}`, {
     //   this: this,
     //   dataCLone: deepClone(this.data),
     //   ddbDef: `${this.ddbDefinition.description}`,

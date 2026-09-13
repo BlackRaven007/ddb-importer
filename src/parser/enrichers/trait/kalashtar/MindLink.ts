@@ -15,7 +15,6 @@ export default class MindLink extends DDBEnricherData {
   }
 
   get effects(): IDDBEffectHint[] {
-    // const value = this.ddbParser.isMuncher ? 10 : "";
     return [
       {
         name: "Mind Link: Telepathy",

@@ -1142,7 +1142,6 @@ export default class DDBEffectHelper {
     if (list) {
       const listItems = list.querySelectorAll("li");
       listItems.forEach((item, index) => {
-        // console.log('Item ' + (index + 1) + ': ' + item.textContent);
         const title = item.querySelector(titleType);
         const content = title?.nextSibling;
         if (!title || !content) return;
@@ -1570,7 +1569,6 @@ export default class DDBEffectHelper {
     if (killAnimations) foundry.utils.setProperty(newDocumentData, "flags.autoanimations.killAnim", true);
 
     logger.verbose("New document data", newDocumentData);
-    // console.warn("New document data", newDocumentData);
 
     if (returnDataOnly) return newDocumentData;
 

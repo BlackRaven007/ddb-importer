@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 // Run with: node tools/test-grid-detector.mjs
-//
 // Self-contained test harness for GridDetector. We can't easily import the
 // TypeScript source from a plain Node script without a build step, so we copy
 // the pure-core algorithm here and exercise it with synthetic Float32Array

@@ -676,7 +676,6 @@ export default class DDBSubClass extends DDBBaseClass {
       //   if (advancement.title !== "Breath of the Dragon") continue;
       //   advancement.configuration.scale['17'] = { number: 4, faces: 10 };
       // }
-      // const breathConeSize = {
       //   type: "ScaleValue",
       //   configuration: {
       //     identifier: "breath-cone-size",
@@ -693,7 +692,6 @@ export default class DDBSubClass extends DDBBaseClass {
       //   title: "Breath Weapon Cone Size",
       // };
       // this._addAdvancement(breathConeSize);
-      // const breathLineSize = {
       //   type: "ScaleValue",
       //   configuration: {
       //     identifier: "breath-line-size",
@@ -825,7 +823,6 @@ export default class DDBSubClass extends DDBBaseClass {
       .filter((feature) => feature.description.includes("<table"));
 
     for (const feature of advancementFeatures) {
-      // console.warn("Generating spell list advancement for feature:", feature);
       await this._generateSpellListAdvancement(feature);
     }
   }

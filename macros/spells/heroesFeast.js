@@ -1,4 +1,3 @@
-// console.warn("midi", {
 //   scope,
 //   item,
 //   args
@@ -17,7 +16,6 @@ await DDBImporter.EffectHelper.wait(500);
 
 for (const damageData of scope.workflow.damageList) {
   const targetActor = await fromUuid(damageData.actorUuid);
-  // console.warn("targetActor", targetActor);
 
   const originalEffect = targetActor.effects.find((e) => e.name === item.name);
 
@@ -44,6 +42,5 @@ for (const damageData of scope.workflow.damageList) {
 }
 
 // if (workflow.targets.size > 1) {
-//   const extraSpent = workflow.targets.size - 1;
 //   item.update({ "system.uses.spent": item.system.uses.spent + extraSpent });
 // }

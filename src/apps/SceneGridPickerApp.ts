@@ -675,9 +675,7 @@ export default class SceneGridPickerApp extends DDBAppV2 {
   // Toggle the grid-hint drawing overlay. Entering hint mode clears any
   // existing cell selection (the two interaction modes share the same
   // image surface). Leaving hint mode discards the drawn rect.
-  // ------------------------------------------------------------------
   // Zoom / pan helpers
-  // ------------------------------------------------------------------
 
   _currentViewBox(): { x: number; y: number; w: number; h: number } {
     if (this.viewBox) return this.viewBox;

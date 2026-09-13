@@ -334,7 +334,6 @@ async function runDetectionOnRoi(
   // run on a crop, the detector multiplies expectedScale by its own (cropped)
   // width to get an absolute pixel target. We rescale so the same painted
   // period in pixels comes out regardless of crop size.
-  //
   // expectedCellPx (user-drawn grid hint) takes priority over tokenScale -
   // when the caller has measured the painted period directly we trust that
   // over DDB's stored prior. cellPx is already the painted period in image

@@ -834,7 +834,6 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
     // 90-foot line that is 10 feet wide
     // in a 90-foot cone
     const matchText = this.strippedHtml.replace(/[­––−-]/gu, "-").replace(/-+/g, "-");
-    // console.warn(matchText);
     const lineSearch = /(\d+)-foot line|line that is (\d+) feet/i;
     const coneSearch = /(\d+)-foot cone/i;
     const cubeSearch = /(\d+)-foot cube/i;
@@ -867,7 +866,6 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
       // each creature that isn’t an Undead in a 20-foot Emanation originating from the lich.
       const aoeSizeMatch = aoeSizeRegex.exec(matchText);
 
-      // console.warn(`Target generation for ${this.name}`, {
       //   aoeSizeMatch,
       // });
 
@@ -964,7 +962,6 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
 
     const handleReplaceNames = ((str: string) => {
       const replaceNames = extractActions(str);
-      // console.warn("Replace names", replaceNames);
       for (const name of replaceNames) {
         const listNameRegex = /\(\w\) (.*)/i;
         const listNameMatch = listNameRegex.exec(name);
@@ -1074,7 +1071,6 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
     }
 
 
-    // console.warn(`${this.ddbMonster.name}`,{
     //   orMakesMatch,
     //   basicMAMatch,
     //   multiMatch,
@@ -1346,7 +1342,6 @@ ${this.data.system.description.value}
       parts = this.actionData.damageParts.map((s) => s.part);
     }
 
-    // console.warn("activity build", {
     //   isFlatWeaponDamage,
     //   this: this,
     //   noDamageMods,
@@ -1434,9 +1429,7 @@ ${this.data.system.description.value}
     }
     if (this.isAttack) {
       // some attacks will have a save and attack
-      // console.warn("isAttack", this.isAttack, this.isSave);
       if (this.isSave) {
-        // console.warn("add save additional activity");
         this.#addSaveAdditionalActivity();
       }
       return "attack";
@@ -1659,7 +1652,6 @@ ${this.data.system.description.value}
 
     activity.img = compendiumSpell.img;
 
-    // console.warn("spell activite", {
     //   activity,
     //   spellData,
     //   compendiumSpell,
@@ -1757,7 +1749,6 @@ ${this.data.system.description.value}
     const spells: IMonsterSpellcastingSpell[] = [];
     const matchGroups = matches?.groups;
     if (matchGroups) {
-      // console.warn(`Other spell casting match for ${this.name} for ${this.ddbMonster.name}`, {
       //   matches,
       //   strippedHtml: this.strippedHtml,
       //   originalName: this.originalName,

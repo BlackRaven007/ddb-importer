@@ -1,8 +1,6 @@
-// ---------------------------------------------------------------------------
 // DDB Monster Source Interfaces
 // Models the JSON returned by the DDB proxy API for monsters.
 // Derived from 3,114 monster entries in diff/monsters.json.
-// ---------------------------------------------------------------------------
 
 export {};
 

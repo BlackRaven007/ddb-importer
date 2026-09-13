@@ -1,7 +1,6 @@
 // Characterization tests for the over-time effect builders on DDBEffectHelper:
 // overTimeDamage, overTimeSave, overTimeSaveEnd, damageOverTimeEffect,
 // generateOverTimeEffect and generateConditionOnlyEffect.
-//
 // Unlike the pure test, the parser/enrichers/effects barrel is NOT mocked here:
 // these methods delegate to the real MidiOverTimeEffect and ChangeHelper, and
 // the DDBEffectHelper <-> MidiOverTimeEffect import cycle resolves at runtime

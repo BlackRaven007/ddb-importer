@@ -33,7 +33,6 @@ export default class DDBCompanion2014 extends DDBCompanionMixin {
         ?? getFallbackAbility();
 
       const value = Number.parseInt(abilityScore);
-      // const mod = CONFIG.DDB.statModifiers.find((s) => s.value == value).modifier;
 
       abilities[ability]["value"] = value;
       // abilities[ability]["mod"] = mod;

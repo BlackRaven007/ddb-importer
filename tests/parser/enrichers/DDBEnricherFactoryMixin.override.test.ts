@@ -109,9 +109,7 @@ function makeActivity(overrides: Record<string, any> = {}): any {
   return foundry.utils.mergeObject(base, overrides);
 }
 
-// =============================================================================
 // _applyActivityDataOverride
-// =============================================================================
 describe("DDBEnricherFactoryMixin._applyActivityDataOverride", () => {
   it("passes an activity through untouched for an empty override", async () => {
     const e = makeEnricher();
@@ -545,9 +543,7 @@ describe("DDBEnricherFactoryMixin._applyActivityDataOverride", () => {
   });
 });
 
-// =============================================================================
 // applyActivityOverride
-// =============================================================================
 describe("DDBEnricherFactoryMixin.applyActivityOverride", () => {
   it("returns the activity untouched and records originalActivity when no hint is loaded", async () => {
     const e = makeEnricher({ loadedEnricher: null });
@@ -571,9 +567,7 @@ describe("DDBEnricherFactoryMixin.applyActivityOverride", () => {
   });
 });
 
-// =============================================================================
 // addDocumentAdvancements
-// =============================================================================
 describe("DDBEnricherFactoryMixin.addDocumentAdvancements", () => {
   it("keys advancements by _id, flattening nested arrays and skipping id-less entries", async () => {
     const e = makeEnricher({
@@ -605,9 +599,7 @@ describe("DDBEnricherFactoryMixin.addDocumentAdvancements", () => {
   });
 });
 
-// =============================================================================
 // addDocumentOverride
-// =============================================================================
 describe("DDBEnricherFactoryMixin.addDocumentOverride", () => {
   function makeOverrideEnricher(override: Record<string, any>, docFields: Record<string, any> = {}): any {
     return makeEnricher({

@@ -64,7 +64,6 @@ export default class EyeRays extends DDBEnricherData {
   get additionalActivities(): IDDBAdditionalActivity[] {
     const rayChoices = this.rayChoices;
 
-    // console.warn("ray choices", {
     //   rayChoices,
     //   this: this,
     //   rayText: this.rayText,
@@ -95,7 +94,6 @@ export default class EyeRays extends DDBEnricherData {
         },
       };
 
-      // console.warn("EyeRay", {
       //   name: ray.title,
       //   description: strippedHtml,
       //   ddbMonsterDamage,

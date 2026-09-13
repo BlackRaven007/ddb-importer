@@ -554,7 +554,6 @@ export default class DDBRace {
   }
 
   #generateAbilityAdvancement() {
-    // console.warn("Ability advancement", {
     //   this: this,
     // })
     if (!this.is2014) return;
@@ -696,7 +695,6 @@ export default class DDBRace {
     this.featLink.name = feat.definition.name;
     this.featLink.uuid = featMatch.uuid;
 
-    // console.warn("Generated feat advancement link", {
     //   this: this,
     //   trait,
     //   feat,
@@ -708,7 +706,6 @@ export default class DDBRace {
 
     // this update is done later, once everything is built
     // we just add the hints to the feat here
-    // const update = {
     //   value: {
     //     added: {
     //       "0": {
@@ -832,7 +829,6 @@ export default class DDBRace {
 
     advancement.updateSource(updateData as any);
 
-    // console.warn(`Generated choice advancement for feature ${feature.name}:`, {
     //   advancement,
     //   this: this,
     //   feature,
@@ -936,7 +932,6 @@ export default class DDBRace {
     };
     advancement.updateSource(advancementData as any);
 
-    // console.warn(`Generated choice advancement for feature ${feature.name}:`, {
     //   advancement,
     //   this: this,
     //   feature,
@@ -1299,7 +1294,6 @@ export default class DDBRace {
         foundry.utils.setProperty(feat, "flags.dnd5e.advancementOrigin", `${this.data._id}.${a._id}`);
       }
 
-      // console.warn("Post feat match for advancement", {
       //   addedFeats,
       // });
 
@@ -1321,12 +1315,9 @@ export default class DDBRace {
   }
 
   // #generateHTMLSenses() {
-  //   const textDescription = AdvancementHelper.stripDescription(this.data.system.description.value);
 
   //   // You can see in dim light within 60 feet of you as if it were bright light, and in darkness as if it were dim light
   //   // You can see in dim light within 120 feet of you as if it were bright light and in darkness as if it were dim light.
-  //   const darkVisionRegex = /you can see in dim light within (\d+) feet of you as if it were bright light/im;
-  //   const darkVisionMatch = textDescription.match(darkVisionRegex);
 
   //   if (darkVisionMatch) {
   //     this.data.system.senses.darkvision = parseInt(darkVisionMatch[1]);
@@ -1334,7 +1325,6 @@ export default class DDBRace {
   // }
 
   #generateSenses() {
-    // const ranges = (this.data.system.senses.ranges ?? {}) as Record<string, any>;
     const ranges: T5eSenseRanges = this.data.system.senses?.ranges ?? {};
     for (const senseName in ranges) {
       const basicOptions = {

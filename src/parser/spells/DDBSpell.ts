@@ -333,7 +333,6 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
 
   _generateClassPreparationMode() {
     // Savant spells are markes as always prepared for wizards
-    // const notAlways = this.lookupName?.endsWith("Savant") && this.spellClass === "Wizard";
 
     if (this.spellData.restriction === "As Ritual Only"
       || this.spellData.castOnlyAsRitual

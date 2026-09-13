@@ -137,7 +137,6 @@ if (parameters.isTemplate) {
         },
       };
 
-      // console.warn("Light effect data", data);
 
       await token.update(data);
     }

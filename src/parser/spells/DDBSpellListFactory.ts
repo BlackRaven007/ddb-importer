@@ -90,7 +90,6 @@ export default class DDBSpellListFactory extends SpellListFactory {
 
     this._generateSpellsBySourceAndSpellListName(className);
 
-    // console.warn(`Spell List Data for ${className}`, {
     //   spellListsData: this.spellListsData[className],
     //   spellData,
     //   uuidList: this.uuidLists,

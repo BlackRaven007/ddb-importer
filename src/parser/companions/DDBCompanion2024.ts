@@ -72,7 +72,6 @@ export default class DDBCompanion2024 extends DDBCompanionMixin {
     for (const [ability, data] of Object.entries(abilityScores) as [T5eAbility, typeof abilityScores[T5eAbility]][]) {
       if (!data) continue;
       const save = Number.parseInt(data.save.replace("−", "-"));
-      // const mod = Number.parseInt(data.mod.replace("−", "-"));
       const score = Number.parseInt(data.score);
 
       abilities[ability].value = score;

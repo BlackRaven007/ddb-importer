@@ -13,9 +13,7 @@ vi.mock("../../../src/parser/classes/DDBSubClass", () => ({ default: class DDBSu
 
 import AdvancementHelper from "../../../src/parser/advancements/AdvancementHelper";
 
-// =============================================================================
 // stripDescription
-// =============================================================================
 describe("AdvancementHelper.stripDescription", () => {
   it("converts paragraph ends to newlines and strips tags", () => {
     const result = AdvancementHelper.stripDescription("<p>Hello</p><p>World</p>");
@@ -33,9 +31,7 @@ describe("AdvancementHelper.stripDescription", () => {
   });
 });
 
-// =============================================================================
 // getChoiceReplacements
-// =============================================================================
 describe("AdvancementHelper.getChoiceReplacements", () => {
   it("marks replacement true for all levels >= lowestLevel when 'you can replace' appears", () => {
     const choices = AdvancementHelper.getChoiceReplacements("At later levels you can replace a choice.", 5);
@@ -66,9 +62,7 @@ describe("AdvancementHelper.getChoiceReplacements", () => {
   });
 });
 
-// =============================================================================
 // hasScaleConfiguration
-// =============================================================================
 describe("AdvancementHelper.hasScaleConfiguration", () => {
   it("returns true when configuration has a scale key", () => {
     const adv: any = { configuration: { scale: {} } };
@@ -86,9 +80,7 @@ describe("AdvancementHelper.hasScaleConfiguration", () => {
   });
 });
 
-// =============================================================================
 // isBaseProficiency
-// =============================================================================
 describe("AdvancementHelper.isBaseProficiency", () => {
   it("matches the literal 'Proficiencies' feature", () => {
     expect(AdvancementHelper.isBaseProficiency({ name: "Proficiencies" })).toBe(true);
@@ -107,9 +99,7 @@ describe("AdvancementHelper.isBaseProficiency", () => {
   });
 });
 
-// =============================================================================
 // convertToSingularDie / renameTotal / rename / addSingularDie
-// =============================================================================
 describe("AdvancementHelper.convertToSingularDie", () => {
   it("sets every scale entry's die number to 1 and appends (Die) to title", () => {
     const adv: any = {
@@ -183,9 +173,7 @@ describe("AdvancementHelper.addSingularDie", () => {
   });
 });
 
-// =============================================================================
 // Tool lookups
-// =============================================================================
 describe("AdvancementHelper.getToolGroup", () => {
   it("maps musical instrument to music", () => {
     expect(AdvancementHelper.getToolGroup("one Musical Instrument of your choice")).toBe("music");
@@ -233,9 +221,7 @@ describe("AdvancementHelper.getToolAdvancementValue", () => {
   });
 });
 
-// =============================================================================
 // Armor lookups
-// =============================================================================
 describe("AdvancementHelper.getArmorGroup", () => {
   it("maps top level armor categories", () => {
     expect(AdvancementHelper.getArmorGroup("Light armor")).toBe("lgt");
@@ -276,9 +262,7 @@ describe("AdvancementHelper.getArmorAdvancementValue", () => {
   });
 });
 
-// =============================================================================
 // Weapon lookups
-// =============================================================================
 describe("AdvancementHelper.getWeaponGroup", () => {
   it("matches weapon group names via substring", () => {
     expect(AdvancementHelper.getWeaponGroup("simple weapons")).toBe("sim");

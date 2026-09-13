@@ -157,7 +157,6 @@ export default class NameMatcher {
     if (!matchingItem && loose) {
       const extraNames = (foundry.utils.getProperty(item, "flags.ddbimporter.dndbeyond.alternativeNames") ?? []) as string[];
       const looseNames = NameMatcher.getLooseNames(item.name, extraNames, !magicMatch);
-      // console.warn("loose names", looseNames);
       for (const looseName of looseNames) {
         matchingItem = items.find((matchItem: TMatchCandidate) => {
           // index entries can lack a name at the type level, but never in practice

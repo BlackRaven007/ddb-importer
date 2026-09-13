@@ -185,7 +185,6 @@ export default class DDBClassFeatures {
   }
 
   // static highestLevelFeature(klass, feature) {
-  //   const match = klass.classFeatures
   //     .filter((f) => f.definition.name === feature.definition.name
   //       && f.definition.requiredLevel <= klass.level)
   //     .reduce((prev, cur) => {

@@ -83,7 +83,6 @@ DDBMonster.prototype._generateAC = async function _generateAC(this: DDBMonster, 
             lowerItem = `${matches[2]}, ${matches[1]}`;
           }
         }
-        // const type = item.includes("ring") || item.includes("cloak") ? "trinket" : "equipment";
         const itemsToIgnore = this.addMonsterEffects ? ["suave defense"] : [];
         if (!itemsToIgnore.includes(lowerItem)) {
           const quantityRegex = /(.*) \((\d+)\)/;

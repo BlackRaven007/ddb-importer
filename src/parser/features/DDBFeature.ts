@@ -240,7 +240,6 @@ export default class DDBFeature extends DDBFeatureMixin {
     //         "entityTypeId": 1088085227,
     //         "definitionKey": "1088085227:1789210",
     //         "name": "Wayfarer Ability Score Improvements",
-    //
     //         "categories": [
     //             {
     //                 "id": 491,

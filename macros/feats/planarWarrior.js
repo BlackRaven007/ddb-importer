@@ -1,10 +1,8 @@
 // This Macro was provided by @Elwin#1410 on Discord and is included with their permission
 // some modifications have been made for inclusion with DDB Importer
-//
 // Usage:
 // This item needs to be used to activate. When activated the target is marked and the next time the
 // target is hit with a weapon attack the effect will be applied.
-//
 // Description:
 // In the postActiveEffects phase of the Planar Warrior Mark activity (in owner's workflow):
 //   It validates that there is one target and that the item is not already activated. It then adds an
@@ -167,7 +165,6 @@ function isValidTarget(currentWorkflow) {
 
   const activity = currentWorkflow.activity;
 
-  // console.warn(activity);
   if (!DDBImporter.EffectHelper.isAttack({ activity, classification: "weapon" })) return false;
 
   const targetUuid = currentWorkflow.hitTargets.first().document.uuid;

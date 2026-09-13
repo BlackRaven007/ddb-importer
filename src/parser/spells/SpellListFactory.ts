@@ -213,7 +213,6 @@ export default class SpellListFactory {
     pageData.system.identifier = spellListIdentifier;
     pageData.name = `${spellListName} ${this.spellListJournalNameBit}`;
     pageData._id = utils.namedIDStub(spellListName, { prefix: source.acronym.replaceAll(" ", "").replaceAll(".", "") });
-    // console.warn(`Page Data`, {
     //   journal,
     //   pageData,
     //   className,

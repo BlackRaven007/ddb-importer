@@ -69,7 +69,6 @@ export default class AdvancementHelper {
       .replaceAll(/<br \/>(?:\s*)*/g, "<br />\n")
       .replaceAll(/<\/p>(?:\s*)*/g, "</p>\n")
       .replaceAll(/<\/dt>(?:\s*)*<dt>/g, "</dt>\n<dt>");
-    // console.warn(descriptionReplaced);
     return htmlToText(descriptionReplaced);
     // return utils.stripHtml(descriptionReplaced, true);
   }
@@ -447,7 +446,6 @@ export default class AdvancementHelper {
           ? this.dictionary.multiclassSkill
           : mods.length;
 
-    // console.warn(`Parsing skill advancement for level ${level}`, {
     //   availableToMulticlass,
     //   level,
     //   feature,
@@ -494,7 +492,6 @@ export default class AdvancementHelper {
       grants.push(...parsedSkills.grants.map((grant) => `skills:${grant}`));
     }
 
-    // console.warn(`Skills`, {
     //   level,
     //   feature,
     //   mods,
@@ -511,7 +508,6 @@ export default class AdvancementHelper {
       grants,
     });
 
-    // console.warn("Final skill advancement", {
     //   advancement
     // });
 
@@ -541,7 +537,6 @@ export default class AdvancementHelper {
         : 1
       : languagesMods.length;
 
-    // console.warn(`Languages`, {
     //   i: level,
     //   languageFeature: feature,
     //   mods,
@@ -620,7 +615,6 @@ export default class AdvancementHelper {
       ? undefined
       : level > 1 ? "" : availableToMulticlass ? "secondary" : "primary";
 
-    // console.warn(`Tools`, {
     //   level,
     //   feature,
     //   mods,
@@ -662,7 +656,6 @@ export default class AdvancementHelper {
     };
     advancement.updateSource(update as any);
 
-    // console.warn("tools", {
     //   pool,
     //   chosen,
     //   count,
@@ -752,7 +745,6 @@ export default class AdvancementHelper {
         : 1
       : armorMods.length;
 
-    // console.warn(`Armor`, {
     //   level,
     //   feature,
     //   mods,
@@ -798,7 +790,6 @@ export default class AdvancementHelper {
     };
     advancement.updateSource(update as any);
 
-    // console.warn("armor", {
     //   pool,
     //   chosen,
     //   count,
@@ -847,7 +838,6 @@ export default class AdvancementHelper {
         : 1
       : weaponMods.length;
 
-    // console.warn(`Weapon`, {
     //   level,
     //   feature,
     //   mods,
@@ -888,7 +878,6 @@ export default class AdvancementHelper {
     };
     advancement.updateSource(update as any);
 
-    // console.warn("weapons", {
     //   pool,
     //   chosen,
     //   count,
@@ -975,7 +964,6 @@ export default class AdvancementHelper {
         : 1
       : weaponMods.length;
 
-    // console.warn(`Weapon Mastery`, {
     //   level,
     //   feature,
     //   mods,
@@ -1011,7 +999,6 @@ export default class AdvancementHelper {
     };
     advancement.updateSource(update as any);
 
-    // console.warn("weapons", {
     //   pool,
     //   chosen,
     //   count,
@@ -1072,7 +1059,6 @@ export default class AdvancementHelper {
       grants,
     });
 
-    // console.warn("Generated expertise advancement", advancement)
 
     return advancement;
 
@@ -1092,7 +1078,6 @@ export default class AdvancementHelper {
       const conditionId = i + 1;
       const conditionData = AutoEffects.getGenericConditionAffectData(proficiencyMods, condition, conditionId, true);
       const conditionValues = new Set(conditionData.map((result) => `${AdvancementHelper.CONDITION_ID_MAPPING[conditionId]}:${result.value}`));
-      // console.warn("Individual Parse", {
       //   proficiencyMods,
       //   condition,
       //   conditionId,
@@ -1134,7 +1119,6 @@ export default class AdvancementHelper {
     };
     advancement.updateSource(update as any);
 
-    // console.warn("conditions", {
     //   pool,
     //   chosen,
     //   count,
@@ -1377,7 +1361,6 @@ export default class AdvancementHelper {
     const anyMatch = textDescription.match(anySkillRegex);
 
     if (anyMatch) {
-      // const skills = DICTIONARY.actor.skills.map((skill) => skill.name);
       const numberSkills = DICTIONARY.numbers.find((num) => anyMatch[1].toLowerCase() === num.natural);
       parsedSkills.number = numberSkills ? numberSkills.num : 2;
       parsedSkills.choices = ["*"];
@@ -1544,7 +1527,6 @@ export default class AdvancementHelper {
               l.name.toLowerCase() === choice.toLowerCase().split(" ")[0]
               || choice.toLowerCase().includes(l.name.toLowerCase()),
             );
-            // console.warn("lang check", {
             //   simple: simpleChoice[2],
             //   choice,
             //   languages,
@@ -1762,7 +1744,6 @@ export default class AdvancementHelper {
 
     const anyToolsMatch = anyMatch ?? anyMatch2;
     if (anyToolsMatch) {
-      // const skills = DICTIONARY.actor.skills.map((skill) => skill.name);
       const numberTools = DICTIONARY.numbers.find((num) => anyToolsMatch[1].toLowerCase() === num.natural);
       parsedTools.number = numberTools ? numberTools.num : 2;
       const toolArray = anyToolsMatch[2].split(" or ");
@@ -2246,13 +2227,11 @@ export default class AdvancementHelper {
   }
 
   // static parseHTMLExpertises(description) {
-  //   const parsedExpertises = {
   //     choices: [],
   //     grants: [],
   //     number: 2,
   //   };
 
-  //   const dom = utils.htmlToDocumentFragment(description);
 
   //   // At 1st level, choose two of your skill proficiencies, or one of your skill proficiencies and your proficiency with thieves’ tools. Your proficiency bonus is doubled for any ability check you make that uses either of the chosen proficiencies.
   //   // At 6th level, you can choose two more of your proficiencies (in skills or with thieves’ tools) to gain this benefit.
@@ -2995,12 +2974,10 @@ Starting at 5th level, you can cast the ${lineageMatch.five} spell with this tra
   }
 
   // static parseHTMLEquipment(description) {
-  //   const parsedEquipment = {
   //     choices: [],
   //     grants: [],
   //     number: 0,
   //   };
-  //   const textDescription = AdvancementHelper.stripDescription(description);
 
   //   // You start with the following equipment, in addition to the equipment granted by your background:
   //   // any two simple weapons of your choice
@@ -3308,7 +3285,6 @@ Starting at 5th level, you can cast the ${lineageMatch.five} spell with this tra
     ddbParser, feature, type, addToAdvancements = true, advancementsOnlyForLimitedUses = false,
   }: { ddbParser: CharacterFeatureFactory; feature: T5eFeatureMixinDataTypes; type: TGrantedSpellTypeOrigins; addToAdvancements?: boolean; advancementsOnlyForLimitedUses?: boolean },
   ) {
-    // console.warn(`Spell advancment check for ${feature.name}`, {
     //   feature,
     //   type,
     //   ddbParser,

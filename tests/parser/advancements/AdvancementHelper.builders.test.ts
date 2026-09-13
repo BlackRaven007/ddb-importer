@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 // Characterization tests for AdvancementHelper instance-level advancement
 // builders, using the fake dnd5e advancement classes from the global test mocks.
-//
 // Intentionally uncovered (compendium/async spell-advancement methods):
 //   getCompendiumSpellUuidsFromNames, _getSpellUuidsFromFeatureSpellData,
 //   getTraitSpellAdvancements, getCantripChoiceAdvancement,
@@ -20,9 +19,7 @@ vi.mock("../../../src/parser/classes/DDBSubClass", () => ({ default: class DDBSu
 
 import AdvancementHelper from "../../../src/parser/advancements/AdvancementHelper";
 
-// =============================================================================
 // Fixtures
-// =============================================================================
 
 function makeDdbData(choices: Record<string, any> = {}): any {
   return {
@@ -72,9 +69,7 @@ function profMod(subType: string, friendlySubtypeName: string): any {
   };
 }
 
-// =============================================================================
 // advancementUpdate (static)
-// =============================================================================
 describe("AdvancementHelper.advancementUpdate", () => {
   const TraitAdvancement: any = game.dnd5e.documents.advancement.TraitAdvancement;
 
@@ -111,9 +106,7 @@ describe("AdvancementHelper.advancementUpdate", () => {
   });
 });
 
-// =============================================================================
 // getSaveAdvancement
-// =============================================================================
 describe("AdvancementHelper.getSaveAdvancement", () => {
   it("returns null when there are no saving throw modifiers", () => {
     const adv = makeHelper().getSaveAdvancement({
@@ -173,9 +166,7 @@ describe("AdvancementHelper.getSaveAdvancement", () => {
   });
 });
 
-// =============================================================================
 // getSkillAdvancement
-// =============================================================================
 describe("AdvancementHelper.getSkillAdvancement", () => {
   it("returns null when no skills can be derived", () => {
     const adv = makeHelper().getSkillAdvancement({
@@ -246,9 +237,7 @@ describe("AdvancementHelper.getSkillAdvancement", () => {
   });
 });
 
-// =============================================================================
 // getLanguageAdvancement
-// =============================================================================
 describe("AdvancementHelper.getLanguageAdvancement", () => {
   function langMod(friendlySubtypeName: string): any {
     return {
@@ -294,9 +283,7 @@ describe("AdvancementHelper.getLanguageAdvancement", () => {
   });
 });
 
-// =============================================================================
 // getToolAdvancement / getEmptyToolAdvancement
-// =============================================================================
 describe("AdvancementHelper.getToolAdvancement", () => {
   it("returns null for 'Tools: None' with no modifiers", () => {
     const adv = makeHelper().getToolAdvancement({
@@ -396,9 +383,7 @@ describe("AdvancementHelper.getEmptyToolAdvancement", () => {
   });
 });
 
-// =============================================================================
 // getArmorAdvancement
-// =============================================================================
 describe("AdvancementHelper.getArmorAdvancement", () => {
   it("returns null when nothing grants armor", () => {
     const adv = makeHelper().getArmorAdvancement({
@@ -439,9 +424,7 @@ describe("AdvancementHelper.getArmorAdvancement", () => {
   });
 });
 
-// =============================================================================
 // getWeaponAdvancement
-// =============================================================================
 describe("AdvancementHelper.getWeaponAdvancement", () => {
   it("returns null when nothing grants weapons", () => {
     const adv = makeHelper().getWeaponAdvancement(
@@ -484,9 +467,7 @@ describe("AdvancementHelper.getWeaponAdvancement", () => {
   });
 });
 
-// =============================================================================
 // getExpertiseAdvancement
-// =============================================================================
 describe("AdvancementHelper.getExpertiseAdvancement", () => {
   it("builds the default Expertise choice", () => {
     const adv: any = makeHelper().getExpertiseAdvancement(makeFeature({ name: "Expertise" }), 1);
@@ -535,9 +516,7 @@ describe("AdvancementHelper.getExpertiseAdvancement", () => {
   });
 });
 
-// =============================================================================
 // getConditionAdvancement
-// =============================================================================
 describe("AdvancementHelper.getConditionAdvancement", () => {
   it("returns null with no parsable conditions and no modifiers", () => {
     const adv = makeHelper().getConditionAdvancement([], makeFeature({ description: "<p>Nothing here.</p>" }), 1);
@@ -578,9 +557,7 @@ describe("AdvancementHelper.getConditionAdvancement", () => {
   });
 });
 
-// =============================================================================
 // generateScaleValueAdvancement (static)
-// =============================================================================
 describe("AdvancementHelper.generateScaleValueAdvancement", () => {
   it("returns null when the feature has no level scales", () => {
     expect(AdvancementHelper.generateScaleValueAdvancement(makeFeature({ name: "No Scales" }))).toBeNull();

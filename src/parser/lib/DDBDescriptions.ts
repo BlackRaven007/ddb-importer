@@ -445,7 +445,6 @@ export default class DDBDescriptions {
     const parserText = utils.nameString(text);
     const matchResults = DDBDescriptions.dcParser({ text: parserText });
 
-    // console.warn("condition status", match);
     if (matchResults.match) {
       const match = matchResults.match;
       result.match = match;
@@ -463,7 +462,6 @@ export default class DDBDescriptions {
       }
 
       const parsedCondition = DDBDescriptions.getConditionInfo(condition, match.groups?.hint);
-      // console.warn({parsedCondition, matchResults});
       if (parsedCondition.success) {
         result.condition = parsedCondition.condition;
         result.conditionName = parsedCondition.conditionName;
@@ -666,7 +664,6 @@ export default class DDBDescriptions {
     const innateSearch = /^(\d+)\/(\w+)(?:\s+each)?:\s+(.*$)/i;
     const innateMatch = text.match(innateSearch);
 
-    // console.warn(innateMatch);
     if (innateMatch) {
       DDBDescriptions.splitStringByComma(innateMatch[3]).forEach((spell: string) => {
         const data = processSpell(spell);
@@ -680,7 +677,6 @@ export default class DDBDescriptions {
     // At will: dancing lights
     const atWillSearch = /^at will:\s+(.*$)/i;
     const atWillMatch = text.match(atWillSearch);
-    // console.warn(atWillMatch);
     if (atWillMatch) {
       DDBDescriptions.splitStringByComma(atWillMatch[1]).forEach((spell: string) => {
         results.push(processSpell(spell));

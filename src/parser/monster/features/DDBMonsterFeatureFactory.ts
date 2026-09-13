@@ -355,7 +355,6 @@ export default class DDBMonsterFeatureFactory {
       ?? this.featureBlocks[type][0];
 
     dom.childNodes.forEach((node) => {
-      // const switchAction = dynamicActions.find((act) => act.name == node.textContent);
       const nodeText = node.textContent ?? "";
       const nodeName = nodeText.split(".")[0].trim();
       const switchAction = this.featureBlocks[type].find((act) => nodeName === act.name);
@@ -696,7 +695,6 @@ export default class DDBMonsterFeatureFactory {
 
     // some features are duplicated and we parse these first
     for (const feature of this.features[type]) {
-      // console.warn({ deep: deepClone(feature), this: this, feature });
       await feature.loadEnricher();
       await feature.parse();
     }

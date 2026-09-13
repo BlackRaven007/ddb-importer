@@ -2,9 +2,7 @@ import DDBCharacter from "../../../src/parser/DDBCharacter";
 import "../../../src/parser/character/hp";
 import { makeMockCharacter } from "../../_fixtures/mockCharacter";
 
-// =============================================================================
 // _generateHitPoints
-// =============================================================================
 describe("DDBCharacter._generateHitPoints", () => {
   const generateHP = DDBCharacter.prototype._generateHitPoints;
 

@@ -447,7 +447,6 @@ return game.modules.get(${SETTINGS.MODULE_ID})?.api.macros.executeMacro("${type}
   }
 
   static async executeDDBMacro(type: TDDBMacroType, name: string, ...params: any[]): Promise<any> {
-    // console.warn("executeDDBMacro", {type, name, parms: [...params] });
     const macro = await DDBMacros.getMacro(type, name);
     logger.debug(`Calling (${type}) macro "${name}" with spread params`, ...params);
     return macro.execute(...params);

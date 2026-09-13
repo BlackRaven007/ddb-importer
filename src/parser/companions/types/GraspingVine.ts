@@ -47,7 +47,6 @@ export async function getGraspingVines({
   stub = await DDBCompanionMixin.addEnrichedImageData(stub);
   const enriched = foundry.utils.getProperty(document, "flags.monsterMunch.enrichedImages");
 
-  // console.warn("Grasping Vine", {
   //   stub: deepClone(stub),
   //   enriched,
   // });

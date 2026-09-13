@@ -24,8 +24,6 @@ export class DDBAdventureFlags extends FormApplication {
 
   /** @override */
   async getData() {
-    // console.warn(this);
-    // console.warn(this.object);
     const item = this.object as TAll5eItemDocuments | I5eMonsterData | I5eVehicleData;
 
     const flags: TFlags = {};

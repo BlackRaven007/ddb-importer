@@ -45,7 +45,6 @@ export default class BloodCurseOfTheSouleater extends _BloodCurse {
     return {
       ignoredConsumptionActivities: this.ignoredConsumptionActivities,
       // the 1/long rest amplify limit lives on this document, so keep it and
-      // let the Blood Maledict link be added alongside it
       retainChildUses: true,
       retainOriginalConsumption: true,
     };

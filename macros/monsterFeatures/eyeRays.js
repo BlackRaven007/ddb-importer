@@ -87,13 +87,11 @@ async function petrificationRayEffect(document) {
 }
 
 async function attackWithRay(documentData, target) {
-  // console.warn("ATTACK RAY", {
   //   documentData: foundry.utils.deepClone(documentData),
   // })
   const rayItem = new CONFIG.Item.documentClass(documentData, { parent: workflow.actor });
   const [config, options] = DDBImporter.EffectHelper.syntheticItemWorkflowOptions({ targets: (target?.uuid ? [ target.uuid ] : args[0].targetUuids) });
 
-  // console.warn("Midi Options Final", {
   //   documentData,
   //   options,
   //   rayItem,
@@ -198,7 +196,6 @@ for (const target of args[0].targets) {
   );
 
 
-  // console.warn(rayChooser);
 
   if (!rayChooser.success) continue;
 
@@ -215,7 +212,6 @@ for (const target of args[0].targets) {
     save = rayChoice.content.match(/\[\/save (?<ability>\w+) (?<dc>\d\d)/);
   }
 
-  // console.warn("SAVE", save);
 
   const ray = await createBaseRay(rayChoice.title, {
     description: rayChoice.full,

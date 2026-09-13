@@ -2,9 +2,7 @@ import DDBCharacter from "../../../src/parser/DDBCharacter";
 import "../../../src/parser/character/abilities";
 import { makeMockCharacter } from "../../_fixtures/mockCharacter";
 
-// =============================================================================
 // _getCustomSaveProficiency
-// =============================================================================
 describe("DDBCharacter._getCustomSaveProficiency", () => {
   const getCustomSaveProficiency = DDBCharacter.prototype._getCustomSaveProficiency;
   const strAbility: DDBAbilityLookup = { id: 1, value: "str", long: "strength" };
@@ -59,9 +57,7 @@ describe("DDBCharacter._getCustomSaveProficiency", () => {
   });
 });
 
-// =============================================================================
 // _getCustomSaveBonus
-// =============================================================================
 describe("DDBCharacter._getCustomSaveBonus", () => {
   const getCustomSaveBonus = DDBCharacter.prototype._getCustomSaveBonus;
   const dexAbility: DDBAbilityLookup = { id: 2, value: "dex", long: "dexterity" };
@@ -117,9 +113,7 @@ describe("DDBCharacter._getCustomSaveBonus", () => {
   });
 });
 
-// =============================================================================
 // _getAbilities
-// =============================================================================
 describe("DDBCharacter._getAbilities", () => {
   const getAbilities = DDBCharacter.prototype._getAbilities;
 
@@ -218,9 +212,7 @@ describe("DDBCharacter._getAbilities", () => {
 
 });
 
-// =============================================================================
 // _generateAbilitiesOverrides
-// =============================================================================
 describe("DDBCharacter._generateAbilitiesOverrides", () => {
   const generateOverrides = DDBCharacter.prototype._generateAbilitiesOverrides;
 

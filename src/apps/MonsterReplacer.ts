@@ -34,7 +34,6 @@ export default class MonsterReplacer {
 
     logger.info(`Selecting Monsters for ${this.name} - (${monsterData.length} possible monsters for replacement)`);
 
-    // const content = await renderTemplate("modules/ddb-importer/handlebars/adventure/choose-monsters.hbs", {
     //   monsterData: monsterData,
     // });
 

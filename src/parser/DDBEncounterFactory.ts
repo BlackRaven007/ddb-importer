@@ -75,7 +75,6 @@ export default class DDBEncounterFactory {
       sceneId,
     });
 
-    // console.warn("Parsing Encounter", {
     //   id,
     //   encounter,
     //   this: this,

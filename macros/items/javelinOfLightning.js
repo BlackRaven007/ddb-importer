@@ -68,7 +68,6 @@ if (args[0].macroPass === "postActiveEffects") {
   const changes = await canvas.scene.createEmbeddedDocuments("MeasuredTemplate", [templateData]);
   await DDBImporter?.EffectHelper.wait(500);
   const templateDoc = changes[0];
-  // console.warn("TEMPLATE", templateDoc);
   const boltEffectData = {
     label: `${workflow.item.name}: Bolt Template`,
     name: `${workflow.item.name}: Bolt Template`,
@@ -114,7 +113,6 @@ if (args[0].macroPass === "postActiveEffects") {
     const areaSpell = new CONFIG.Item.documentClass(lightningBoltData, { parent: workflow.actor });
     const [config, options] = DDBImporter.EffectHelper.syntheticItemWorkflowOptions({ targets: targetTokens });
 
-    // console.warn("Midi Options", {
     //   areaSpell,
     //   options,
     //   targetTokens,

@@ -260,7 +260,6 @@ DDBCharacter.prototype._getAbilitiesBonuses = function (this: DDBCharacter, incl
     if (modifiersSaveBonus && modifiersSaveBonus !== "" && parseInt(modifiersSaveBonus)) {
       if (customSaveBonus) {
         const totalSave = customSaveBonus + parseInt(modifiersSaveBonus);
-        // console.warn("totalSave", totalSave);
         entry.bonuses.save = `+ ${totalSave}`;
       } else {
         entry.bonuses.save = `+ ${modifiersSaveBonus}`;

@@ -73,8 +73,6 @@ export default class BreathWeapon2024 extends DDBEnricherData {
   }
 
   // get override(): IDDBOverrideData {
-  //   console.warn(this);
-  //   const uses = this._getUsesWithSpent({
   //     type: "race",
   //     name: this.data.name,
   //   });

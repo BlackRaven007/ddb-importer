@@ -434,11 +434,9 @@ const CompendiumHelper = {
     matchedProperties?: Record<string, any>;
     useParenthesisMatch?: boolean;
   }): Promise<(T5eCompendiumDocuments | null)[] | null> => {
-    // get the compendium
     const compendium = game.packs.get(compendiumName);
     if (!compendium) return null;
 
-    // get the indices of all the entitynames, filter un
     const indices = await CompendiumHelper.queryCompendiumEntries({
       compendiumName,
       documentNames,
@@ -447,7 +445,6 @@ const CompendiumHelper = {
     });
     if (!indices) return null;
 
-    // replace non-null values with the complete entity from the compendium
     const entities = await Promise.all(
       indices.map((entry) => {
         return new Promise<T5eCompendiumDocuments | null>((resolve) => {
@@ -455,9 +452,6 @@ const CompendiumHelper = {
             compendium.getDocument(entry._id).then((entity) => {
               const doc = entity.toObject() as unknown as T5eCompendiumDocuments;
               doc.name = entry.name; // transfer restrictions over, if any
-              // remove redundant info
-              // delete doc.id;
-              // delete doc._id;
               delete doc.ownership;
               resolve(doc);
             });

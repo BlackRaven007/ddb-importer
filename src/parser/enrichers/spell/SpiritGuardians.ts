@@ -109,7 +109,6 @@ export default class SpiritGuardians extends DDBEnricherData {
   }
 
   get effects(): IDDBEffectHint[] {
-    // const overtimeOptions = [
     //   `label=Spirit Guardians (${this.is2014 ? 'Start' : 'End'} of Turn)`,
     //   `turn=${this.is2014 ? 'start' : 'end'}`,
     //   "damageRoll=(@spellLevel)d8",

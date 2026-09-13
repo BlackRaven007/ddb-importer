@@ -288,7 +288,6 @@ export class DDBInfusion {
     if (!this.ddbInfusion.actions) return;
 
     for (const actionData of this.ddbInfusion.actions) {
-      // const itemLookup = ddb.infusions.item.find((mapping) => mapping.definitionKey === infusionDetail.definitionKey);
       if (!actionData.name) {
         const activationType = foundry.utils.getProperty(actionData, "activation.activationType") as number;
         const activationName = DICTIONARY.actions.activationTypes.find((a) => a.id === activationType)?.value;

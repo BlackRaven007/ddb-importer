@@ -1,7 +1,5 @@
-// ---------------------------------------------------------------------------
 // DDB Vehicle Source Interfaces
 // Models the JSON returned by the DDB proxy API for vehicles.
-// ---------------------------------------------------------------------------
 
 export {};
 

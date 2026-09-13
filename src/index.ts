@@ -35,18 +35,13 @@ Hooks.on("getHeaderControlsJournalEntrySheet", getHeaderControlsJournalEntryShee
 Hooks.on("activateNote", activateMetaNote);
 Hooks.on("getSceneControlButtons", getSceneControlButtons);
 
-// console.warn("SILENT MODE FOR DEBUG");
-// const includeRgx = new RegExp("/module/ddb-importer/");
 // CONFIG.compatibility.includePatterns.push(includeRgx);
 
 // Hooks.on("ddb-importer.characterProcessDataComplete", (data) => {
-//   console.warn("HOOK Importer: Character import complete", data);
 // });
 
 // Hooks.on("ddb-importer.monsterAddToCompendiumComplete", (data) => {
-//   console.warn("HOOK Importer: Monster import complete", data);
 // });
 
 // Hooks.on(`ddb-importer.itemsCompendiumUpdateComplete`, (data) => {
-//   console.warn(`HOOK Importer: Item compendium update complete`, data);
 // });

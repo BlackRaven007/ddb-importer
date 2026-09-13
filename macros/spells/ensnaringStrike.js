@@ -1,5 +1,4 @@
 // Based on a macro by Elwin#1410 with permission. Thanks Elwin!
-//
 // Optional AA setup:
 //   A special custom restrained condition can be added for Ensnaring Strike.
 //     - In the AA Auto Rec menu, select the Active Effects tab.
@@ -78,7 +77,6 @@ if (args[0].tag === "OnUse" && args[0].macroPass === "postActiveEffects") {
     && i.system.source.rules === "2014",
   );
 
-  // console.warn("Ensnaring Strike", {
   //   args,
   //   actor,
   //   workflow,
@@ -125,7 +123,6 @@ if (args[0].tag === "OnUse" && args[0].macroPass === "postActiveEffects") {
   // foundry.utils.setProperty(options,"flags.dnd5e.use.concentrationId", conEffect?.id);
   const spellEffectWorkflow = await MidiQOL.completeItemUse(spell, config, options);
 
-  // console.warn({spellEffectWorkflow, conEffect})
 
   if (spellEffectWorkflow.hitTargets.size > 0 && spellEffectWorkflow.failedSaves.size > 0) {
     // At least one target has an effect, we can remove the original effect from the caster

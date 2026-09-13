@@ -42,9 +42,7 @@ function makeFeatureMock(props: Record<string, any>) {
   return mock;
 }
 
-// =============================================================================
 // getReach - regex extraction of weapon reach
-// =============================================================================
 describe("DDBMonsterFeature.prototype.getReach", () => {
   it("extracts 10 ft reach", () => {
     const mock = makeFeatureMock({ strippedHtml: "Melee Weapon Attack: +7 to hit, reach 10 ft., one target." });
@@ -72,9 +70,7 @@ describe("DDBMonsterFeature.prototype.getReach", () => {
   });
 });
 
-// =============================================================================
 // getRange - regex extraction of weapon range
-// =============================================================================
 describe("DDBMonsterFeature.prototype.getRange", () => {
   it("parses 'range 80/320 ft'", () => {
     const mock = makeFeatureMock({ strippedHtml: "Ranged Weapon Attack: +4 to hit, range 80/320 ft., one target." });
@@ -145,9 +141,7 @@ describe("DDBMonsterFeature.prototype.getRange", () => {
   });
 });
 
-// =============================================================================
 // getActionType - determines activation cost from type and text
-// =============================================================================
 describe("DDBMonsterFeature.prototype.getActionType", () => {
   it("detects 'as a bonus action'", () => {
     const mock = makeFeatureMock({ type: "action", strippedHtml: "The creature can use this as a bonus action." });
@@ -190,9 +184,7 @@ describe("DDBMonsterFeature.prototype.getActionType", () => {
   });
 });
 
-// =============================================================================
 // getTarget - template and creature targeting extraction
-// =============================================================================
 describe("DDBMonsterFeature.prototype.getTarget", () => {
   it("parses '60-foot cone'", () => {
     const mock = makeFeatureMock({ strippedHtml: "The dragon exhales fire in a 60-foot cone." });

@@ -357,7 +357,6 @@ export default class SceneCopyApp extends DDBAppV2 {
     if (Object.keys(update).length) await target.update(update);
 
     // 2. Embedded collections -> replace. Create the source docs first, THEN
-    // delete the target's originals, avoiding any transient empty state.
     for (const f of chosen.filter((f) => f.kind === "embedded")) {
       const coll = f.coll!;
       const srcColl = this.source[coll];

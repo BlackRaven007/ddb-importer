@@ -49,6 +49,5 @@ if (args[0].tag === "OnUse") {
 }
 
 if (args[0] == "off") {
-  // Delete Storm Sphere Attack
   if (castItem) targetActor.deleteEmbeddedDocuments("Item", [castItem.id]);
 }

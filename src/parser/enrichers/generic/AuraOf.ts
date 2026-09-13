@@ -8,7 +8,6 @@ export default class AuraOf extends DDBEnricherData {
 
   get effects(): IDDBEffectHint[] {
     if (!this.isClass("Paladin")) return [];
-    // const className = !this.ddbParser.subKlass
     //   ? "paladin"
     //   : this.hasClassFeature({
     //     featureName: this.ddbParser.originalName,
@@ -18,7 +17,6 @@ export default class AuraOf extends DDBEnricherData {
     //     ? this.getClassIdentifier(this.ddbParser.subKlass)
     //     : "paladin";
 
-    // console.warn(`Aura of: ${this.ddbParser.originalName} - ${className}`, {
     //   this: this,
     //   className: this.hasClassFeature({
     //     featureName: this.ddbParser.originalName,

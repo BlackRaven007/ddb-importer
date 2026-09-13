@@ -41,34 +41,6 @@ export async function setBasicCombatFlag(actor: Actor | Actor.Implementation, fl
   });
 }
 
-// flags.ddbimporter.effect used to determine how the aura behaves
-// const effectData = {
-//   activityIds: [], // activity ids to retain on duplicated item
-//   sequencerFile: "fun.webp", // sequencer file to apply for animation
-//   sequencerScale: 1, // sequencer scale for animations
-//   condition: "prone", // condition to apply
-//   everyEntry: false, // apply the save/condition on every entry
-//   allowVsRemoveCondition: false, // allow a save vs remove condiiton
-//   removeOnOff: true, // remove condition when effect ends
-//   applyImmediate: false, // apply effect immediately based on failed saves of rolled item
-//   removalCheck: false, // an ability check is used for removal
-//   removalSave: false, // an ability save is used for removal
-//   isCantrip: false, // will attempt to replace @cantripDice used in any effect change with actors cantrip dice number
-//   nameSuffix: ": Damage" // append to rolled save/damage name
-// };
-
-// a tracker is created on the origin document/aura document to track the aura
-// and a tracker is created on each token to have an aura processed on it to track various states
-// const tracker = {
-//   targetUuids: [],
-//   randomId: "16digits",
-//   startRound: 0,
-//   startTurn: 0,
-//   hasLeft: false,
-//   condition: "prone",
-//   spellLevel: 1,
-// };
-
 function createDataTracker({
   targetUuids,
   spellLevel,
@@ -198,7 +170,6 @@ async function applyConditionVsSave({
   } as unknown as TSyntheticWorkflowOptions);
   const result = await MidiQOL.completeItemUse(workflowItemData, config, options);
 
-  // console.warn("APPLY CONDITION VS SAVE RESULT", {result, workflowItemData});
   (game.user as TTokenTargetUser).updateTokenTargets(saveTargets);
   const failedSaves = Array.from<Token.Implementation>(result.failedSaves);
   const statusOnWorkflow = workflowItemData.effects.some((e: any) =>
@@ -310,7 +281,6 @@ export async function checkAuraAndApplyCondition({
     return;
   }
   const originalTarget = (targetItemTracker.targetUuids ?? []).includes(tokenUuid);
-  // const target = canvas.tokens.get(lastArg.tokenId);
   const tokenId = tokenUuid.split(".").pop();
   const target = tokenId ? canvas.tokens.get(tokenId) : undefined;
   if (!target) {

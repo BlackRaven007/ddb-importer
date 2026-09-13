@@ -1,5 +1,4 @@
 // Auto-detect a printed square grid in a battle-map image.
-//
 // Pipeline:
 //   1. Downscale image to a manageable resolution.
 //   2. Build per-column / per-row edge-strength projections (1D Sobel).

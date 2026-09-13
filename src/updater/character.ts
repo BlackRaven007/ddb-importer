@@ -411,7 +411,6 @@ async function currency(actor: TSyncCharacterActor, ddbCharacter: DDBCharacter):
 
 // async function itemCurrencyUpdate(actor, foundryItem, type, value) {
 //   return new Promise((resolve) => {
-//     const currency = {
 //       amount: value,
 //       characterId: actor.flags.ddbimporter.dndbeyond.characterId,
 //       destinationEntityId: foundryItem.id,
@@ -426,10 +425,8 @@ async function currency(actor: TSyncCharacterActor, ddbCharacter: DDBCharacter):
 //   if (!game.modules.get("itemcollection")?.active) return [];
 //   if (!foundry.utils.hasProperty(foundryItem, "system.currency")) return [];
 
-//   const promises = [];
 
 //   ["pp", "gp", "ep", "sp", "cp"].forEach((type) => {
-//     const same = isEqual(foundryItem.system.currency[type], ddbItem.currency[type]);
 //     if (!same) {
 //       promises.push(itemCurrencyUpdate(actor, foundryItem, type, foundryItem.system.currency[type]));
 //     }
@@ -1246,7 +1243,6 @@ async function updateDDBEquipmentStatus(actor: TSyncCharacterActor, updateItemDe
     }
   });
   itemsToAttune.forEach((item) => {
-    // console.warn(item)
     const ddbFlags = item.flags.ddbimporter;
     if (!ddbFlags?.id) return;
     if ("attuned" in item.system) {
@@ -1527,14 +1523,10 @@ async function actionUseStatus(_actor: TSyncCharacterActor, _ddbCharacter: DDBCh
   return [];
   // action use disabled until feature/action parser sync
 
-  // const syncActionReady = actor.flags.ddbimporter?.syncActionReady;
   // if (syncActionReady && !utils.getSetting<boolean>("sync-policy-action-use")) return [];
 
-  // const ddbActions = ddbCharacter.data.actions;
 
-  // const foundryItems = getFoundryItems(actor);
 
-  // const actionsToChange = foundryItems.filter((item) =>
   //   (item.flags.ddbimporter?.action || item.type === "feat")
   //   && item.flags.ddbimporter?.id && item.flags.ddbimporter?.entityTypeId
   //   && ddbActions.some((dItem) =>
@@ -1545,7 +1537,6 @@ async function actionUseStatus(_actor: TSyncCharacterActor, _ddbCharacter: DDBCh
   //     && Number.parseInt(foundry.utils.getProperty(item, "system.uses.value") as string) !== Number.parseInt(foundry.utils.getProperty(dItem, "system.uses.value") as string),
   //   ),
   // );
-  // const actionChanges = updateDDBActionUseStatus(actor, actionsToChange);
 
   // return actionChanges;
 }
@@ -1676,14 +1667,12 @@ async function _updateDDBCharacter(actor: TSyncCharacterActor): Promise<(ISyncRe
   // if a known/choice spellcaster
   // and new spell/ spells removed
   // for each spell add or remove, e.g.
-  // const spellsData = {
   //   characterClassId: 52134801,
   //   spellId: 2019,
   //   id: 136157,
   //   entityTypeId: 435869154,
   //   remove: true,
   // };
-  // const spellSlots = updateCharacterCall(actor, "spells", spellsData);
   // promises.push(spellSlots);
 
   // fvtt-types derives the setFlag scope union from FlagConfig, which does not
@@ -1819,8 +1808,6 @@ async function generateDynamicItemChange(actor: TSyncCharacterActor, document: T
     itemsToCurrency: [],
   };
 
-  // console.warn("Document", document);
-  // console.warn("ItemUpdate", update);
 
   if (foundry.utils.getProperty(document, "flags.ddbimporter.custom") === true
     || foundry.utils.getProperty(document, "flags.ddbimporter.isCustom") === true

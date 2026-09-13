@@ -15,9 +15,7 @@ vi.mock("../../../src/parser/classes/DDBSubClass", () => ({ default: class DDBSu
 
 import AdvancementHelper from "../../../src/parser/advancements/AdvancementHelper";
 
-// =============================================================================
 // getTableValue
-// =============================================================================
 describe("AdvancementHelper.getTableValue", () => {
   const html = `
     <table>
@@ -41,9 +39,7 @@ describe("AdvancementHelper.getTableValue", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLSaves
-// =============================================================================
 describe("AdvancementHelper.parseHTMLSaves", () => {
   it("parses class saving throws from a proficiencies block", () => {
     const html = "<p><strong>Saving Throws:</strong> Strength, Constitution</p><p><strong>Skills:</strong> Choose two</p>";
@@ -60,9 +56,7 @@ describe("AdvancementHelper.parseHTMLSaves", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLSkills
-// =============================================================================
 describe("AdvancementHelper.parseHTMLSkills", () => {
   it("parses a 2024 core trait table with 'Choose N:'", () => {
     const html = "<table><tbody><tr><th>Skill Proficiencies</th><td>Choose 2: History, Insight, Medicine, Persuasion, and Religion</td></tr></tbody></table>";
@@ -143,9 +137,7 @@ describe("AdvancementHelper.parseHTMLSkills", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLLanguages
-// =============================================================================
 describe("AdvancementHelper.parseHTMLLanguages", () => {
   it("parses the 2024 standard languages phrasing", () => {
     const html = "<p>Your character knows at least three languages: Common plus two languages you roll or choose from the Standard Languages table.</p>";
@@ -209,9 +201,7 @@ describe("AdvancementHelper.parseHTMLLanguages", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLTools
-// =============================================================================
 describe("AdvancementHelper.parseHTMLTools", () => {
   it("parses a table tool grant", () => {
     const html = "<table><tbody><tr><th>Tool Proficiencies</th><td>Smith’s Tools</td></tr></tbody></table>";
@@ -276,9 +266,7 @@ describe("AdvancementHelper.parseHTMLTools", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLArmorProficiencies
-// =============================================================================
 describe("AdvancementHelper.parseHTMLArmorProficiencies", () => {
   it("parses an Armor Training table row", () => {
     const html = "<table><tbody><tr><th>Armor Training</th><td>Light armor and Shields</td></tr></tbody></table>";
@@ -307,9 +295,7 @@ describe("AdvancementHelper.parseHTMLArmorProficiencies", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLWeaponMasteryProficiencies
-// =============================================================================
 describe("AdvancementHelper.parseHTMLWeaponMasteryProficiencies", () => {
   it("always returns a wildcard choice set", () => {
     const result = AdvancementHelper.parseHTMLWeaponMasteryProficiencies("<p>anything at all</p>");
@@ -317,9 +303,7 @@ describe("AdvancementHelper.parseHTMLWeaponMasteryProficiencies", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLWeaponProficiencies
-// =============================================================================
 describe("AdvancementHelper.parseHTMLWeaponProficiencies", () => {
   it("parses a table with weapon group grants", () => {
     const html = "<table><tbody><tr><th>Weapon Proficiencies</th><td>Simple weapons and Martial weapons</td></tr></tbody></table>";
@@ -382,9 +366,7 @@ describe("AdvancementHelper.parseHTMLWeaponProficiencies", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLConditions
-// =============================================================================
 describe("AdvancementHelper.parseHTMLConditions", () => {
   it("parses a single damage resistance", () => {
     const result = AdvancementHelper.parseHTMLConditions("<p>You have resistance to psychic damage.</p>");
@@ -448,9 +430,7 @@ describe("AdvancementHelper.parseHTMLConditions", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLSpellCastingAbilities
-// =============================================================================
 describe("AdvancementHelper.parseHTMLSpellCastingAbilities", () => {
   it("parses a single spellcasting ability", () => {
     const result = AdvancementHelper.parseHTMLSpellCastingAbilities("<p>Wisdom is your spellcasting ability for these spells.</p>");
@@ -495,9 +475,7 @@ describe("AdvancementHelper.parseHTMLSpellCastingAbilities", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLSpellAdvancementDataForTraits
-// =============================================================================
 describe("AdvancementHelper.parseHTMLSpellAdvancementDataForTraits", () => {
   it("parses cantrip choices separated by a colon", () => {
     const html = "<p>You know one of the following cantrips of your choice: dancing lights, light, or sacred flame.</p>";
@@ -531,9 +509,7 @@ describe("AdvancementHelper.parseHTMLSpellAdvancementDataForTraits", () => {
   });
 });
 
-// =============================================================================
 // parseHTMLSpellAdvancementData
-// =============================================================================
 describe("AdvancementHelper.parseHTMLSpellAdvancementData", () => {
   it("parses cantrip choices separated by a semicolon (homebrew)", () => {
     const html = "<p>You know one of the following cantrips of your choice; minor illusion, ray of frost or frostbite.</p>";

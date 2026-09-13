@@ -10,7 +10,6 @@ DDBCharacter.prototype._generateInitiative = function _generateInitiative(this: 
     return;
   }
   const initMods = DDBModifiers.filterBaseModifiers(ddb, "bonus", { subType: "initiative" });
-  // const initiativeBonus = DDBModifiers.getModifierSum(initMods, this.raw.character);
 
   let initiativeBonus = DDBModifiers.getValueFromModifiers(initMods, "initiative", "initiative", "bonus") ?? "";
 

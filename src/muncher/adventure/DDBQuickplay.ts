@@ -224,9 +224,7 @@ export default class DDBQuickplay {
   // the given scene with its raw DDB values, current Foundry placement, and
   // the scene context. Designed to be copied directly out of F12 (right-click
   // -> "Copy object") and pasted into a chat or doc.
-  //
   // Usage from a Foundry console:
-  //   const data = CONFIG.DDBI.dumpQuickplay(canvas.scene);
   //   copy(data); // or copy(JSON.stringify(data, null, 2));
   static dumpScene(scene: Scene): {
     sceneName: string;

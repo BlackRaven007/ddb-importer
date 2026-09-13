@@ -138,7 +138,6 @@ export default class DDBClass extends DDBBaseClass {
   }
 
   _generateHPAdvancement(character: I5ePCData) {
-    // const value = "value": {
     //   "1": "max",
     //   "2": "avg"
     // },
@@ -189,11 +188,9 @@ export default class DDBClass extends DDBBaseClass {
       advancement.updateSource(update as any);
 
       // if (abilityAdvancementFeature.name === "Epic Boon") {
-      //   const update: I5eAdvancementAbilityScoreImprovement = {
       //     title: "Epic Boon",
       //     hint: abilityAdvancementFeature.snippet ?? abilityAdvancementFeature.description ?? "",
       //   };
-      //   console.warn(`Updating epic boon advancement for feature ${abilityAdvancementFeature.name} at level ${i}`, {
       //     abilityAdvancementFeature,
       //     update,
       //     advancement,
@@ -615,7 +612,6 @@ export default class DDBClass extends DDBBaseClass {
         };
         advancementData[id] = advancement;
       }
-      // const chosen = new Set(advancement.value?.chosen || []);
       // if (chosen.size !== 3) {
       //   chosen.add("tool:art:tinker");
       //   chosen.add("tool:thief");

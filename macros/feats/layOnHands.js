@@ -1,5 +1,4 @@
 // based on the midiqol macro
-// console.warn(scope);
 
 async function askForLayOnHandsType(availableHP) {
   const result = await globalThis.DDBImporter.DialogHelper.ChooserDialog.Ask(

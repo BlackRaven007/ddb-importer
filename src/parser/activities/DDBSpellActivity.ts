@@ -338,7 +338,6 @@ export default class DDBSpellActivity extends DDBBasicActivity {
   }
 
   buildDamagePart({ damageString, type, damageMod = null }: { damageString: string; type?: string; damageMod?: IDDBSpellModifier | null }) {
-    // const damage = {
     //   number: null,
     //   denomination: null,
     //   bonus: "",

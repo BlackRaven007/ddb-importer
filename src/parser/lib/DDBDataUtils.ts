@@ -116,10 +116,8 @@ export default class DDBDataUtils {
 
   static addCustomValues<T extends I5ePCConsumptionItems>(ddb: IDDBData, foundryItem: T): T {
     // to hit override requires a lot of crunching
-    // const toHitOverride = DDBDataUtils.getCustomValue(item, character, 13);
     const toHitBonus = DDBDataUtils.getCustomValue(foundryItem, ddb, 12);
     const damageBonus = DDBDataUtils.getCustomValue(foundryItem, ddb, 10);
-    // const displayAsAttack = DDBDataUtils.getCustomValue(item, character, 16);
     const costOverride = DDBDataUtils.getCustomValue(foundryItem, ddb, 19);
     const weightOverride = DDBDataUtils.getCustomValue(foundryItem, ddb, 22);
     // dual wield 18
@@ -128,7 +126,6 @@ export default class DDBDataUtils {
     // adamantine
     const adamantine = DDBDataUtils.getCustomValue(foundryItem, ddb, 21);
     // off-hand
-    // const offHand = DDBDataUtils.getCustomValue(ddbItem, character, 18);
     const dcOverride = DDBDataUtils.getCustomValue(foundryItem, ddb, 15);
     const dcBonus = DDBDataUtils.getCustomValue(foundryItem, ddb, 14);
 
@@ -405,7 +402,6 @@ export default class DDBDataUtils {
       }
     }
 
-    // console.warn(`classIdentifierName: ${className} -> ${result}`);
 
     return result;
   }
@@ -480,10 +476,7 @@ export default class DDBDataUtils {
 
     const featDefinition: IDDBFeatureDefinitionKindFields
       = "definition" in feat ? feat.definition : feat;
-    // const id = feat.id ? feat.id : feat.definition.id ? feat.definition.id : null;
-    //  const featDefinition = feat.definition ? feat.definition : feat;
 
-    // console.warn("getChoices", {
     //   id,
     //   type,
     //   feat,
@@ -511,7 +504,6 @@ export default class DDBDataUtils {
               return validOption;
             });
 
-        // console.warn("choices", {
         //   validChoices,
         //   choiceDefinitions,
         //   choices,
@@ -544,7 +536,6 @@ export default class DDBDataUtils {
                 }) as unknown as IDDBChoiceResult;
                 return choiceOption;
               });
-            // console.warn("validChoice Options", {
             //   choice,
             //   optionChoice,
             //   options,
@@ -586,7 +577,6 @@ export default class DDBDataUtils {
         }
 
         if (options.length > 0) {
-          // console.warn("returning options", {
           //   options,
           // });
           return options;
@@ -630,7 +620,6 @@ export default class DDBDataUtils {
               return result;
             });
 
-          // console.warn("optionMatch", {
           //   optionMatch,
           // });
           if (optionMatch.length > 0) return optionMatch;
@@ -669,7 +658,6 @@ export default class DDBDataUtils {
       : [];
 
 
-    // console.warn("determineActualFeatureId", {
     //   featureId,
     //   optionalFeatureReplacement,
     //   choiceFeature,

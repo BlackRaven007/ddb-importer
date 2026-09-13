@@ -2,7 +2,6 @@ async function sustainedDamage({ options, damageType, damageDice, sourceItem, ca
   const damageRoll = await new CONFIG.Dice.DamageRoll(`${damageDice}[${damageType}]`).evaluate();
   if (game.dice3d) game.dice3d.showForRoll(damageRoll, game.users.get(options.userId));
 
-  // console.warn({ options, damageType, damageDice, sourceItem, caster });
   const targets = await Promise.all(options.targets.map(async (uuid) => {
     const tok = await fromUuid(uuid);
     return tok.object;
@@ -76,7 +75,6 @@ if (args[0].macroPass === "postActiveEffects" || args[0].macroPass === "postAtta
 
   await DAE.setFlag(args[0].actor, "witchBoltSpell", options);
 
-  // console.warn("WitchBolt", {options, effectData, args, actor: args[0].actor, effect});
 
 } else if (args[0] == "off") {
   const sourceItem = await fromUuid(lastArg.origin);
@@ -106,7 +104,6 @@ if (args[0].macroPass === "postActiveEffects" || args[0].macroPass === "postAtta
         content: `<p>Use ${is2014 ? "" : "bonus "}action to sustain Witch Bolt?</p>`
       },
       'column');
-    // console.warn("result", result);
     if (result) {
       sustainedDamage({options, damageType, damageDice, sourceItem, caster} );
     } else {

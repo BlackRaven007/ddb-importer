@@ -2,7 +2,6 @@
 // Type declarations for third-party module/system globals not covered by foundry-vtt-types.
 // Core Foundry globals (game, CONFIG, CONST, Hooks, foundry, canvas, ui, Actor, Item, etc.)
 // are provided by @league-of-foundry-developers/foundry-vtt-types via tsconfig.json "types".
-//
 // This file must be a module (has `export {}`) so that `declare global` properly
 // merges into globalThis. Without it, SettingConfig augmentation is invisible to
 // other modules and game.settings.get/set only recognizes "core" as a namespace.

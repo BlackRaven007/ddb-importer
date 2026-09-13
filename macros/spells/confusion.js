@@ -57,7 +57,6 @@ if (args[0] === "each") {
     console.log("Confusion effect not found on the actor.");
   }
 
-  // const hasEffectApplied = await game.dfreds.effectInterface.hasEffectApplied("Reaction", token.actor.uuid);
   // if (!hasEffectApplied) {
   //   DDBImporter.EffectHelper.adjustCondition({ add: true, conditionName: "Reaction", actor: token.actor });
   // }

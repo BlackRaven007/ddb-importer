@@ -15,9 +15,7 @@ function setLooseMatching(loose: boolean, superLoose = false): void {
   });
 }
 
-// =============================================================================
 // parseTags: rule/condition/skill style tags
-// =============================================================================
 
 describe("parseTags", () => {
   beforeEach(() => {
@@ -122,9 +120,7 @@ describe("parseTags", () => {
   });
 });
 
-// =============================================================================
 // parseDamageRolls
-// =============================================================================
 
 describe("parseDamageRolls", () => {
   beforeEach(() => {
@@ -186,9 +182,7 @@ describe("parseDamageRolls", () => {
   });
 });
 
-// =============================================================================
 // parseToHitRoll
-// =============================================================================
 
 describe("parseToHitRoll", () => {
   const attackText = "<em>Melee Weapon Attack:</em> +5 to hit, reach 5 ft., one target.";

@@ -184,7 +184,6 @@ export default class DDBMonsterImporter<T extends TMonsterImporterMonsterShapes 
         await this.compendiumActor.deleteEmbeddedDocuments("Item", [], { deleteAll: true });
         await this.compendiumActor.deleteEmbeddedDocuments("ActiveEffect", [], { deleteAll: true });
 
-        // console.warn("ExistingNPC", { existingNPC: this.compendiumActor.toObject() });
         const items = foundry.utils.deepClone(this.monster.items) as TMonsterImporterMonsterItems[];
         this.monster.items = [];
 
@@ -193,7 +192,6 @@ export default class DDBMonsterImporter<T extends TMonsterImporterMonsterShapes 
           render: false,
           // keepId: true,
         } as unknown as Parameters<typeof this.compendiumActor.update>[1]);
-        // console.warn("UpdatedNPC", { updatedNPC: updatedNPC.toObject(), items });
         if (!updatedNPC) {
           logger.debug("No changes made to base character", this.monster);
         }
@@ -306,7 +304,6 @@ export default class DDBMonsterImporter<T extends TMonsterImporterMonsterShapes 
         const name = genericNpc ? genericNPCName : npcName;
         const nameType = genericNpc ? "npc-generic" : "npc";
         const imageNamePrefix = useDeepPaths ? `${bookRuleStub}` : `${bookRuleStub}-${nameType}`;
-        // const imageNamePrefix = useDeepPaths ? "" : nameType;
         const pathPostfix = useDeepPaths ? `/monster/avatar/${subType}` : "";
         const downloadOptions = {
           type: nameType,
@@ -361,7 +358,6 @@ export default class DDBMonsterImporter<T extends TMonsterImporterMonsterShapes 
         if (monsterTokenImgPath && useWildcard && !useTokenizer) {
           const lastSlashIndex = monsterTokenImgPath.lastIndexOf("/");
           if (lastSlashIndex !== -1) {
-            // const postFix = useTokenizer ? `/${name}/*` : "/*";
             // protoTexture.src = monsterTokenImgPath.substring(0, lastSlashIndex + 1) + postFix;
             protoTexture.src = monsterTokenImgPath.substring(0, lastSlashIndex + 1) + "*";
             protoToken.randomImg = true;

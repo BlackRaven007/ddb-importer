@@ -13,9 +13,7 @@ function makePart(): any {
   return { number: null, denomination: 0, bonus: "", types: [] };
 }
 
-// =============================================================================
 // parseBasicDamageFormula
-// =============================================================================
 
 describe("parseBasicDamageFormula", () => {
   it("parses a bare dice formula", () => {
@@ -104,9 +102,7 @@ describe("parseBasicDamageFormula", () => {
   });
 });
 
-// =============================================================================
 // buildDamagePart
-// =============================================================================
 
 describe("buildDamagePart", () => {
   it("builds from a DDB dice definition", () => {
@@ -169,9 +165,7 @@ describe("buildDamagePart", () => {
   });
 });
 
-// =============================================================================
 // getTemplate
-// =============================================================================
 
 describe("getTemplate", () => {
   it("returns a system template for item types", () => {
@@ -213,9 +207,7 @@ describe("getTemplate", () => {
   });
 });
 
-// =============================================================================
 // effectModules
-// =============================================================================
 
 describe("effectModules", () => {
   beforeEach(() => {

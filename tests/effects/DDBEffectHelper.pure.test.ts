@@ -1,5 +1,4 @@
 // Characterization tests for the pure static surface of DDBEffectHelper.
-//
 // DDBEffectHelper itself is the unit under test, so the DDBEffectHelper module
 // is NOT mocked here. Instead the modules its import chain needs are stubbed:
 // the config barrel (cycle), the effects barrel (pulled in via lib/_module ->

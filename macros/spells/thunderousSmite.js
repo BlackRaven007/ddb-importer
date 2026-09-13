@@ -25,7 +25,6 @@ try {
       },
     };
 
-    // const saveRoll = await targetActor.rollAbilitySave("str", { flavor });
     const saveRoll = await MidiQOL.socket().executeAsGM("rollAbility", saveRollData);
 
     if (saveRoll.total < spellDC) {

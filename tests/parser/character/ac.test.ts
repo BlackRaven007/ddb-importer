@@ -26,9 +26,7 @@ import DDBCharacter from "../../../src/parser/DDBCharacter";
 import "../../../src/parser/character/ac";
 import { makeMockCharacter } from "../../_fixtures/mockCharacter";
 
-// =============================================================================
 // isArmored / isUnArmored
-// =============================================================================
 describe("DDBCharacter.isArmored / isUnArmored", () => {
   const isArmored = DDBCharacter.prototype.isArmored;
   const isUnArmored = DDBCharacter.prototype.isUnArmored;
@@ -128,9 +126,7 @@ describe("DDBCharacter.isArmored / isUnArmored", () => {
   });
 });
 
-// =============================================================================
 // _generateOverrideArmorClass
-// =============================================================================
 describe("DDBCharacter._generateOverrideArmorClass", () => {
   const generateOverride = DDBCharacter.prototype._generateOverrideArmorClass;
 
@@ -187,9 +183,7 @@ describe("DDBCharacter._generateOverrideArmorClass", () => {
   });
 });
 
-// =============================================================================
 // _generateArmorClass - override path
-// =============================================================================
 describe("DDBCharacter._generateArmorClass (override path)", () => {
   const generateAC = DDBCharacter.prototype._generateArmorClass;
 
@@ -217,9 +211,7 @@ describe("DDBCharacter._generateArmorClass (override path)", () => {
   });
 });
 
-// =============================================================================
 // _generateArmorClass - unarmored default path
-// =============================================================================
 describe("DDBCharacter._generateArmorClass (unarmored default)", () => {
   const generateAC = DDBCharacter.prototype._generateArmorClass;
 

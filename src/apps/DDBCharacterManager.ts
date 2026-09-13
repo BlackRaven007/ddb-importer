@@ -352,8 +352,6 @@ export default class DDBCharacterManager extends DDBAppV2 {
 
 
   // static async itemsMunched() {
-  //   const itemCompendium = await CompendiumHelper.getCompendiumType("item", false);
-  //   const itemsMunched = itemCompendium ? (await itemCompendium.index.size) !== 0 : false;
   //   return itemsMunched;
   // }
 

@@ -2,7 +2,6 @@
 // can show every PNG/WebP/WebM the importer has dropped into the configured
 // frame-image-upload-directory. The loader is async and is invoked once per
 // browser open (its result is cached by tokenizer-2 until clearCache fires).
-//
 // After any import that may have added frames to that directory, call
 // `clearDDBFrameCache()` to force a fresh scan on the next browser open.
 

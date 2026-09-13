@@ -1,8 +1,6 @@
 import DDBDataUtils from "../../../src/parser/lib/DDBDataUtils";
 
-// =============================================================================
 // Shared mock DDB data
-// =============================================================================
 function makeDDB(overrides: any = {}): any {
   return {
     character: {
@@ -43,9 +41,7 @@ function makeDDB(overrides: any = {}): any {
   };
 }
 
-// =============================================================================
 // getName
-// =============================================================================
 describe("DDBDataUtils.getName", () => {
   it("returns definition.name", () => {
     const ddb = makeDDB();
@@ -179,9 +175,7 @@ describe("DDBDataUtils.getName", () => {
   });
 });
 
-// =============================================================================
 // isComponentIdInClassFeatures
-// =============================================================================
 describe("DDBDataUtils.isComponentIdInClassFeatures", () => {
   const ddb = makeDDB();
 
@@ -202,9 +196,7 @@ describe("DDBDataUtils.isComponentIdInClassFeatures", () => {
   });
 });
 
-// =============================================================================
 // findComponentByComponentId
-// =============================================================================
 describe("DDBDataUtils.findComponentByComponentId", () => {
   const optionScales: any[] = [
     { id: 1, level: 1, description: "", dice: null, fixedValue: 1 },
@@ -257,9 +249,7 @@ describe("DDBDataUtils.findComponentByComponentId", () => {
   });
 });
 
-// =============================================================================
 // getClassFeatureIds
-// =============================================================================
 describe("DDBDataUtils.getClassFeatureIds", () => {
   const ddb = makeDDB();
 
@@ -301,9 +291,7 @@ describe("DDBDataUtils.getClassFeatureIds", () => {
   });
 });
 
-// =============================================================================
 // classIdentifierName
-// =============================================================================
 describe("DDBDataUtils.classIdentifierName", () => {
   it("removes 'Circle of the' prefix", () => {
     expect(DDBDataUtils.classIdentifierName("Circle of the Moon")).toBe("moon");
@@ -343,9 +331,7 @@ describe("DDBDataUtils.classIdentifierName", () => {
   });
 });
 
-// =============================================================================
 // hasClassFeature
-// =============================================================================
 describe("DDBDataUtils.hasClassFeature", () => {
   const ddb = makeDDB();
 
@@ -379,9 +365,7 @@ describe("DDBDataUtils.hasClassFeature", () => {
   });
 });
 
-// =============================================================================
 // hasSubClass
-// =============================================================================
 describe("DDBDataUtils.hasSubClass", () => {
   const ddb = makeDDB();
 
@@ -394,9 +378,7 @@ describe("DDBDataUtils.hasSubClass", () => {
   });
 });
 
-// =============================================================================
 // hasChosenCharacterOption
-// =============================================================================
 describe("DDBDataUtils.hasChosenCharacterOption", () => {
   it("returns true when option is in class options", () => {
     const ddb = makeDDB({
@@ -443,9 +425,7 @@ describe("DDBDataUtils.hasChosenCharacterOption", () => {
   });
 });
 
-// =============================================================================
 // getCustomValueFromCharacter
-// =============================================================================
 describe("DDBDataUtils.getCustomValueFromCharacter", () => {
   it("returns custom value when match found", () => {
     const character = {

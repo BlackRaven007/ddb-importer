@@ -2,9 +2,7 @@ import ProficiencyFinder from "../../../src/parser/lib/ProficiencyFinder";
 
 const globals: any = globalThis;
 
-// =============================================================================
 // Fixtures
-// =============================================================================
 
 function makeDdb({
   raceMods = [],
@@ -33,9 +31,7 @@ function makeDdb({
   };
 }
 
-// =============================================================================
 // getArmorProficiencies
-// =============================================================================
 
 describe("getArmorProficiencies", () => {
   it("maps the armor categories to their dnd5e keys", () => {
@@ -85,9 +81,7 @@ describe("getArmorProficiencies", () => {
   });
 });
 
-// =============================================================================
 // getWeaponProficiencies
-// =============================================================================
 
 describe("getWeaponProficiencies", () => {
   it("maps weapon category proficiencies", () => {
@@ -140,9 +134,7 @@ describe("getWeaponProficiencies", () => {
   });
 });
 
-// =============================================================================
 // getToolProficiencies
-// =============================================================================
 
 describe("getToolProficiencies", () => {
   it("returns tools keyed by baseTool with value 0 when no ddb modifiers exist", () => {
@@ -213,9 +205,7 @@ describe("getToolProficiencies", () => {
   });
 });
 
-// =============================================================================
 // getLanguagesFromModifiers / getMappedLanguage
-// =============================================================================
 
 describe("languages", () => {
   it("maps language modifiers to dnd5e language keys", () => {
@@ -271,9 +261,7 @@ describe("languages", () => {
   });
 });
 
-// =============================================================================
 // getSkillProficiency / isHalfProficiencyRoundedUp
-// =============================================================================
 
 describe("skill proficiency", () => {
   const athletics: any = { label: "Athletics", ability: "str" };

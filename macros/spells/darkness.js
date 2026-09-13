@@ -8,7 +8,6 @@ if (functionArgs && args[0].tag === "OnUse" && ["preTargeting"].includes(args[0]
 
 async function placeTemplate({ origin, targetActor, targetToken } = {}) {
   Hooks.once("createMeasuredTemplate", async (template) => {
-    // console.warn(template)
     let radius = canvas.grid.size * (template.distance / canvas.grid.distance);
     const darknessSpellParams = {
       radius,
@@ -25,7 +24,6 @@ async function placeTemplate({ origin, targetActor, targetToken } = {}) {
       },
     });
     canvas.scene.deleteEmbeddedDocuments("MeasuredTemplate", [template.id]);
-    // console.warn("Darkness Spell", darknessSpellParams);
     await DDBImporter.lib.DDBMacros.executeDDBMacroAsGM("gm", "darkness", { origin: origin.uuid }, { args: ["on", darknessSpellParams] });
   });
 

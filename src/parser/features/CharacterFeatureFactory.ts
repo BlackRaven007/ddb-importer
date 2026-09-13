@@ -319,7 +319,6 @@ export default class CharacterFeatureFactory {
   }
 
   actionParsed(action: TDDBActionTypes) {
-    // const attacksAsFeatures = game.settings.get("ddb-importer", "character-update-policy-use-actions-as-features");
     // originalName holds the raw DDB name, the document name may be a DDB custom name
     const rawName = utils.nameString(action.name);
     const customName = DDBDataUtils.getName(this.ddbData, action, this.rawCharacter);
@@ -389,14 +388,11 @@ export default class CharacterFeatureFactory {
         || DDBAction.KEEP_ACTIONS_STARTSWITH.some((a) => utils.nameString(action.name).startsWith(a))),
       )
       .filter((action) => {
-        // const displayAsAttack = DDBDataUtils.displayAsAttack(this.ddbData, action, this.rawCharacter);
         // lets grab other actions and add, make sure we don't get attack based ones that haven't parsed
         const isParsed = this.actionParsed(action);
-        // console.warn("isParsed", { action, ddbname: name, isParsed });
         return !isParsed;
       });
 
-    // console.warn("otherActions", {
     //   classActions,
     //   parsedActions: deepClone(this.parsed.actions),
     //   actionsToBuild,
@@ -659,7 +655,6 @@ export default class CharacterFeatureFactory {
     // only background features get advancements for now
     if (type === "background") {
       ddbFeature.generateBackgroundAbilityScoreAdvancement();
-      // console.warn("Generating background advancements", ddbFeature);
       await ddbFeature.generateAdvancements();
       await ddbFeature.buildBackgroundFeatAdvancements();
       await ddbFeature._generateBackgroundEquipment();
@@ -937,7 +932,6 @@ export default class CharacterFeatureFactory {
 
 
   async processFeatures() {
-    // const ddbFeatures = new DDBFeatures({
     //   ddbCharacter: this.ddbCharacter,
     //   ddbData: this.ddbData,
     //   rawCharacter: this.rawCharacter,
@@ -1249,7 +1243,6 @@ export default class CharacterFeatureFactory {
         const featureFlagType = foundry.utils.getProperty(feature, "flags.ddbimporter.type") as string;
         const actionFlagType = foundry.utils.getProperty(action, "flags.ddbimporter.type") as string;
         const replacedActionName = originalActionName.replace(replaceRegex, `${featureNamePrefix}:`);
-        // console.warn(`Checking "${originalActionName}" against "${originalFeatureName}"`, {
         //   action,
         //   feature,
         //   replacedActionName,
@@ -1294,7 +1287,6 @@ export default class CharacterFeatureFactory {
         if ("activities" in action.system && "activities" in featureMatch.system) {
           if (Object.keys(action.system.activities).length === 0) {
             for (const [key, activity] of Object.entries(featureMatch.system.activities)) {
-              // console.warn(`Checking activity ${key}`, activity);
               if (!action.system.activities[key]) {
                 action.system.activities[key] = activity;
                 continue;
@@ -1410,7 +1402,6 @@ export default class CharacterFeatureFactory {
         }
       }
 
-      // console.warn(`Adding spell advancements for feature ${feature.name} of type ${type}`, {
       //   feature: foundry.utils.deepClone(feature),
       //   type,
       //   addToAdvancements: true,
@@ -1430,7 +1421,6 @@ export default class CharacterFeatureFactory {
       });
     }
 
-    // console.warn("Features to check", {
     //   featuresToCheckDeep: foundry.utils.deepClone(featuresToCheck),
     //   this: this,
     //   grantedSpells: this.spellsGranted[type],
@@ -1448,7 +1438,6 @@ export default class CharacterFeatureFactory {
         })
         && sg.spells.includes(spellName.toLowerCase()))
       ) {
-        // console.warn(`Spell ${spell.name} already granted via feature, skipping`, {
         //   spell,
         //   allwaysPrepared: spell.system.prepared ===  CONFIG.DND5E.spellPreparationStates.always.value,
         //   method: spell.system.method,

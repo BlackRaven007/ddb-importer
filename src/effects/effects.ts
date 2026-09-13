@@ -43,24 +43,11 @@ export function forceItemEffect(document: I5ePCConsumptionItems) {
   return AutoEffects.forceDocumentEffect(document);
 }
 
-// *
-// CONST.ACTIVE_EFFECT_MODES.
-// ADD: 2
-// CUSTOM: 0
-// DOWNGRADE: 3
-// MULTIPLY: 1
-// OVERRIDE: 5
-// UPGRADE: 4
-//
-
-
 export function addStatusEffectChange({ effect, statusName, priority = 20, level = null }: {
   effect: I5eEffectData; statusName: string; priority?: number; level?: number | null;
 }) {
   return ChangeHelper.addStatusEffectChange({ effect, statusName, priority, level });
 }
-
-// Refactored functions
 
 export function generateSignedAddChange(value: string | number, priority: number, key: string) {
   return ChangeHelper.signedAddChange(value, priority, key);

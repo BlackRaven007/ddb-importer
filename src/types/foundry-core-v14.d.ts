@@ -70,7 +70,6 @@ declare module "fvtt-types/configuration" {
     }
 
     // v14 common/documents/scene.mjs:106 -- fog.mode NumberField, choices
-    // CONST.FOG_EXPLORATION_MODES, initial INDIVIDUAL (1). fvtt-types #main still has the
     // v13 shape (exploration/overlay) -- merging can add `mode` but not remove those.
     interface FogSchema {
       mode: foundry.data.fields.NumberField<{ required: true; initial: 1 }>;

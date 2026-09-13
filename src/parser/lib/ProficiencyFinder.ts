@@ -184,7 +184,6 @@ export default class ProficiencyFinder {
     //   });
 
     //   // load custom proficiencies in characterValues
-    //   const customProfs = this.getCustomProficiencies("Tools");
     //   for (const prof of customProfs) {
     //     processToolProficiency({ name: prof });
     //   }

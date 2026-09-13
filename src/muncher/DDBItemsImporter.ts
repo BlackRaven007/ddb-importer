@@ -439,7 +439,6 @@ export default class DDBItemsImporter implements IDDBItemsImporter {
       items: inventory,
       spells: ddbCharacter.raw.itemSpells, // this needs to be a list of spells to find
     };
-    // console.warn(results);
     this.synthetic = results;
   }
 

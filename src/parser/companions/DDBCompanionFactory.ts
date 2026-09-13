@@ -61,7 +61,6 @@ export default class DDBCompanionFactory {
       updateCompanions: true,
       updateImages: false,
     };
-    // console.warn("html", html);
     this.options = Object.assign({}, defaultOptions, options);
     this.html = html;
     this.doc = new DOMParser().parseFromString(html.replaceAll("\n", ""), "text/html");
@@ -132,7 +131,6 @@ export default class DDBCompanionFactory {
         : null;
       const summonMatch = isEqual(companionSummons, existingSummons);
 
-      // console.warn("Companion Parsed DISCOVERY", {
       //   ddbCompanion,
       //   companionSummons,
       //   existingSummons,
@@ -160,10 +158,8 @@ export default class DDBCompanionFactory {
 
     await this.init();
 
-    // console.warn(this.doc);
     const statBlockDivs = this.doc.querySelectorAll("div.stat-block-background, div.stat-block-finder, div.basic-text-frame");
 
-    // console.warn("statblkc divs", { statBlockDivs, athis: this });
     for (const block of statBlockDivs) {
       const name = (block
         .querySelector("p.Stat-Block-Styles_Stat-Block-Title")
@@ -174,7 +170,6 @@ export default class DDBCompanionFactory {
         .map((w) => utils.capitalize(w.trim()))
         .join(" ");
 
-      // console.warn("Processing Companion", { name, block });
       if (name && name in DDBCompanionFactory.MULTI_2014) {
         for (const subType of DDBCompanionFactory.MULTI_2014[name]) {
           await this.#buildCompanion(block as HTMLElement, { name, subType });
@@ -192,7 +187,6 @@ export default class DDBCompanionFactory {
 
     await this.init();
 
-    // console.warn(this.doc);
     const statBlockDivs = this.doc.querySelectorAll("div.stat-block");
 
     for (const block of statBlockDivs) {
@@ -307,7 +301,6 @@ export default class DDBCompanionFactory {
 
     const results = [];
 
-    // console.warn("Updating companions", { updateCompanions, existingCompanions, companions });
     for (const companion of updateCompanions) {
       const companionId = companion.flags?.ddbimporter?.id;
       if (!companionId) {
@@ -499,7 +492,6 @@ export default class DDBCompanionFactory {
   }
 
   async addCRSummoning(activity: I5eSummonActivity) {
-    // console.warn("Adding CR Summoning", {
     //   this: this,
     //   originName: this.originName,
     //   activity,
@@ -523,7 +515,6 @@ export default class DDBCompanionFactory {
       return;
     }
     const activityData = foundry.utils.mergeObject(activity, summonsData);
-    // console.warn("Final summons Activity Data", foundry.utils.deepClone(activityData));
     const activityId = activity._id;
     if (activityId && "activities" in this.originDocument.system) {
       delete this.originDocument.system.activities[activityId];

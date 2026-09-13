@@ -305,7 +305,6 @@ export async function parseSpells({
       t.definition.name === v.definition.name
       && t.definition.isLegacy === v.definition.isLegacy) === i);
 
-  // console.warn("CONDITION SPELLS", {
   //   spells: filteredResults.filter((f) => {
   //     return f.definition.conditions?.length > 0;
   //   }).map((f) => {

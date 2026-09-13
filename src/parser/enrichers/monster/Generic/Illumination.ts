@@ -24,7 +24,6 @@ export default class Illumination extends DDBEnricherData {
     const justDimRegex = /sheds dim light in a (?<dim>\d+)-\s?foot radius/i;
     const justDimMatch = justDimRegex.exec(this.ddbParser.strippedHtml ?? "");
 
-    // console.warn("Illumination", {
     //   this: this,
     //   match,
     //   atlACtove: DDBEnricherData.AutoEffects.effectModules().atlInstalled,
@@ -62,7 +61,6 @@ export default class Illumination extends DDBEnricherData {
     //     // foundry.utils.setProperty(this.ddbParser.ddbMonster.npc, "flags.lights.bright", parseInt(match.groups.bright));
     //   }
     //   if (match.groups.dim) {
-    //     const dim = match.groups.bright ? parseInt(match.groups.bright) + parseInt(match.groups.dim) : match.groups.dim;
     //     this.ddbParser.ddbMonster.npc.prototypeToken.light.dim = parseInt(`${dim}`);
     //     // foundry.utils.setProperty(this.ddbParser.ddbMonster.npc, "flags.lights.dim", dim);
     //   }

@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
 // Characterization tests for the HTML list/paragraph scraping helpers on
 // DDBEffectHelper: extractListItems and extractParagraphItems.
-//
 // These pin the fragile nextSibling fallback chain
 //   (content as HTMLElement).innerHTML ?? (content as Text).wholeText ?? content.textContent
 // exactly as it behaves today (including the untrimmed content strings in the
 // list variant), because this chain is the top refactor-fragility risk.
-//
 // DDBEffectHelper is the unit under test so it is imported un-mocked; the
 // barrels its import chain drags in are stubbed exactly as in the pure test.
 

@@ -654,9 +654,7 @@ export default class DDBComponentFeature extends DDBActivityFactoryMixin<"vehicl
     }
     if (this.isAttack) {
       // some attacks will have a save and attack
-      // console.warn("isAttack", this.isAttack, this.isSave);
       if (this.isSave) {
-        // console.warn("add save additional activity");
         this.#addSaveAdditionalActivity();
       }
       return "attack";

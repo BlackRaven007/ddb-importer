@@ -42,7 +42,6 @@ function getContentsOfDirectory(directoryPath) {
         const exportLine = `export { default as ${className[1]} } from "./${baseName2}";`
         contents.push(exportLine);
         seen.add(baseName);
-        // console.log(exportLine);
       }
     }
   });
@@ -61,7 +60,6 @@ const flatDirectories = [
 for (const directory of flatDirectories) {
   const contents = getContentsOfDirectory(directory);
   const outfilePath = path.join(directory, "_module.ts");
-  // console.log(`Writing ${outfilePath}`);
   writeModuleFile(outfilePath, contents);
 }
 
@@ -112,7 +110,6 @@ for (const directory of nestedDirs) {
     contents.push(...getContentsOfDirectory(basePath));
 
     const outfilePath = path.join(basePath, "_module.ts");
-    // console.log(`Writing ${outfilePath}`);
     writeModuleFile(outfilePath, contents);
   }
 
@@ -123,7 +120,6 @@ for (const directory of nestedDirs) {
       const contents = getContentsOfDirectory(fullDirPath);
 
       const outfilePath = path.join(fullDirPath, "_module.ts");
-      // console.log(`Writing ${outfilePath}`);
       writeModuleFile(outfilePath, contents);
     }
   }

@@ -500,7 +500,6 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
 
   #flagMatch(item1: TFlagType, item2: TDDBItemImporterDocument): boolean {
     if (this.matchFlags.length === 0) return true;
-    // let fs = {};
     const matched = this.matchFlags.every((flag) => {
       // assume 2014 rule if this is the flag request
       const defaultFlagValue = flag === "is2014" ? true : undefined;
@@ -508,17 +507,8 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       if (flagValue1 === undefined) return false;
       const flagValue2 = foundry.utils.getProperty(item2, `flags.ddbimporter.${flag}`) ?? defaultFlagValue;
       if (flagValue2 === undefined) return false;
-      // fs[flag] = { item1: flagValue1, item2: flagValue2, bool: flagValue1 === flagValue2 };
       return flagValue1 === flagValue2;
     });
-    // if (item1.name === "Fey Ancestry") {
-    //   console.warn("flagMatch", {
-    //     item1,
-    //     item2,
-    //     matched,
-    //     fs,
-    //   });
-    // }
     return matched;
   }
 
@@ -807,7 +797,6 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       render: false,
       recursive: this.recursive,
     } as unknown as Parameters<typeof existingItem.update>[1]);
-    // const update = existingItem.update(updateItem, { pack: compendium.metadata.id, recursive: false, render: false });
     await this.#markImportStatus(itemName, "succeeded");
     return update;
   }
@@ -1017,7 +1006,6 @@ ${item.system.description.chat}
           return looseNames.includes(iName.split("(")[0].trim().toLowerCase());
         } else if (monsterMatch) {
           const monsterNames = NameMatcher.getMonsterNames(orig.name);
-          // console.log(magicNames)
           if (iName === orig.name) {
             return true;
           } else if (monsterNames.includes(iName.toLowerCase())) {

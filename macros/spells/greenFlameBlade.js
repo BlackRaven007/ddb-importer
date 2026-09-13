@@ -237,7 +237,6 @@ function weaponAttack(caster, sourceItemData, origin, target) {
           attackItem.prepareFinalAttributes();
           const [config, options] = DDBImporter.EffectHelper.syntheticItemWorkflowOptions({ targets: [target.uuid] });
           const result = await MidiQOL.completeItemUse(attackItem, config, options);
-          // console.warn("HERE6", {weaponCopy, sourceItemData, attackItem, options, result})
         },
       },
       Cancel: {

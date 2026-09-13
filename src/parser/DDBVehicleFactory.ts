@@ -118,10 +118,8 @@ export default class DDBVehicleFactory {
     const homebrew = false;
     const homebrewOnly = false;
     // vehicles do not have homebrew filtering yet
-    // const homebrew = sources.length > 0
     //   ? false
     //   : utils.getSetting<boolean>("munching-policy-monster-homebrew");
-    // const homebrewOnly = sources.length > 0
     //   ? false
     //   : utils.getSetting<boolean>("munching-policy-monster-homebrew-only");
     const exactMatch = utils.getSetting<boolean>("munching-policy-monster-exact-match");

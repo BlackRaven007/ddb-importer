@@ -57,9 +57,7 @@ async function updateActorsWithActor(targetActors: TImporterActor[], sourceActor
     DDBItemImporter.copySupportedItemFlags(targetActor, actorUpdate);
     await targetActor.deleteEmbeddedDocuments("Item", [], { deleteAll: true });
     await targetActor.update(actorUpdate as any);
-    // console.warn("afterdelete", foundry.utils.duplicate(targetActor));
     await targetActor.createEmbeddedDocuments("Item", monsterItems as any[]);
-    // console.warn("after create", foundry.utils.duplicate(targetActor));
 
   };
 

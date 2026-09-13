@@ -37,7 +37,6 @@ if (args[0].isCritical) {
 
 const activity = args[0].workflow.activity;
 
-// console.warn(activity);
 if (!DDBImporter.EffectHelper.isAttack({ activity, classification: "weapon" })) return;
 
 const damageType = game.i18n.localize("bludgeoning");

@@ -6,9 +6,7 @@ vi.mock("../../../src/parser/lib/DDBReferenceLinker", () => ({
 
 import { parse } from "../../../src/parser/lib/DDBTemplateStrings";
 
-// =============================================================================
 // Fixtures
-// =============================================================================
 
 function makeFeature(defOverrides: Record<string, any> = {}, extra: Record<string, any> = {}): any {
   return {
@@ -53,9 +51,7 @@ const ddb = makeDdb();
 const ddbWithWizard = makeDdb({ classes: [wizardClass] });
 const character = makeCharacter();
 
-// =============================================================================
 // Basics
-// =============================================================================
 
 describe("parse basics", () => {
   it("returns undefined for empty text", () => {
@@ -99,9 +95,7 @@ describe("parse basics", () => {
   });
 });
 
-// =============================================================================
 // savedc
-// =============================================================================
 
 describe("savedc templates", () => {
   it("replaces a single-ability save DC", () => {
@@ -132,9 +126,7 @@ describe("savedc templates", () => {
   });
 });
 
-// =============================================================================
 // modifier
-// =============================================================================
 
 describe("modifier templates", () => {
   it("replaces a single ability modifier as a signed inline roll", () => {
@@ -148,9 +140,7 @@ describe("modifier templates", () => {
   });
 });
 
-// =============================================================================
 // proficiency / characterlevel / spellattack / abilityscore
-// =============================================================================
 
 describe("simple attribute templates", () => {
   it("replaces proficiency", () => {
@@ -174,9 +164,7 @@ describe("simple attribute templates", () => {
   });
 });
 
-// =============================================================================
 // classlevel
-// =============================================================================
 
 describe("classlevel templates", () => {
   it("resolves classlevel via a classId on the feature definition", () => {
@@ -216,9 +204,7 @@ describe("classlevel templates", () => {
   });
 });
 
-// =============================================================================
 // limiteduse and fixedvalue
-// =============================================================================
 
 describe("limiteduse and fixedvalue templates", () => {
   const limitedFeature = () => makeFeature({ limitedUse: { maxUses: 3 } });
@@ -259,9 +245,7 @@ describe("limiteduse and fixedvalue templates", () => {
   });
 });
 
-// =============================================================================
 // scalevalue
-// =============================================================================
 
 describe("scalevalue templates", () => {
   it("resolves a fixed scale value", () => {
@@ -299,9 +283,7 @@ describe("scalevalue templates", () => {
   });
 });
 
-// =============================================================================
 // Odd cases
-// =============================================================================
 
 describe("odd cases", () => {
   it("wraps unknown templates in an inline roll rather than passing them through", () => {
@@ -341,13 +323,10 @@ describe("odd cases", () => {
   });
 });
 
-// =============================================================================
 // Real DDB snippets
-//
 // Regression coverage using verbatim description/snippet text pulled from two
 // live characters (diff/raw.json, diff/optional.json). Characterization style:
 // each assertion pins the actual parse() output for a real-world input shape.
-// =============================================================================
 
 // A dice-backed scale value, matching the "resolves a dice scale value" fixture.
 const scaleDiceFeature = () => makeFeature(

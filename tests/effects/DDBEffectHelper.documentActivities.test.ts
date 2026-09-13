@@ -1,12 +1,10 @@
 // Characterization tests for DDBEffectHelper.documentWithFilteredActivities.
-//
 // The method deep-copies a document via toObject() and then applies ~28
 // options: activity filtering, effect stripping, id regeneration,
 // duration/target overrides, uses clearing, property add/remove, etc.
 // These tests pin the current behavior of each option (alone plus a few
 // interactions) using hand-built plain documents, always with
 // returnDataOnly: true unless the construction path itself is under test.
-//
 // DDBEffectHelper is the unit under test so it is imported un-mocked; the
 // barrels its import chain drags in are stubbed exactly as in the pure test.
 

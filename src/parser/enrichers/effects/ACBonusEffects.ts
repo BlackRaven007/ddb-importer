@@ -33,7 +33,6 @@ export default class ACBonusEffects {
 
   static addAddBonusChanges(modifiers: IModifiersMod[], name: string, type: string, key: string): IActiveEffectChangeData[] {
     const changes: IActiveEffectChangeData[] = [];
-    // const bonus = DDBModifiers.filterModifiersOld(modifiers, "bonus", type).reduce((a, b) => a + b.value, 0);
     const bonus = DDBModifiers.getValueFromModifiers(modifiers, name, type, "bonus");
     if (bonus) {
       logger.debug(`Generating ${type} bonus for ${name}`, bonus);

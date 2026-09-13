@@ -266,7 +266,6 @@ export function collectSceneData(scene: Scene, bookCode: string) {
         result.flags.ddbActorFlags = ddbFlags;
       }
 
-      // console.warn("token details", {
       //   token,
       //   result,
       //   scene,

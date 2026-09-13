@@ -56,7 +56,6 @@ function createFunctionLink(label: string, dataset: Record<string, any>) {
 
 
 async function enrichFunction(config: Record<string, any>, label: string, options: TextEditor.EnrichmentOptions) {
-  // console.warn("ENRICHER DEGUG", {
   //   config,
   //   label,
   //   options,

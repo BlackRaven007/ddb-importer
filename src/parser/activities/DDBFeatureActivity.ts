@@ -63,7 +63,6 @@ export default class DDBFeatureActivity extends DDBBasicActivity {
       this.data.activation = activationOverride;
       return;
     }
-    // console.warn(`Generating Activation for ${this.name}`);
     if (!this.ddbDefinition.activation) {
       this._generateParsedActivation();
       return;
@@ -276,7 +275,6 @@ export default class DDBFeatureActivity extends DDBBasicActivity {
     const aoeSizeRegex = /(?:within|in a|fills a) (?<within>\d+)(?: |-)(?:feet|foot|ft|ft\.)(?: |-)(cone|radius|emanation|sphere|line|cube|of it|of an|of the|of you|of yourself)(\w+[. ])?/ig;
     const aoeSizeMatch = aoeSizeRegex.exec(description);
 
-    // console.warn(`Target generation for ${this.name}`, {
     //   targetsCreature,
     //   creatureTargetCount,
     //   aoeSizeMatch,
@@ -291,7 +289,6 @@ export default class DDBFeatureActivity extends DDBBasicActivity {
         const aoeSizeSecondaryRegex = /(?:in a) (?<within>\d+)(?: |-)(?:feet|foot|ft|ft\.)(?: |-)(cone|radius|emanation|sphere|line|cube|of it|of an|of the)(\w+[. ])?/ig;
         const aoeSizeSecondaryMatch = aoeSizeSecondaryRegex.exec(description);
 
-        // console.warn(`aoeSizeSecondaryMatch for ${this.name}`, {
         //   targetsCreature,
         //   creatureTargetCount,
         //   aoeSizeMatch,

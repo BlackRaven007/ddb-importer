@@ -40,7 +40,6 @@ export function getActorConditionStates(actor: TImporterActor, ddb: IDDBData, ke
  */
 export async function setConditions(actor: TImporterActor, ddb: IDDBData, keepLocal = false) {
   const conditionStates = getActorConditionStates(actor, ddb, keepLocal);
-  // console.warn(conditionStates);
   logger.debug(`Condition states for ${actor.name as string}`, conditionStates);
 
   // remove conditions first
@@ -58,7 +57,6 @@ export async function setConditions(actor: TImporterActor, ddb: IDDBData, keepLo
     const effect = await ActiveEffect.implementation.fromStatusEffect(condition.foundry) as unknown as ActiveEffect;
     effect.updateSource({ "flags.dnd5e.exhaustionLevel": condition.levelId } as unknown as ActiveEffect.UpdateData);
     const effectData = effect.toObject() as unknown as I5eEffectData;
-    // console.warn("effect", {effect, effectData});
     // await ActiveEffect.implementation.create(effectData, { parent: actor.document, keepId: true });
     await actor.createEmbeddedDocuments("ActiveEffect", [effectData as ActiveEffect.CreateData], { keepId: true });
     if (condition.foundry === "exhaustion") {

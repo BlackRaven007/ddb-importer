@@ -408,7 +408,6 @@ export default function () {
   const characterLink = utils.getSetting<boolean>("character-link-title");
   const monsterLink = utils.getSetting<boolean>("monster-link-title");
 
-  // const buttonText = characterLink
   //   ? `<a class="ddb-open-url" title="DDB Importer"><i class="fab fa-d-and-d-beyond${whiteTitle}"></i></a>`
   //   : '<button type="button" id="ddbImporterButton" class="inactive"><i class="fab fa-d-and-d-beyond"></button>';
 

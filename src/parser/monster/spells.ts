@@ -5,10 +5,8 @@ import { utils, logger, CompendiumHelper } from "../../lib/_module";
 DDBMonster.prototype.parseOutInnateSpells = function(this: DDBMonster, text: string) {
   // handle innate style spells here
   // 3/day each: charm person (as 5th-level spell), color spray, detect thoughts, hold person (as 3rd-level spell)
-  // console.log(text);
   const innateSearch = /^(\d+)\/(\w+)(?:\s+each)?:\s+(.*$)/i;
   const innateMatch = text.match(innateSearch);
-  // console.log(innateMatch);
   if (innateMatch) {
     const spellArray = innateMatch[3].split(",").map((spell: any) => spell.trim());
     spellArray.forEach((spell: any) => {
@@ -64,7 +62,6 @@ DDBMonster.prototype.parseAdditionalAtWillSpells = function(this: DDBMonster, te
  */
 
 DDBMonster.prototype.parseOutSpells = function(this: DDBMonster, text: string, { pactText = null }: { pactText?: string | null } = {}) {
-  // console.log(text);
   const spellLevelSearch = /^(Cantrip|\d)(?:st|th|nd|rd)?(?:\s*(?:Level|level))?(?:s)?\s+\((at will|at-will|\d)\s*(?:slot|slots)?\):\s+(.*$)/;
   const match = text.match(spellLevelSearch);
 
@@ -77,7 +74,6 @@ DDBMonster.prototype.parseOutSpells = function(this: DDBMonster, text: string, {
   const pactSearchRegex = /has\s(\w*)\s(\d)(?:st|th|nd|rd)\s*(?:level|-level)\s+spell\s+slot/i;
   const pactTextSlotsMatch = (otherWarlockMatch && pactText) ? pactText.match(pactSearchRegex) : null;
 
-  // console.warn("info", {
   //   match,
   //   warlockMatch,
   //   otherWarlockMatch,
@@ -118,7 +114,6 @@ DDBMonster.prototype.parseOutSpells = function(this: DDBMonster, text: string, {
     return;
   }
 
-  // console.warn("Processing spells", {
   //   spellLevel,
   //   slots,
   //   spellMatches,

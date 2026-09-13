@@ -81,7 +81,6 @@ function weaponAttack(caster, sourceItemData, origin, target) {
           attackItem.prepareData();
           attackItem.prepareFinalAttributes();
 
-          // console.warn(attackItem);
           const workflowOptions = {
             // autoFastForward: "on",
             autoRollAttack: true,

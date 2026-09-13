@@ -1,4 +1,3 @@
-//
 const lastArg = args[args.length - 1];
 let targetToken = await fromUuid(lastArg.tokenUuid);
 const targetActor = targetToken?.actor;

@@ -113,7 +113,6 @@ function parseMatch(
   if (result.includes("modifier")) {
     const regexp = /modifier:([a-z]{3})(?:,)?([a-z]{3})?/g;
     // creates array from match groups and dedups
-    // const ability = [...new Set(Array.from(result.matchAll(regexp), (m) => m[1]))];
     const matches = [...result.matchAll(regexp)];
 
     matches.forEach((match) => {
@@ -417,8 +416,6 @@ function fixRollables(text: string): string {
   }
 
   const noRollRegex = /(\[\[\/roll)([\w\s.,@\d+-\\*/()]*(?![0-9]*d[0-9]+)(?!@scale\.)[\w\s.,@\d-+\\*/()]*)(\]\])/g;
-  // const noRollMatches = text.match(noRollRegex);
-  // console.warn("noRollMatches", {text: foundry.utils.duplicate(text), noRollMatches});
   text = text.replaceAll(noRollRegex, replaceRoll);
 
   return text;
@@ -477,7 +474,6 @@ export function parse(
 
     entry.rollMatchTest = entry.rollMatch.test(result.text);
 
-    // console.warn("parseTemplateString", { text: foundry.utils.duplicate(text), feature, entry, match, result });
 
     const splitSignedBase = match.split("#");
     const splitSigned = splitSignedBase.length > 1 && ["signed", "unsigned"].includes(splitSignedBase[1])
@@ -493,7 +489,6 @@ export function parse(
         : null;
     const splitMatchAt = splitRemoveUnsigned.split("@");
 
-    // console.warn("splitMatchAt", { splitMatchAt, splitRemoveUnsigned, signed, splitSigned, splitSignedBase, match });
 
     const parsedMatchData = parseMatch(ddb, character, splitRemoveUnsigned, feature);
     const parsedMatch = parsedMatchData.parsed;
@@ -513,7 +508,6 @@ export function parse(
           entry.parsed = addConstraintEvaluations(entry.parsed, splitMatchAt[i]);
         }
       }
-      // console.warn("entry", {
       //   entry,
       //   replacePattern: entry.replacePattern.test(result.text),
       //   match: entry.rollMatch.test(result.text),
@@ -538,14 +532,12 @@ export function parse(
           evalString = evalString.replace(/^\(/, "").replace(/\)$/, "");
         }
         entry.evalString = evalString;
-        // console.warn("evalString", {
         //   evalString,
         //   splitMatchAt,
         // });
         if (splitMatchAt.length > 1) {
           let evalConstraint = `${evalString}`;
           for (let i = 1; i < splitMatchAt.length; i++) {
-            // console.warn(`splitMatch ${i}`, {
             //   evalConstraintPre: `${evalConstraint}`,
             //   matchat: splitMatchAt[i],
             //   isInt: Number.isInteger(Number.parseInt(evalConstraint)),
@@ -553,9 +545,7 @@ export function parse(
             evalConstraint = Number.isInteger(Number.parseInt(evalConstraint)) && !evalConstraint.includes("@")
               ? applyConstraint(evalConstraint, splitMatchAt[i])
               : addConstraintEvaluations(evalConstraint, splitMatchAt[i]);
-            // console.warn(`evalConstraint ${i} post`, `${evalConstraint}`);
           }
-          // console.warn("evalConstraint", evalConstraint);
           entry.evalConstraint = evalConstraint;
           entry.parsed = getNumber(evalConstraint, signed);
         } else {
@@ -607,6 +597,5 @@ export function parse(
     templateStrings.push(result);
   }
 
-  // console.warn(`${feature.name} tempalte`, result);
   return result;
 }

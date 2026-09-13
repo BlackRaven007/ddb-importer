@@ -256,7 +256,6 @@ export default class DDBChoiceFeature extends DDBFeature {
         ddbFeature,
         choices,
       });
-      // console.warn(`Choice generation ${choiceFeature.data.name}`, {
       //   data: deepClone(choiceFeature.data),
       // });
       if (DDBChoiceFeature.DISCARD_CHOICE_FEATURE.includes(ddbFeature.originalName)) {

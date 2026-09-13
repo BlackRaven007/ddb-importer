@@ -16,8 +16,6 @@ const onSubmit = async (tokens, doc) => {
 
 const showDialog = async (tokens) => {
   return new Promise((resolve) => {
-    // const tokenNames = [...new Set(tokens.map((a) => a.name))];
-    // const tokenName = tokenNames.length === 1 ? tokenNames[0] : "";
     new Dialog({
       title: 'Change Actor(s) Name & Token Name',
       content: `<form>

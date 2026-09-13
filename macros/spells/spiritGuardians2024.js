@@ -1,6 +1,5 @@
 const lastArg = args[args.length - 1];
 
-// console.warn({
 //   args,
 //   scope,
 //   item,
@@ -57,7 +56,6 @@ async function addOvertimeEffect({ name, actorUuid, damageType, damageRoll, flag
 }
 
 if (args[0] === "on") {
-  // console.warn("on", { args, lastArg, scope, item });
   const turnFlag =  DDBImporter.EffectHelper.getFlag(actor, "SpiritGuardiansTurn") ?? {};
 
   if (turnFlag
@@ -74,7 +72,6 @@ if (args[0] === "on") {
   // set flag to prevent end of turn roll
   await DDBImporter.EffectHelper.setFlag(actor, "SpiritGuardiansCalled", true);
 
-  // console.warn(`Running ${scope.macroActivity.item.name} turn damage for entry on ${actor.name}`);
 
   const alignment = foundry.utils.getProperty(scope, "macroActivity.actor.system.details.alignment")?.toLowerCase();
 
@@ -94,7 +91,6 @@ if (args[0] === "on") {
     flagName: "SpiritGuardiansCalled",
   });
 
-  // const originDocument = await fromUuid(lastArg.origin);
   const workflowItemData = DDBImporter.EffectHelper.documentWithFilteredActivities({
     document: scope.macroActivity.item,
     activityTypes: ["save"],
@@ -117,13 +113,11 @@ if (args[0] === "on") {
 
 // at start of each turn, reset flags
 if (args[0] === "each" && lastArg.turn === "startTurn") {
-  // console.warn("Each startTurn", { args, lastArg, scope, item });
   await DDBImporter.EffectHelper.setFlag(actor, "SpiritGuardiansCalled", false);
 }
 
 // runs at end of turn after overTime effect. add flags to mark turn damage taken
 // if (args[0] === "each" && lastArg.turn === "endTurn") {
-//   console.warn("Each endTurn", { args, lastArg, scope, item });
 //   await setCombatFlag(actor);
 //   await DDBImporter.EffectHelper.setFlag(actor, "SpiritGuardiansCalled", true);
 // }

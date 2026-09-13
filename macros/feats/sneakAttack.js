@@ -58,7 +58,6 @@ try {
         distance: 5,
       });
       // handle rakish audacity, within 5ft, no one else within 5ft, no disadvantage
-      // console.warn("rakish audacity check", {
       //   args,
       //   workflow,
       //   target, actor,

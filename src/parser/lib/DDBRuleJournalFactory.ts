@@ -137,7 +137,6 @@ const WEAPON_PROPERTIES: Record<string, number[]> = {
   // 57, // Pull
 };
 
-// const PHYSICAL_WEAPON_PROPERTIES = [
 //   43, // armor piercing
 // ];
 
@@ -492,7 +491,6 @@ export default class DDBRuleJournalFactory {
         continue;
       }
       const itemSource = itemHit.system?.source?.book;
-      // console.warn({
       //   itemHit,
       //   allowedSources,
       //   dnd5eName,

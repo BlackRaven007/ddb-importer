@@ -9,7 +9,6 @@ if (!game.combat) {
 }
 
 const lastArg = args[args.length - 1];
-// console.warn("macro caled", {
 //   args,
 //   isOnUse: args[0].tag === "OnUse" && args[0].macroPass === "preActiveEffects",
 //   lastArgs: lastArg.tag === "OnUse" && lastArg.macroPass === "preActiveEffects",
@@ -72,7 +71,6 @@ async function applySpikeGrowthDamage() {
 }
 
 function getDamageTestString(token, flags) {
-  // console.warn("getDamageTestString", token)
   return `${flags.origin}-${flags.round}-${flags.turn}-${flags.randomId}-${token.x}-${token.y}-${token.document?.elevation ?? token.elevation}`;
 }
 

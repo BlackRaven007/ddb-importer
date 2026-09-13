@@ -1,7 +1,6 @@
 const lastArg = args[args.length - 1];
 const DAEItem = lastArg.efData.flags.dae.itemData;
 
-// console.warn("Details", {
 //   args,
 //   lastArg,
 //   actor,

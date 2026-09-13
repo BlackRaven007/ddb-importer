@@ -108,14 +108,6 @@ function getUnarmoredAC(modifiers: IModifiersMod[], character: I5ePCData): numbe
   const isUnarmored = modifiers.filter(
     (modifier) => modifier.type === "set" && modifier.subType === "unarmored-armor-class" && modifier.isGranted,
   );
-  // if (isUnarmored.length === 0) {
-  //   // Some items will have an unarmoured bonus, but won't set a base, so if we are in this
-  //   // situation, we add a default base ac
-  //   isUnarmored.push({
-  //     statId: 2,
-  //     value: 0,
-  //   });
-  // }
 
   const ignoreDex = modifiers.some((modifier) => modifier.type === "ignore" && modifier.subType === "unarmored-dex-ac-bonus");
 
@@ -124,16 +116,12 @@ function getUnarmoredAC(modifiers: IModifiersMod[], character: I5ePCData): numbe
   ).map((mods) => Number(mods.value));
   const maxUnamoredDexMod = ignoreDex ? 0 : Math.min(...maxUnamoredDexMods, 20);
 
-  // console.log(`Max Dex: ${maxUnamoredDexMod}`);
   isUnarmored.forEach((unarmored) => {
     let unarmoredACValue = 10;
     // +DEX
     // for a case of setting unarmoured ac, the dex won't detract
     unarmoredACValue += Math.max(0, Math.min(utils.calculateModifier(characterAbilities.dex.value ?? 10), maxUnamoredDexMod));
     // +WIS or +CON, if monk or barbarian, draconic resilience === null
-
-    // console.log(`Unarmoured AC Value: ${unarmoredACValue}`);
-    // console.log(unarmored);
 
     if (unarmored.statId !== null) {
       const ability = DICTIONARY.actor.abilities.find((ability) => ability.id === unarmored.statId);
@@ -146,7 +134,6 @@ function getUnarmoredAC(modifiers: IModifiersMod[], character: I5ePCData): numbe
     if (unarmored.value) unarmoredACValue += Number(unarmored.value);
     unarmoredACValues.push(unarmoredACValue);
   });
-  // console.warn(unarmoredACValues);
   return unarmoredACValues;
 }
 
@@ -167,8 +154,6 @@ function getDualWieldAC(data: IDDBData, modifiers: IDDBModifier[]) {
 
   return dualWieldBonus;
 }
-
-// To Do: Rework AC functions as class functions to help reduce complexity in calculation.
 
 function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmor: IDDBCalculatedArmor): IDDBACResults {
   const characterAbilities = character.flags?.ddbimporter?.dndbeyond?.effectAbilities;
@@ -232,9 +217,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
         const ignoreUnarmouredACBonus = DDBModifiers.filterBaseModifiers(data, "ignore", { subType: "unarmored-dex-ac-bonus" });
         if (ignoreUnarmouredACBonus) {
           acCalc = armorAC + calculatedArmor.miscACBonus;
-          // console.log(armorAC);
-          // console.log(gearAC);
-          // console.log(miscACBonus);
         } else {
           acCalc = armorAC + calculatedArmor.miscACBonus + calculatedArmor.unarmoredACBonus;
         }
@@ -619,14 +601,11 @@ DDBCharacter.prototype._generateArmorClass = function _generateArmorClass(this: 
     results,
   });
   // get the max AC we can use from our various computed values
-  // const max = Math.max(...results.armorClassValues.map((type) => type.value));
 
-  //
   // DND5E.armorClasses = {
   //   "default": {
 
 
-  // const draconic = ddb.classes[0].classFeatures[1].definition
   const classFeatures = FilterModifiers.getAllClassFeatures(ddb.character);
   logger.debug("Class features", classFeatures);
 

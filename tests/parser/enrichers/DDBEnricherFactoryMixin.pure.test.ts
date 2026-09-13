@@ -65,9 +65,7 @@ function makeEnricher(fields: Record<string, any> = {}): any {
   return enricher;
 }
 
-// =============================================================================
 // _getNameHint
-// =============================================================================
 describe("DDBEnricherFactoryMixin._getNameHint", () => {
   it("uses an exact NAME_HINTS entry", () => {
     const e = makeEnricher({ name: "Rage" });
@@ -150,9 +148,7 @@ describe("DDBEnricherFactoryMixin._getNameHint", () => {
   });
 });
 
-// =============================================================================
 // Delegating getters
-// =============================================================================
 describe("DDBEnricherFactoryMixin delegating getters", () => {
   const stubValues: Record<string, any> = {
     type: "attack",
@@ -269,9 +265,7 @@ describe("DDBEnricherFactoryMixin.ddbMacroDescription", () => {
   });
 });
 
-// =============================================================================
 // getFeatureActionsName
-// =============================================================================
 describe("DDBEnricherFactoryMixin.getFeatureActionsName", () => {
   const FEATURE_ID = 111;
   const FEATURE_ENTITY_TYPE_ID = 222;
@@ -434,9 +428,7 @@ describe("DDBEnricherFactoryMixin.getFeatureActionsName", () => {
   });
 });
 
-// =============================================================================
 // _addDefaultActionMatchedActivities
-// =============================================================================
 describe("DDBEnricherFactoryMixin._addDefaultActionMatchedActivities", () => {
   function makeFeature(name: string, activityId: string): any {
     return {

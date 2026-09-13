@@ -410,7 +410,6 @@ ${itemDescription.chat}
     if (klassItems.length > 0) {
       logger.debug(`Adding the following class items, keep Ids? ${keepIds}`, { options, items: foundry.utils.duplicate(klassItems) });
       for (const klassItem of klassItems) {
-        // console.warn(`Importing ${klassItem.name}`, klassItem);
         await this.actor.createEmbeddedDocuments("Item", [klassItem as any], options);
       }
     }

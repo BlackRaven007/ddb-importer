@@ -155,7 +155,6 @@ export default class EffectGenerator {
   };
 
   _addAddBonusChanges(modifiers: IDDBModifier[], type: TDDBModifierType, key: string) {
-    // const bonus = DDBModifiers.filterModifiersOld(modifiers, "bonus", type).reduce((a, b) => a + b.value, 0);
     const bonus = DDBModifiers.getValueFromModifiers(modifiers, this.document.name, type, "bonus");
     if (bonus) {
       logger.debug(`Generating ${type} bonus for ${this.document.name}`, bonus);

@@ -1,8 +1,6 @@
 import DDBDescriptions from "../../../src/parser/lib/DDBDescriptions";
 
-// =============================================================================
 // startOrEnd
-// =============================================================================
 describe("DDBDescriptions.startOrEnd", () => {
   it("detects 'start'", () => {
     expect(DDBDescriptions.startOrEnd("at the start of each of its turns")).toBe("start");
@@ -21,9 +19,7 @@ describe("DDBDescriptions.startOrEnd", () => {
   });
 });
 
-// =============================================================================
 // getDuration
-// =============================================================================
 describe("DDBDescriptions.getDuration", () => {
   it("parses 'for 1 minute'", () => {
     const result = DDBDescriptions.getDuration("for 1 minute");
@@ -124,9 +120,7 @@ describe("DDBDescriptions.getDuration", () => {
   });
 });
 
-// =============================================================================
 // dcParser
-// =============================================================================
 describe("DDBDescriptions.dcParser", () => {
   it("parses 'DC 18 Strength saving throw or be knocked prone'", () => {
     const result = DDBDescriptions.dcParser({ text: "DC 18 Strength saving throw or be knocked prone" });
@@ -276,9 +270,7 @@ describe("DDBDescriptions.dcParser", () => {
   });
 });
 
-// =============================================================================
 // parseStatusCondition
-// =============================================================================
 describe("DDBDescriptions.parseStatusCondition", () => {
   it("leaves duration.value null (not NaN) when the condition has no duration phrase", () => {
     const result = DDBDescriptions.parseStatusCondition({ text: "DC 15 Strength saving throw or be knocked prone" });
@@ -295,9 +287,7 @@ describe("DDBDescriptions.parseStatusCondition", () => {
   });
 });
 
-// =============================================================================
 // featureBasics
-// =============================================================================
 describe("DDBDescriptions.featureBasics", () => {
   it("detects melee weapon attack", () => {
     const result = DDBDescriptions.featureBasics({ text: "Melee Weapon Attack: +5 to hit, reach 5 ft., one target." });
@@ -404,9 +394,7 @@ describe("DDBDescriptions.featureBasics", () => {
   });
 });
 
-// =============================================================================
 // splitStringByComma
-// =============================================================================
 describe("DDBDescriptions.splitStringByComma", () => {
   it("splits simple comma-separated values", () => {
     expect(DDBDescriptions.splitStringByComma("fire, cold, lightning")).toEqual(["fire", "cold", "lightning"]);

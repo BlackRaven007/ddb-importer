@@ -18,9 +18,7 @@ function build(html: string, tableName = "Test Table") {
   return buildTable({ parsedTable, keys, diceKeys, tableName, html });
 }
 
-// =============================================================================
 // Sample tables (DDB compendium HTML)
-// =============================================================================
 
 const REGULAR_TABLE = `
 <table class="table-compendium table--generic-dice" data-content-chunk-id="0d8f3275">
@@ -127,9 +125,7 @@ const NESTED_TABLE = `
 </tbody>
 </table>`;
 
-// =============================================================================
 // Regular roll table
-// =============================================================================
 
 describe("buildTable - regular roll table", () => {
   it("detects the single dice column", () => {
@@ -149,9 +145,7 @@ describe("buildTable - regular roll table", () => {
   });
 });
 
-// =============================================================================
 // Joined-columns table
-// =============================================================================
 
 describe("buildTable - joined columns", () => {
   it("builds a d100 table with concatenated columns and correct ranges", () => {
@@ -177,9 +171,7 @@ describe("buildTable - joined columns", () => {
   });
 });
 
-// =============================================================================
 // Non-roll table (must not become a RollTable)
-// =============================================================================
 
 describe("buildTable - non-roll table", () => {
   it("has no dice columns and is therefore skipped", () => {
@@ -187,9 +179,7 @@ describe("buildTable - non-roll table", () => {
   });
 });
 
-// =============================================================================
 // Nested dice table
-// =============================================================================
 
 describe("parseNestedDiceTable / buildNestedTables", () => {
   it("detects the nested structure", () => {
@@ -244,9 +234,7 @@ describe("parseNestedDiceTable / buildNestedTables", () => {
   });
 });
 
-// =============================================================================
 // Safety guard
-// =============================================================================
 
 describe("buildTable - safety guard", () => {
   it("drops rows whose dice range cannot be parsed", () => {

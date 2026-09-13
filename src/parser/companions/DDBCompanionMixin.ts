@@ -31,7 +31,6 @@ export default class DDBCompanionMixin {
     addMonsterEffects = false, removeSplitCreatureActions = true, removeCreatureOnlyNames = true,
     addChrisPremades = true, useItemAC = false, legacyName = false,
   }: IDDBCompanionMixinParserOptions = {}) {
-    // console.warn("DDBCompanion", { block });
     this.options = options;
     this.block = typeof block === "string"
       ? new DOMParser().parseFromString(block, "text/html").body
@@ -215,7 +214,6 @@ export default class DDBCompanionMixin {
       updateExisting: false,
     });
     await featureFactory.generateActions(text, type);
-    // console.warn("Generating companion feature", { text, type, featureFactory });
     const toHitRegex = /(your spell attack modifier to hit|equals your spell attack modifier)/i;
     if (toHitRegex.test(text)) {
       this.summons.match.attacks = true;
@@ -228,7 +226,6 @@ export default class DDBCompanionMixin {
   }
 
   // async _processFeatureElements(element, featType) {
-  //   let next = element.nextElementSibling;
 
   //   if (!next) return { next, featType };
 
@@ -249,7 +246,6 @@ export default class DDBCompanionMixin {
   //     // no default
   //   }
 
-  //   const result = await this._processFeatureElement(next, featType);
 
   //   return result;
   // }
@@ -279,7 +275,6 @@ export default class DDBCompanionMixin {
   }
 
   async parse() {
-    // console.warn("PARSE COMPANION", { block: this.block, aThis: this });
     const name = this.options.name ?? this.block.querySelector("p.Stat-Block-Styles_Stat-Block-Title")?.innerHTML;
     const namePostfix = this.options.subType
       ? `(${this.options.subType})`

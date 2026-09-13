@@ -44,7 +44,6 @@ const PatreonHelper = {
     let validKey = false;
 
     const key = overrideKey ?? PatreonHelper.getPatreonKey(local);
-    // console.warn("Checking key validity", { key, local, overrideKey });
     if (key === "") {
       validKey = true;
     } else {
@@ -143,7 +142,6 @@ const PatreonHelper = {
     const parsingApi = DDBProxy.getProxy();
     const body = { betaKey: betaKey };
 
-    // console.warn("Validating key", { betaKey, parsingApi });
 
     return postJson<IPatreonValidityResponse>(`${parsingApi}/patreon/valid`, body, { mode: "cors" });
   },

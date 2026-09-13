@@ -1328,7 +1328,6 @@ export default abstract class DDBEnricherFactoryMixin<THint = string> {
           activityData.advancements.push(...(foundry.utils.deepClone(Object.values(feature.system.advancement)) as I5eAdvancement[]));
         }
 
-        // console.warn(`Final activity map`,{
         //   activityData
         // })
 
@@ -1522,7 +1521,6 @@ export default abstract class DDBEnricherFactoryMixin<THint = string> {
         selectionOnly: true,
       });
 
-      // console.warn(`CHOICES`, {
       //   choices,
       //   this: this,
       // });
@@ -1542,7 +1540,6 @@ export default abstract class DDBEnricherFactoryMixin<THint = string> {
 
     results.all = [...nameMatches, ...idMatches, ...optionMatches, ...results.choices];
 
-    // console.warn(`Action match results ${name} (${derivedType})`, results);
 
     return results;
 
@@ -1619,7 +1616,6 @@ export default abstract class DDBEnricherFactoryMixin<THint = string> {
       };
     });
 
-    // console.warn(`Building Features from Actions for ${this.ddbParser.originalName}`, {
     //   type,
     //   derivedType,
     //   actionsToBuild,
@@ -1634,7 +1630,6 @@ export default abstract class DDBEnricherFactoryMixin<THint = string> {
       const actionFeatures = await this._buildFeaturesFromAction(actionActivity);
       this.defaultActionFeatures[actionActivity.name] = actionFeatures;
 
-      // console.warn(`Features from actions ${this.ddbParser.originalName}`, {
       //   actionFeatures,
       //   activityHint,
       //   this: this,

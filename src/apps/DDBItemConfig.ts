@@ -24,8 +24,6 @@ export class DDBItemConfig extends FormApplication {
 
   /** @override */
   async getData() {
-    // console.warn(this);
-    // console.warn(this.object);
     const item = this.object as IConfigItem;
 
     const icon = item.flags.ddbimporter?.ignoreIcon;

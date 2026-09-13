@@ -54,7 +54,6 @@ DDBCharacter.prototype._generateHitPoints = function _generateHitPoints(this: DD
 
   const bonusPerLevelValue = bonusHitPointFeaturesPerLevel.map((bonus) => {
     const cls = DDBDataUtils.findClassByFeatureId(ddb, bonus.componentId);
-    // console.warn("cls hp", { bonus, cls});
     if (!cls) {
       return parseInt(String(bonus.value));
     } else {
@@ -62,7 +61,6 @@ DDBCharacter.prototype._generateHitPoints = function _generateHitPoints(this: DD
     }
   }).reduce((prev, cur) => prev + cur, 0);
 
-  // const bonusHPEffectDiff = totalBonusHPWithEffects - totalBonusHitPoints - bonusPerLevelValue;
   const overallBonus = totalBonusHitPoints - (bonusPerLevelValue * totalLevels);
 
   const maxHitPoints = overrideHitPoints === 0
@@ -71,7 +69,6 @@ DDBCharacter.prototype._generateHitPoints = function _generateHitPoints(this: DD
 
   const rolledHP = foundry.utils.getProperty(ddb, "character.preferences.hitPointType") === 2;
 
-  // console.warn("hp data", {
   //   bonusHitPointValues,
   //   bonusHitPointValuesWithEffects,
   //   totalBonusHPWithEffects,

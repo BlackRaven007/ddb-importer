@@ -1,7 +1,6 @@
 // Sample the edge pixels of an image and return the most common color as a
 // hex string. Used to set a sympathetic background color on imported map
 // scenes so the area around the painted image blends in.
-//
 // Method:
 //   1. Walk top, bottom, left, right strips of `edgeWidth` pixels.
 //   2. Quantise each pixel's RGB to 4 bits per channel (4096 buckets) so

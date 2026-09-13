@@ -47,7 +47,6 @@ export default class MidiOverTimeEffect {
     this.parsedDescription = DDBDescriptions.featureBasics({ text: this.description });
     this.flags = flags;
     this.addToMonster = addToMonster;
-    // console.warn(`MidiOvertimeEffect for ${this.document.name} on ${this.actor.name}`, {
     //   this: this,
     //   conditionStatus: deepClone(this.conditionStatus),
     //   conditionEffect: deepClone(this.conditionEffect),
@@ -119,7 +118,6 @@ export default class MidiOverTimeEffect {
         : [];
       overTimeFlags.push(this.document.name);
       foundry.utils.setProperty(this.actor, "flags.monsterMunch.overTime", overTimeFlags);
-      // console.warn(`ITEM OVER TIME EFFECT: ${actor.name}, ${document.name}`);
       if (foundry.utils.getProperty(this.document, "system.duration.units") === "inst") {
         foundry.utils.setProperty(
           this.document,

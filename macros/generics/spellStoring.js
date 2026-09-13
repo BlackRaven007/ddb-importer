@@ -1,4 +1,3 @@
-// console.warn(scope)
 
 const isSimpleDDBMacro = scope && foundry.utils.getProperty(scope, "flags.ddb-importer.ddbMacroFunction");
 
@@ -40,7 +39,6 @@ console.debug("MACRO CALL", {
 });
 
 if (scopeParameters.action === "store-spell") {
-  // let rules = scopeParameters.rules ?? "2024";
 
   const activities = {};
   for (const [key, value] of Object.entries(sourceItem._source.system.activities)) {

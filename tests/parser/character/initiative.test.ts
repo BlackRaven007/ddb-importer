@@ -2,9 +2,7 @@ import DDBCharacter from "../../../src/parser/DDBCharacter";
 import "../../../src/parser/character/initiative";
 import { makeMockCharacter } from "../../_fixtures/mockCharacter";
 
-// =============================================================================
 // _generateInitiative
-// =============================================================================
 describe("DDBCharacter._generateInitiative", () => {
   const generateInitiative = DDBCharacter.prototype._generateInitiative;
 

@@ -9,6 +9,7 @@ const _GITHUB_MODULE_JSON_LATEST = `https://raw.githubusercontent.com/${MODULE_A
 const MINIMUM_5E_VERSION = "6.0.1";
 
 
+//#region Version Data
 async function getLatestModuleVersion() {
   try {
     const { tag_name: latestVersion, prerelease } = await $.getJSON(_GITHUB_API_LATEST);
@@ -28,6 +29,9 @@ async function getCompatibility() {
   }
 }
 
+//#endregion
+
+//#region Ready Hook
 export default async () => {
   const moduleInfo = game.modules.get(MODULE_NAME);
   if (!moduleInfo) {
@@ -46,12 +50,10 @@ export default async () => {
       return;
     }
 
-    // check version number only for GMs
     const coreCheck = utils.getSetting<boolean>("update-check");
     if (!coreCheck) return;
     const compatibility = await getCompatibility();
     const latest = await getLatestModuleVersion();
-    // the helpers log and return undefined on fetch failure; the throw lands in the catch below
     if (!compatibility || !latest) throw new Error("Unable to fetch DDB Importer version information");
     const { minimumCoreVersion, minimumSystemVersion } = compatibility;
     const { latestVersion, prerelease: preRelease } = latest;
@@ -77,7 +79,6 @@ export default async () => {
       const text = $(
         `<h2>${MODULE_TITLE} Update!</h2><p>A new <b>${MODULE_NAME}</b> version is available. Please update to <b>v${latestVersion}</b> if you are experiencing issues and before reporting a bug.</p>`,
       );
-      // a timeout of 0 is treated as "no timeout" by NOTIFICATION_API.show, matching the previous null
       (foundry.utils.getProperty(moduleInfo, "api") as typeof API_BASE)?.notification.show(text as unknown as string, 0);
     }
   } catch (error) {
@@ -85,3 +86,5 @@ export default async () => {
     (foundry.utils.getProperty(moduleInfo, "api") as typeof API_BASE)?.notification.show(`Could not retrieve latest  version`);
   }
 };
+
+//#endregion

@@ -3,7 +3,6 @@ const tokenOrActor = await fromUuid(lastArg.actorUuid);
 const targetActor = tokenOrActor.actor ? tokenOrActor.actor : tokenOrActor;
 const activity = await fromUuid(lastArg.activity);
 
-// console.warn("Called", {
 //   lastArg,
 //   targetActor,
 // })
@@ -25,7 +24,6 @@ async function checkPetrification(flag) {
     target: activity.save.dc.value,
   }, {}, { data: { speaker, flavor } }))[0];
 
-  // console.warn("saveRoll", saveRoll);
 
   if (saveRoll.total < activity.save.dc.value) {
     flag.failures += 1;

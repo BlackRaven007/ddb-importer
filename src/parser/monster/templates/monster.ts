@@ -19,6 +19,5 @@ export function newNPC(name: string, ddbId: number | string | null = null) {
     },
   };
   foundry.utils.setProperty(npc, "flags", flags);
-  // delete npc._id;
   return npc;
 };

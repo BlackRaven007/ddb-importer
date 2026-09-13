@@ -666,7 +666,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
           && this.ddbDefinition.entityTypeId === mod.componentTypeId)
       : modsOnWeapon;
 
-    // console.error(`Weapon mods for ${this.name}`, {
     //   unfilteredDamageMods,
     //   modsOnWeapon,
     //   raw: DDBModifiers.getModifiers(this.ddbData, "item"),
@@ -865,7 +864,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
         this.#getLootType(this.ddbDefinition.subType);
         break;
       default: {
-        // console.warn(`Default subtype for ${this.name}`, {
         //   this: this,
         //   clothingItem: DDBItem.CLOTHING_ITEMS.includes(this.ddbDefinition.name),
         //   clothingExpressions: !this.isContainer && this.isOuterwearTag && !this.isContainerTag,
@@ -1114,7 +1112,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
           this.systemType.value = "food";
           this.parsingType = "consumable";
         } else if (this.isConsumable) {
-          // console.error(`Consumable: ${this.ddbDefinition.name}`);
           this.documentType = "consumable";
           this.systemType.value = "wondrous";
           this.parsingType = "consumable";
@@ -1667,7 +1664,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
       }
     }
 
-    // console.warn("reset type", {
     //   chargeMatch,
     //   untilMatch,
     //   dawnMatch,
@@ -1761,7 +1757,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
       return;
     }
     const description = utils.stripHtml(this.ddbDefinition.description).replace(/[–-–−]/g, "-");
-    // console.warn(hit);
     // eslint-disable-next-line no-useless-escape
     const damageExpression = new RegExp(/(?<prefix>(?:takes|taking|saving throw (?:\([\w ]*\) )?or take\s+)|(?:[\w]*\s+))(?:(?<flat>[0-9]+))?(?:\s*\(?(?<damageDice>[0-9]+d[0-9]+(?:\s*[-+]\s*(?:[0-9]+))*(?:\s+plus [^\)]+)?)\)?)\s*(?<type>[\w ]*?)\s*damage(?<start>\sat the start of|\son a failed save)?/gi);
     const matches = [...description.matchAll(damageExpression)];
@@ -1876,7 +1871,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
     const aoeSizeRegex = /(?<!creature you can see |an object you can see |one creature )(?:within|in a|fills a) (\d+)(?: |-)(?:feet|foot|ft|ft\.)(?: |-)(cone|radius|emanation|sphere|line|cube|of it|of an|of the|of you|of yourself)(\w+[. ])?/ig;
     const aoeSizeMatch = aoeSizeRegex.exec(this.ddbDefinition.description);
 
-    // console.warn(`Target generation for ${this.name}`, {
     //   targetsCreature,
     //   creatureTargetCount,
     //   aoeSizeMatch,
@@ -2687,7 +2681,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
       activity: activity,
     });
 
-    // console.warn(`Spell Activity or ${this.name}`, {
     //   activity,
     //   castData: spellOverride,
     //   options,
@@ -2765,7 +2758,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
         activityConsumptionTarget.value = currentConsumptionValue;
       }
 
-      // console.warn(`Copying Spell ${spell.name} Activity`, {
       //   spell,
       //   this: this,
       //   id,
@@ -2889,7 +2881,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
       ? { calculation: "", formula: String(spell.flags.ddbimporter?.dndbeyond?.dc ?? "") }
       : { calculation: "spellcasting", formula: "" };
 
-    // console.warn(`Spell update details for ${spell.name}`, {
     //   resetType,
     //   uses,
     //   activityConsumptionTarget,
@@ -2925,7 +2916,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
       });
     }
 
-    // console.warn(`Adjusted Spell ${spell.name} as item consumption`, {
     //   spell: foundry.utils.deepClone(spell),
     //   this: this,
     //   id: `${this.data._id}`,
@@ -2978,8 +2968,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
       }
     }
 
-    // const spent = foundry.utils.getProperty(this.data, "system.uses.spent");
-    // const activation = this.actionData.activation?.type ?? "";
 
     // if (activation === "" && spent === 0) {
     //   this.data.system.activation.type = "special";
@@ -3284,7 +3272,6 @@ export default class DDBItem extends DDBActivityFactoryMixin<T5eInventoryTypes> 
   /** @override */
 
   _getActivitiesType() {
-    // console.warn(`Determining activity type for ${this.name}`, {
     //   actionData: this.actionData,
     //   damageParts: this.damageParts,
     //   healingParts: this.healingParts,

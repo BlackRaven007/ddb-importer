@@ -45,7 +45,6 @@ DDBCharacter.prototype._generateCharacter = async function _generateCharacter(th
   // *************************************
   // PARSING THE CHARACTER
   // **************************************
-  //
   // ddb = fixCharacterLevels(ddb);
 
   const ddb = this.source?.ddb;

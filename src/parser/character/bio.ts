@@ -125,7 +125,6 @@ function getBackgroundTemplate(): IDDBGeneratedBackground {
 export function generateBackground(bg: IDDBBackgroundInput): IDDBGeneratedBackground {
   const result = getBackgroundTemplate();
 
-  // console.warn(bg)
   // bg is a leaf definition/custom-background, never a wrapper: the source object
   // is mutated into the generated definition on the lines that follow.
   result.definition = bg as IDDBGeneratedBackgroundDefinition;

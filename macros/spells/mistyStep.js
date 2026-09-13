@@ -1,10 +1,5 @@
 
 
-// const lastArg = args[args.length - 1];
-// const tokenOrActor = await fromUuid(lastArg.actorUuid);
-// const targetActor = tokenOrActor.actor ? tokenOrActor.actor : tokenOrActor;
-// const tokenFromUuid = await fromUuid(lastArg.tokenUuid);
-// const targetToken = tokenFromUuid.data || token;
 
 const targetActor = actor;
 const targetToken = token;

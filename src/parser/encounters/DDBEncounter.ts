@@ -420,7 +420,6 @@ export default class DDBEncounter {
       folder: this.folders["scene"].id ?? undefined,
     };
 
-    // console.warn("Creating scene", sceneData);
 
     return sceneData;
 

@@ -215,7 +215,6 @@ export async function getFindFamiliarActivityData(activity: I5eActivity, options
       },
     ];
 
-  // console.warn("data", {
   //   baseMap,
   //   packMap,
   //   isPactSpell,

@@ -491,7 +491,6 @@ export default class DDBVehicle {
       travel["units"] = "mph";
       // a null travelPace coerced to 0 before, keep that result explicit
       const travelPaceMilesPerDay = (this.source.travelPace ?? 0) / 660; // / 220;
-      // const travelPaceMilesPerHour = this.source.travelPace / 5280;
       const travelPaceMilesPerHour = travelPaceMilesPerDay / 24;
       if (DDBVehicle.FLIGHT_IDS.includes(this.source.id)
         || this.configurations.DT === "spelljammer"
