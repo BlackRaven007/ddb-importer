@@ -6,8 +6,7 @@ const MODULE_NAME = "ddb-importer";
 const MODULE_AUTHOR = "BlackRaven007";
 const _GITHUB_API_LATEST = `https://api.github.com/repos/${MODULE_AUTHOR}/${MODULE_NAME}/releases/latest`;
 const _GITHUB_MODULE_JSON_LATEST = `https://raw.githubusercontent.com/${MODULE_AUTHOR}/${MODULE_NAME}/master/module-template.json`;
-const MINIMUM_5E_VERSION = "3.0.0";
-const PREVIOUS_VERSION = "3.7.17";
+const MINIMUM_5E_VERSION = "6.0.1";
 
 
 async function getLatestModuleVersion() {
@@ -39,10 +38,11 @@ export default async () => {
   foundry.utils.setProperty(CONFIG, "DDBI.version", installedVersion);
   try {
     if (!game.user.isGM) return;
-    const compatibleMinimumSystem = utils.versionCompare(game.data.system.version, MINIMUM_5E_VERSION) >= 0;
+    const systemVersion = game.system?.version ?? game.data.system.version;
+    const compatibleMinimumSystem = utils.versionCompare(systemVersion, MINIMUM_5E_VERSION) >= 0;
 
     if (!compatibleMinimumSystem) {
-      ui.notifications.error(`${MODULE_TITLE} requires 5e system v${MINIMUM_5E_VERSION} to run correctly. Please update your 5e version, or roll DDB Importer back to version ${PREVIOUS_VERSION}.`, { permanent: true });
+      ui.notifications.error(`${MODULE_TITLE} requires dnd5e v${MINIMUM_5E_VERSION} or newer. Please update your game system version.`, { permanent: true });
       return;
     }
 
@@ -57,7 +57,7 @@ export default async () => {
     const { latestVersion, prerelease: preRelease } = latest;
 
     const newModuleVersion = utils.versionCompare(latestVersion, installedVersion) === 1;
-    const compatibleSystem = utils.versionCompare(game.version, minimumSystemVersion) >= 0;
+    const compatibleSystem = utils.versionCompare(systemVersion, minimumSystemVersion) >= 0;
     const compatibleMinimumCore = utils.versionCompare(game.version, minimumCoreVersion) >= 0;
 
     const needToUpdate = newModuleVersion && compatibleSystem && compatibleMinimumCore;
