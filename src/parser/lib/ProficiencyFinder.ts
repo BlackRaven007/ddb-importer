@@ -101,6 +101,16 @@ export default class ProficiencyFinder {
     return result;
   }
 
+  static normalizeProficiencyName(name: string): string {
+    return name
+      .normalize("NFKC")
+      .replace(/[\u2018\u2019\u201B\u2032]/g, "'")
+      .replace(/[\u201C\u201D\u201F\u2033]/g, '"')
+      .replace(/[\s\u00A0]+/g, " ")
+      .trim()
+      .toLowerCase();
+  }
+
   getToolProficiencies(proficiencyArray: IProficiencyBasic[]): Record<string, I5eToolProficiency> {
     const results: Record<string, I5eToolProficiency> = {};
 
@@ -121,7 +131,10 @@ export default class ProficiencyFinder {
       : 1;
 
     const processToolProficiency = (prof: { name: string; customExpertise?: boolean; customProficiency?: boolean }) => {
-      const profMatch = allToolProficiencies.find((allProf) => allProf.name === prof.name);
+      const normalizedName = ProficiencyFinder.normalizeProficiencyName(prof.name);
+      const profMatch = allToolProficiencies.find((allProf) =>
+        ProficiencyFinder.normalizeProficiencyName(allProf.name) === normalizedName,
+      );
       if (profMatch && profMatch.baseTool) {
         const modifiers = mods
           .filter((modifier) => modifier.friendlySubtypeName === profMatch.name)

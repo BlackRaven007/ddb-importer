@@ -187,6 +187,14 @@ describe("getToolProficiencies", () => {
     expect(result.alchemist.value).toBe(2);
   });
 
+  it("matches equivalent tool names that differ only by Unicode apostrophes", () => {
+    const finder = new ProficiencyFinder();
+    const result = finder.getToolProficiencies([{ name: "Alchemist’s Supplies" }]);
+    expect(result.alchemist).toBeDefined();
+    expect(result.alchemist.value).toBe(0);
+    expect(result.alchemist.ability).toBe("int");
+  });
+
   it("ignores tools not in the dictionary", () => {
     const finder = new ProficiencyFinder();
     const result = finder.getToolProficiencies([{ name: "Imaginary Gadget" }]);
