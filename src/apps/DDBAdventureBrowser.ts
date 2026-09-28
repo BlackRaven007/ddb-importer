@@ -1,5 +1,5 @@
 import DDBAppV2 from "./DDBAppV2";
-import { logger, utils, DDBSources, Secrets } from "../lib/_module";
+import { logger, utils, DDBSources } from "../lib/_module";
 import { SETTINGS } from "../config/_module";
 import DDBAdventures from "../muncher/DDBAdventures";
 import NativeAdventureMunch from "../muncher/adventure/native/NativeAdventureMunch";
@@ -268,8 +268,6 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
 
   _buildCategoryGroups() {
     const search = this.searchTerm.trim().toLowerCase();
-    // owned===null => ownership unknown (no cobalt / lookup failed): show every
-    // book with no marks. Otherwise badge anything not in the owned set.
     const metaBooks = this._metaSummary?.books ?? null;
     const metaVersion = this._metaSummary?.version ?? null;
 
@@ -286,7 +284,6 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
           .filter(matchesSearch);
         const adventures = books
           .map((b) => {
-            const isOwned = owned === null ? null : owned.has(b.id);
             const metaBook = metaBooks?.[String(b.name).toLowerCase()] ?? null;
             const metaTooltip = metaBook ? this._buildMetaTooltipHtml(metaBook, metaVersion) : "";
             return {

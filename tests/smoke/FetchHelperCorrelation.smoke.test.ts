@@ -8,9 +8,7 @@ describe("FetchHelper correlation propagation smoke", () => {
   });
 
   it("injects x-correlation-id from DDBRunContext", async () => {
-    const fetchSpy = vi.fn<typeof fetch>(async () => 
-      Response.json({ success: true })
-    );
+    const fetchSpy = vi.fn<typeof fetch>(async () => Response.json({ success: true }));
 
     vi.stubGlobal("fetch", fetchSpy);
 
