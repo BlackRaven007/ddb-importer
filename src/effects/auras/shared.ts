@@ -33,7 +33,7 @@ function getSafeName(name: string) {
 }
 
 export async function setBasicCombatFlag(actor: Actor | Actor.Implementation, flagName: string, origin?: string) {
-  await DDBEffectHelper.setFlag(actor as unknown as Actor, flagName, {
+  await DDBEffectHelper.setFlag(actor as Actor.Implementation, flagName, {
     id: game.combat?.id ?? null,
     round: game.combat?.round ?? null,
     turn: game.combat?.turn ?? null,
@@ -69,7 +69,7 @@ async function generateDataTracker({
   spellLevel?: number;
   originDocument: Item.Implementation;
   wait?: boolean;
-  actor: Actor | null;
+  actor: Actor.Implementation | null;
 }) {
   const dataTracker = createDataTracker({ targetUuids, spellLevel });
   if (wait) await DDBEffectHelper.wait(500);
@@ -217,7 +217,7 @@ export async function checkAuraAndUseActivity({
     logger.warn(`checkAuraAndUseActivity: token ${tokenUuid} not found on canvas`);
     return;
   }
-  const targetActor = target.actor;
+  const targetActor = target.actor as Actor.Implementation | null;
   if (!targetActor) return;
   const targetTokenTrackerFlag = DDBEffectHelper.getFlag(targetActor, `${safeName}Tracker`) as IAuraTracker | undefined;
   const targetedThisCombat = targetTokenTrackerFlag && targetItemTracker.randomId === targetTokenTrackerFlag.randomId;
@@ -230,11 +230,13 @@ export async function checkAuraAndUseActivity({
       spellLevel: targetItemTracker.spellLevel,
     });
 
-  const castTurn = targetItemTracker.startRound === combat.round
-    && targetItemTracker.startTurn === combat.turn;
+  const combatRound = combat.round ?? 0;
+  const combatTurn = combat.turn ?? 0;
+  const castTurn = targetItemTracker.startRound === combatRound
+    && targetItemTracker.startTurn === combatTurn;
   // round/turn are only set on the tracker once a token has left the aura
-  const isLaterTurn = (targetTokenTracker.round !== undefined && combat.round > targetTokenTracker.round)
-    || (targetTokenTracker.turn !== undefined && combat.turn > targetTokenTracker.turn);
+  const isLaterTurn = (targetTokenTracker.round !== undefined && combatRound > targetTokenTracker.round)
+    || (targetTokenTracker.turn !== undefined && combatTurn > targetTokenTracker.turn);
 
   // if:
   // not cast turn, and not part of the original target
@@ -254,7 +256,7 @@ export async function checkAuraAndUseActivity({
       nameSuffix,
     });
   }
-  await DDBEffectHelper.setFlag(targetActor as unknown as Actor, `${safeName}Tracker`, targetTokenTracker);
+  await DDBEffectHelper.setFlag(targetActor, `${safeName}Tracker`, targetTokenTracker);
 }
 
 export async function checkAuraAndApplyCondition({
@@ -398,7 +400,7 @@ export async function removeAuraFromToken({
   targetTokenTracker.hasLeft = true;
   targetTokenTracker.turn = game.combat?.turn ?? 0;
   targetTokenTracker.round = game.combat?.round ?? 0;
-  await DDBEffectHelper.setFlag(targetToken.actor as unknown as Actor, `${safeName}Tracker`, targetTokenTracker);
+  await DDBEffectHelper.setFlag(targetActor, `${safeName}Tracker`, targetTokenTracker);
 }
 
 
@@ -430,7 +432,7 @@ export async function applyAuraToTemplate(returnArgs: any, {
     originDocument,
     targetUuids,
     spellLevel,
-    actor: originDocument.actor as unknown as Actor,
+    actor: originDocument.actor as Actor.Implementation | null,
   });
 
   const originUuid = originDocument.uuid;
@@ -440,7 +442,7 @@ export async function applyAuraToTemplate(returnArgs: any, {
   }
 
   if (isCantrip) {
-    const cantripDice = DDBEffectHelper.getCantripDice(originDocument.actor as unknown as Actor);
+    const cantripDice = DDBEffectHelper.getCantripDice(originDocument.actor as Actor.Implementation);
     returnArgs[0].spellLevel = cantripDice;
     const newEffects = returnArgs[0].item.effects.map((effect: any) => {
       effect.system.changes = effect.system.changes.map((change: any) => {
@@ -456,9 +458,11 @@ export async function applyAuraToTemplate(returnArgs: any, {
   if (applyImmediate && condition) {
     await DDBEffectHelper.wait(500);
     for (const token of failedSaveTokens) {
-      if (!DDBEffectHelper.isConditionEffectAppliedAndActive(condition, token.actor)) {
+      const tokenActor = token.actor as Actor.Implementation | null;
+      if (!tokenActor) continue;
+      if (!DDBEffectHelper.isConditionEffectAppliedAndActive(condition, tokenActor)) {
         logger.debug(`Applying ${condition} to ${token.name}`);
-        await DDBEffectHelper.adjustCondition({ add: true, conditionName: condition, actor: token.actor } as TAdjustConditionOptions);
+        await DDBEffectHelper.adjustCondition({ add: true, conditionName: condition, actor: tokenActor } as TAdjustConditionOptions);
       }
     };
   }
