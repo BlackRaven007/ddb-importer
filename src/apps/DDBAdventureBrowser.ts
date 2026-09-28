@@ -219,7 +219,6 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
     wire(".adv-opt-compendium-only", (c) => this._setCompendiumOnly(c));
     wire(".adv-opt-2024-monsters", (c) => this._set2024Monsters(c));
     wire(".adv-opt-observe-all", (c) => this._setObserveAll(c));
-    wire(".adv-opt-hide-unowned", (c) => this._setHideUnowned(c));
 
     const input = this.element.querySelector("#adventure-browser-search") as HTMLInputElement | null;
     if (!input) return;

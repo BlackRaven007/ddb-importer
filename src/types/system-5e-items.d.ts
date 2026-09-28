@@ -712,6 +712,10 @@ global {
   interface IDDBImporterFlagsEffect {
     condition?: string;
     save?: string;
+    applyImmediate?: boolean;
+    everyEntry?: boolean;
+    allowVsRemoveCondition?: boolean;
+    removeOnOff?: boolean;
     sequencerFile?: string;
     sequencerScale?: number;
     /** Activity ids a runtime automation should use from the source document. */

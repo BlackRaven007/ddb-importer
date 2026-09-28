@@ -285,6 +285,8 @@ global {
     changesOverwrite?: boolean;
     /** Changes on `token.*` keys (light, sight, detectionModes, texture...), applied natively by Foundry. */
     tokenChanges?: IActiveEffectChangeData[];
+    /** Changes on `ATL.*` keys for token art overrides. */
+    atlChanges?: IActiveEffectChangeData[];
     tokenMagicChanges?: IActiveEffectChangeData[];
     midiChanges?: IActiveEffectChangeData[];
     daeChanges?: IActiveEffectChangeData[];
