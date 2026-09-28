@@ -2,16 +2,16 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class MaskOfTheWild extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.CHECK;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       data: {
         check: {
           associated: ["ste"],
-          ability: [],
+          ability: "",
           dc: {
             calculation: "",
             formula: "",

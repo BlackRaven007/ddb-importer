@@ -2,7 +2,12 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class HurlThroughHell extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  // DDB types the 2024 action as a save without naming the ability; the 2014 feature has no save at all
+  override get type(): IDDBActivityType | null {
+    return this.is2024 ? DDBEnricherData.ACTIVITY_TYPES.SAVE : DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  override get activity(): IDDBActivityData {
     return {
       name: "Hurl Through Hell",
       activationType: "special",
@@ -11,11 +16,14 @@ export default class HurlThroughHell extends DDBEnricherData {
         range: {
           units: "spec",
         },
+        ...(this.is2024
+          ? { save: { ability: ["cha"], dc: { calculation: "spellcasting", formula: "" } } }
+          : {}),
       },
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       name: "Hurl Through Hell: Incapacitated",
       options: {
@@ -25,7 +33,7 @@ export default class HurlThroughHell extends DDBEnricherData {
     }];
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -62,7 +70,7 @@ export default class HurlThroughHell extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       uses: {
         spent: null,
@@ -72,6 +80,7 @@ export default class HurlThroughHell extends DDBEnricherData {
         ],
       },
       retainOriginalConsumption: true,
+      retainUseSpent: true,
     };
   }
 

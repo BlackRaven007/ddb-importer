@@ -1,17 +1,29 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class SpikeGrowth extends DDBEnricherData {
-  get type() {
+
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
-      name: "Place Template",
+      name: "Cast",
+      data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.difficultTerrain({ types: ["plants"] }),
+          DDBEnricherData.BehaviorHelper.activity({
+            // an entering movement also has a move-within segment, so move-in would card it twice
+            events: ["tokenMoveWithin"],
+            activityName: "Movement Damage",
+            oncePerTurn: false,
+          }),
+        ],
+      },
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -19,22 +31,41 @@ export default class SpikeGrowth extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
         },
         build: {
-          generateDamage: true,
-          generateSave: false,
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
+          generateActivation: true,
           generateConsumption: false,
+          generateTarget: true,
           noSpellslot: true,
-          onsave: false,
-          noeffect: true,
-          activationOverride: { type: "special", condition: "Moves 5ft" },
+          generateDamage: true,
           damageParts: [
             DDBEnricherData.basicDamagePart({
-              number: 2,
-              denomination: 4,
-              type: "piercing",
+              number: 2, denomination: 4, type: "piercing", scalingMode: "none", scalingNumber: null,
             }),
           ],
+          activationOverride: {
+            type: "special",
+            condition: "Moves 5 feet in the area (2d4 per 5 feet moved)",
+          },
+          targetOverride: {
+            override: true,
+            affects: {
+              count: "1",
+              type: "creature",
+            },
+            template: {},
+          },
+        },
+        overrides: {
+          data: {
+            range: {
+              override: true,
+              units: "spec",
+            },
+          },
         },
       },
     ];
   }
+
 }

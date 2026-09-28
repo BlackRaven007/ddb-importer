@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class PearlOfPower extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DDBMACRO;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Use Pearl of Power",
       addItemConsume: true,

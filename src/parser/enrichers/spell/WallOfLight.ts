@@ -2,15 +2,21 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class WallOfLight extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Place Wall",
       splitDamage: true,
       data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenTurnEnd"],
+            activityName: "Turn End Damage",
+          }),
+        ],
         target: {
           override: true,
           template: {
@@ -25,7 +31,7 @@ export default class WallOfLight extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -33,6 +39,7 @@ export default class WallOfLight extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
         },
         build: {
+          generateDuration: true,
           generateDamage: true,
           generateConsumption: false,
           generateTarget: true,
@@ -55,6 +62,7 @@ export default class WallOfLight extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.ATTACK,
         },
         build: {
+          generateDuration: true,
           generateAttack: true,
           generateDamage: true,
           generateConsumption: false,
@@ -77,7 +85,7 @@ export default class WallOfLight extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       noTemplate: true,
       data: {
@@ -88,7 +96,7 @@ export default class WallOfLight extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       name: "Blinded",
       statuses: ["Blinded"],

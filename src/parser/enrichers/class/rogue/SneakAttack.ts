@@ -1,11 +1,11 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class SneakAttack extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Sneak Attack Damage",
       targetType: "creature",
@@ -30,14 +30,13 @@ export default class SneakAttack extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Sneak Attack (Automation)",
         options: {
           transfer: true,
           durationSeconds: null,
-          durationRounds: null,
         },
         midiOnly: true,
         damageBonusMacroChanges: [
@@ -51,10 +50,26 @@ export default class SneakAttack extends DDBEnricherData {
           },
         },
       },
+      {
+        name: "Sneak Attack (Automation)",
+        ac5eOnly: true,
+        midiNever: true,
+        options: {
+          transfer: true,
+          description: "Optional once per turn extra damage with a Finesse or ranged weapon, when you have advantage or an ally is within 5 feet of the target.",
+        },
+        ac5eChanges: [
+          DDBEnricherData.ChangeHelper.ac5eChange(
+            "bonus=@scale.rogue.sneak-attack; oncePerTurn; optin; (itemProperties.fin || actionType.rwak) && (hasAdvantage || (!hasDisadvantage && checkNearby(opponentId, 'different', 5, {count: (distance <= 5 ? 2 : 1)})))",
+            20,
+            "flags.automated-conditions-5e.damage.bonus",
+          ),
+        ],
+      },
     ];
   }
 
-  get itemMacro(): IDDBItemMacro | null {
+  override get itemMacro(): IDDBItemMacro | null {
     return this.is2014
       ? {
         type: "feat",
@@ -63,7 +78,7 @@ export default class SneakAttack extends DDBEnricherData {
       : null;
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       uses: {
         "spent": 0,

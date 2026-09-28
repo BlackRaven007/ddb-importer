@@ -1,0 +1,988 @@
+import { setMockSettings } from "../../_setup/foundryMocks";
+
+beforeEach(() => setMockSettings({ "enable-ddb-macro-region-behaviors": true }));
+
+import RegionAutomations from "../../../src/effects/auras/RegionAutomations";
+import DDBEffectHelper from "../../../src/effects/DDBEffectHelper";
+import { DDBSimpleMacro } from "../../../src/lib/_module";
+
+function makeContext(handler: string, { args = {} as Record<string, unknown> } = {}): any {
+  return {
+    scene: { uuid: "Scene.s" },
+    region: { id: "reg1", uuid: "Scene.s.Region.reg1", name: "Test Region", getFlag: vi.fn() },
+    behavior: { uuid: "Scene.s.Region.reg1.RegionBehavior.b1", id: "b1" },
+    event: { name: "tokenEnter", data: { token: { id: "tok1", name: "Bob", uuid: "Scene.s.Token.tok1", actor: {} } }, region: {}, user: {} },
+    handler,
+    args,
+  };
+}
+
+describe("RegionAutomations.handleRegionEvent", () => {
+  const originalUser = (globalThis as any).game.user;
+
+  afterEach(() => {
+    (globalThis as any).game.user = originalUser;
+    delete RegionAutomations.handlers.testHandler;
+  });
+
+  it("dispatches to the registered handler on the active GM", async () => {
+    (globalThis as any).game.user = { isActiveGM: true };
+    const handler = vi.fn();
+    RegionAutomations.register("testHandler", handler);
+    const context = makeContext("testHandler");
+
+    await RegionAutomations.handleRegionEvent(context);
+
+    expect(handler).toHaveBeenCalledWith(context, RegionAutomations);
+  });
+
+  it("does nothing on clients that are not the active GM", async () => {
+    (globalThis as any).game.user = { isActiveGM: false };
+    const handler = vi.fn();
+    RegionAutomations.register("testHandler", handler);
+
+    await RegionAutomations.handleRegionEvent(makeContext("testHandler"));
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("master off blocks already-placed script handlers (add=%s)", async (add) => {
+    setMockSettings({ "enable-ddb-macro-region-behaviors": false, "add-ddb-macro-region-behaviors": add });
+    Object.assign(game, { user: { isActiveGM: true } });
+    const handler = vi.fn();
+    RegionAutomations.register("testHandler", handler);
+    await RegionAutomations.handleRegionEvent(makeContext("testHandler"));
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("keeps already-placed scripts running when only imports are off", async () => {
+    setMockSettings({ "add-ddb-macro-region-behaviors": false });
+    Object.assign(game, { user: { isActiveGM: true } });
+    const handler = vi.fn();
+    RegionAutomations.register("testHandler", handler);
+    const context = makeContext("testHandler");
+    await RegionAutomations.handleRegionEvent(context);
+    expect(handler).toHaveBeenCalledWith(context, RegionAutomations);
+  });
+
+  it("tolerates an unknown handler and a throwing handler", async () => {
+    (globalThis as any).game.user = { isActiveGM: true };
+    await expect(RegionAutomations.handleRegionEvent(makeContext("nope"))).resolves.toBeUndefined();
+    RegionAutomations.register("testHandler", () => {
+      throw new Error("boom");
+    });
+    await expect(RegionAutomations.handleRegionEvent(makeContext("testHandler"))).resolves.toBeUndefined();
+  });
+});
+
+describe("RegionAutomations enter rules", () => {
+  const originalUser = (globalThis as any).game.user;
+
+  beforeEach(() => {
+    (globalThis as any).game.user = { isActiveGM: true };
+  });
+
+  afterEach(() => {
+    (globalThis as any).game.user = originalUser;
+    delete RegionAutomations.handlers.testHandler;
+    vi.useRealTimers();
+  });
+
+  let regionCount = 0;
+
+  /**
+   * A tokenEnter under the given rule in a region of its own, so no move mark carries over from
+   * another test; `moved` marks a token's own movement into the area.
+   */
+  function enter(enterOn: string | undefined, moved: boolean): any {
+    const context = makeContext("testHandler", { args: enterOn ? { enterOn } : {} });
+    context.region = { ...context.region, uuid: `Scene.s.Region.enter${++regionCount}` };
+    if (moved) context.event.data.movement = { passed: {} };
+    return context;
+  }
+
+  it.each([undefined, "auto", "any", "movement", "movementOrArea"])("counts a token moving in under %s", (enterOn) => {
+    expect(RegionAutomations.skipsEnter(enter(enterOn, true))).toBe(false);
+  });
+
+  it("skips every enter without movement under \"movement\", a moved area included", () => {
+    const context = enter("movement", false);
+    RegionAutomations.markMoved(context.region, { shapes: [] });
+    expect(RegionAutomations.skipsEnter(context)).toBe(true);
+  });
+
+  it.each([undefined, "auto", "any"])("counts an enter without movement under %s", (enterOn) => {
+    expect(RegionAutomations.skipsEnter(enter(enterOn, false))).toBe(false);
+  });
+
+  it("never skips other events", () => {
+    const context = enter("movement", false);
+    context.event.name = "tokenTurnStart";
+    expect(RegionAutomations.skipsEnter(context)).toBe(false);
+  });
+
+  it("under \"movementOrArea\" counts an enter without movement only just after the area moved", async () => {
+    vi.useFakeTimers();
+    const handler = vi.fn();
+    RegionAutomations.register("testHandler", handler);
+
+    // the region's creation, a token created inside it: no move, so skipped
+    await RegionAutomations.handleRegionEvent(enter("movementOrArea", false));
+    expect(handler).not.toHaveBeenCalled();
+
+    // the area moved onto a token: core raises the enter a round trip after the region update
+    const moved = enter("movementOrArea", false);
+    RegionAutomations.markMoved(moved.region, { shapes: [] });
+    vi.advanceTimersByTime(RegionAutomations.MOVE_WINDOW_MS / 2);
+    await RegionAutomations.handleRegionEvent(moved);
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(RegionAutomations.MOVE_WINDOW_MS);
+    await RegionAutomations.handleRegionEvent(moved);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks only boundary changes, and only for the region that moved", () => {
+    vi.useFakeTimers();
+    const context = enter("movementOrArea", false);
+    RegionAutomations.markMoved(context.region, { name: "Renamed", flags: {} });
+    expect(RegionAutomations.skipsEnter(context)).toBe(true);
+    for (const changed of [{ shapes: [] }, { elevation: {} }, { levels: [] }]) {
+      vi.advanceTimersByTime(RegionAutomations.MOVE_WINDOW_MS * 2);
+      RegionAutomations.markMoved(context.region, changed);
+      expect(RegionAutomations.skipsEnter(context)).toBe(false);
+    }
+    const other = enter("movementOrArea", false);
+    expect(RegionAutomations.skipsEnter(other)).toBe(true);
+  });
+});
+
+describe("RegionAutomations.useActivityHandler", () => {
+  const originalUser = (globalThis as any).game.user;
+  const originalCombat = (globalThis as any).game.combat;
+  const originalModules = (globalThis as any).game.modules;
+  const originalFromUuid = (globalThis as any).fromUuid;
+
+  function makeActivity(name: string, id: string, item: any = null) {
+    const activity: any = { _id: id, name, use: vi.fn().mockResolvedValue({}) };
+    activity.item = item;
+    return activity;
+  }
+
+  function setup({
+    combat = null as any,
+    spellLevel = undefined as number | undefined,
+    itemType = "spell",
+    itemLevel = 2 as number | undefined,
+  } = {}) {
+    const placing = makeActivity("Cast", "actCast000");
+    const sibling = makeActivity("Damage", "actDamage0");
+    const activities = {
+      get: (id: string) => [placing, sibling].find((a) => a._id === id),
+      find: (fn: (a: any) => boolean) => [placing, sibling].find(fn),
+    };
+    const item = { name: "Moonbeam", type: itemType, system: { level: itemLevel, activities } };
+    placing.item = item;
+    sibling.item = item;
+
+    (globalThis as any).game.user = { isActiveGM: true, targets: [] };
+    (globalThis as any).canvas = { tokens: { setTargets: vi.fn() } };
+    (globalThis as any).game.combat = combat;
+    (globalThis as any).game.modules = { get: () => undefined };
+    (globalThis as any).fromUuid = vi.fn().mockResolvedValue(placing);
+
+    const context = makeContext("useActivity");
+    context.region.getFlag = vi.fn((_scope: string, key: string) => {
+      if (key === "activity") return "Actor.a.Item.b.Activity.actCast000";
+      if (key === "spellLevel") return spellLevel;
+      return undefined;
+    });
+    return { context, placing, sibling };
+  }
+
+  const originalWindow = RegionAutomations.GROUP_WINDOW_MS;
+
+  it("drops a waiting native batch if the master is switched off before it flushes", async () => {
+    const { context, sibling } = setup();
+    context.args = { activityName: "Damage", oncePerTurn: false };
+    const use = RegionAutomations.useActivityHandler(context);
+    setMockSettings({ "enable-ddb-macro-region-behaviors": false });
+    await use;
+    expect(sibling.use).not.toHaveBeenCalled();
+  });
+
+  // a zero window still collects everything dispatched in the same tick, which is
+  // all core's activation loop needs, without slowing every single-token test
+  beforeEach(() => {
+    RegionAutomations.GROUP_WINDOW_MS = 0;
+  });
+
+  afterEach(() => {
+    RegionAutomations.GROUP_WINDOW_MS = originalWindow;
+    (globalThis as any).game.user = originalUser;
+    (globalThis as any).game.combat = originalCombat;
+    (globalThis as any).game.modules = originalModules;
+    (globalThis as any).fromUuid = originalFromUuid;
+    vi.restoreAllMocks();
+  });
+
+  it("uses the placing activity against the event token with no consumption or dialog", async () => {
+    const { context, placing } = setup();
+
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: false,
+        // `resources`, plural, is the key dnd5e reads; unset, it defaults to every consumption target
+        consume: { action: false, resources: false, spellSlot: false },
+        scaling: 0,
+        // the spell is already up: a region tick must not re-begin concentration,
+        // which would drop and recreate the caster's effect
+        concentration: { begin: false },
+        // damage/attack activities keep their chat buttons unless autoRoll opts in
+        subsequentActions: false,
+        ddbRegionContext: {
+          regionUuid: "Scene.s.Region.reg1",
+          regionName: "Test Region",
+          sceneUuid: "Scene.s",
+          behaviorUuid: "Scene.s.Region.reg1.RegionBehavior.b1",
+          eventName: "tokenEnter",
+          tokenUuid: "Scene.s.Token.tok1",
+          args: {},
+        },
+      }),
+      { configure: false },
+      // the triggering token is recorded on the card, so Apply does not fall back
+      // to whatever is selected (usually the caster)
+      { data: { system: { targets: [expect.objectContaining({ token: "Scene.s.Token.tok1" })] } } },
+    );
+    // the recipients travel explicitly, so the GM's canvas targeting is never touched
+    expect((globalThis as any).canvas.tokens.setTargets).not.toHaveBeenCalled();
+    // no spellLevel flag on the region -> no cast-level slot key is forced
+    expect(placing.use.mock.calls[0][0].spell).toBeUndefined();
+  });
+
+  it("supports a recipient-free owner-turn card without changing canvas targets", async () => {
+    const { context, placing } = setup();
+    vi.stubGlobal("foundry", { ...foundry, utils: { ...foundry.utils, escapeHTML: (text: string) => text } });
+    context.scene.id = "originScene";
+    vi.spyOn(RegionAutomations, "getOriginToken").mockReturnValue({
+      id: "origin", name: "Owner", actor: { id: "sourceActor" },
+    } as unknown as TokenDocument);
+    try {
+      const result = await RegionAutomations.useActivityOnTokens(context, placing, { ownerTurn: true }, []);
+      expect(result).toEqual({});
+      expect(placing.use).toHaveBeenCalledWith(expect.objectContaining({
+        create: false, consume: { action: false, resources: false, spellSlot: false },
+        concentration: { begin: false }, subsequentActions: false,
+        ddbRegionContext: expect.objectContaining({ tokenUuid: null }),
+      }), { configure: false }, { data: { flavor: "Test Region", system: { targets: [] },
+        speaker: { scene: "originScene", token: "origin", actor: "sourceActor", alias: "Owner" },
+      } });
+      expect(canvas.tokens.setTargets).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("passes explicit owner-turn recipients to Midi and returns its workflow result", async () => {
+    const { context, placing } = setup();
+    vi.stubGlobal("foundry", { ...foundry, utils: { ...foundry.utils, escapeHTML: (text: string) => text } });
+    (globalThis as any).game.modules = { get: () => ({ active: true }) };
+    const workflow = { id: "workflow" };
+    const useMidi = vi.spyOn(DDBEffectHelper, "rollMidiActivityUse").mockResolvedValue(workflow);
+    expect(await RegionAutomations.useActivityOnTokens(context, placing, { ownerTurn: true }, [context.event.data.token])).toBe(workflow);
+    expect(useMidi).toHaveBeenCalledWith(placing, expect.objectContaining({
+      targets: ["Scene.s.Token.tok1"], forceAutoRolls: false,
+      extraActivityConfig: expect.objectContaining({ concentration: { begin: false } }),
+    }), { message: { data: expect.objectContaining({ flavor: "Test Region" }) } });
+    vi.unstubAllGlobals();
+    expect(canvas.tokens.setTargets).not.toHaveBeenCalled();
+  });
+
+  it("resolves a sibling activity by name and applies upcast scaling from the region flag", async () => {
+    const { context, placing, sibling } = setup({ spellLevel: 4 });
+    context.args = { activityName: "Damage" };
+
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).not.toHaveBeenCalled();
+    expect(sibling.use).toHaveBeenCalledWith(
+      // the slot key carries the cast level too: dnd5e's _prepareUsageScaling recomputes a
+      // spell's scaling from spell.slot and would otherwise clobber the passed value with 0
+      expect.objectContaining({ scaling: 2, spell: { slot: "spell4" } }),
+      { configure: false },
+      expect.objectContaining({ data: expect.anything() }),
+    );
+  });
+
+  it("does not force a slot key for a non-spell item or a cantrip", async () => {
+    const feature = setup({ spellLevel: 4, itemType: "feat", itemLevel: undefined });
+    await RegionAutomations.useActivityHandler(feature.context);
+    expect(feature.placing.use.mock.calls[0][0].spell).toBeUndefined();
+
+    const cantrip = setup({ spellLevel: 0, itemLevel: 0 });
+    await RegionAutomations.useActivityHandler(cantrip.context);
+    expect(cantrip.placing.use.mock.calls[0][0].spell).toBeUndefined();
+  });
+
+  it.each([
+    // 5e AoE-behavior filters: inclusive sizes/types, plus the ddb excludeTypes extension
+    [{ excludeTypes: ["ooze"] }, { type: { value: "ooze" } }, undefined, false],
+    [{ excludeTypes: ["ooze"] }, { type: { value: "humanoid" } }, undefined, true],
+    [{ types: ["beast", "humanoid"] }, { type: { value: "fiend" } }, undefined, false],
+    [{ types: ["beast", "humanoid"] }, { type: { value: "beast" } }, undefined, true],
+    [{ sizes: ["tiny", "sm"] }, {}, "huge", false],
+    [{ sizes: ["tiny", "sm"] }, {}, "sm", true],
+  ])("filters the triggering token: %j vs details %j size %s -> fires %s", async (filters, details, size, fires) => {
+    const { context, placing } = setup();
+    context.args = filters;
+    context.event.data.token.actor = { system: { traits: { size }, details } };
+
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).toHaveBeenCalledTimes(fires ? 1 : 0);
+  });
+
+  it("a token without an actor passes the filter check itself", () => {
+    // the handlers guard on token.actor separately; the filter stays lenient so
+    // other callers degrade no differently than before
+    expect(RegionAutomations.matchesTokenFilters({ actor: null } as any, { types: ["beast"] })).toBe(true);
+  });
+
+  it("treats omitted or empty dispositions as unfiltered, and filters a mismatch without an actor", () => {
+    const token = { actor: null, disposition: 1 } as any;
+    expect(RegionAutomations.matchesTokenFilters(token, {})).toBe(true);
+    expect(RegionAutomations.matchesTokenFilters(token, { dispositions: [] })).toBe(true);
+    expect(RegionAutomations.matchesTokenFilters(token, { dispositions: [-1] })).toBe(false);
+  });
+
+  it("only posts the activity card for an allowed disposition and does not flag rejected tokens", async () => {
+    const flags = trackFlags();
+    const { context, placing } = setup({ combat: { started: true, id: "c1", round: 1, turn: 2 } });
+    context.args = { dispositions: [-1] };
+
+    // The friendly caster and another friendly token are both outside the
+    // enemy disposition set carried by Spirit Guardians' region behavior.
+    context.event.data.token.disposition = 1;
+    await RegionAutomations.useActivityHandler(context);
+    context.event.data.token = {
+      id: "tok2", name: "Ally", uuid: "Scene.s.Token.tok2", actor: {}, disposition: 1,
+    };
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).not.toHaveBeenCalled();
+    expect(flags).toEqual({});
+
+    context.event.data.token = {
+      id: "tok3", name: "Enemy", uuid: "Scene.s.Token.tok3", actor: {}, disposition: -1,
+    };
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).toHaveBeenCalledTimes(1);
+    expect(Object.keys(flags)).toEqual(["regionreg1b1tok3Turn"]);
+  });
+
+  it("falls back to a prefix match when no activity name matches exactly", async () => {
+    // "Aura Save" resolves "Aura Save (Strength DC)" style variant families where
+    // the user deletes the ones that do not apply
+    const { context, placing, sibling } = setup();
+    sibling.name = "Damage (Strength DC)";
+    context.args = { activityName: "Damage" };
+
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).not.toHaveBeenCalled();
+    expect(sibling.use).toHaveBeenCalled();
+  });
+
+  it("autoRoll opts back into rolling via subsequent actions", async () => {
+    const { context, placing } = setup();
+    context.args = { autoRoll: true };
+
+    await RegionAutomations.useActivityHandler(context);
+
+    const config = placing.use.mock.calls[0][0];
+    expect(config.subsequentActions).toBeUndefined();
+  });
+
+  it("never suppresses subsequent actions for ddbmacro activities", async () => {
+    const { context, placing } = setup();
+    placing.type = "ddbmacro";
+
+    await RegionAutomations.useActivityHandler(context);
+
+    const config = placing.use.mock.calls[0][0];
+    expect(config.subsequentActions).toBeUndefined();
+    // the macro is handed the region's token, not whatever the GM has targeted
+    expect(config.ddbTargetUuids).toEqual(["Scene.s.Token.tok1"]);
+  });
+
+  it("auto-rolls an attack against the region's token rather than the GM's targets", async () => {
+    const { context, placing } = setup();
+    placing.type = "attack";
+    placing.use = vi.fn().mockResolvedValue({ message: { id: "msg1" } });
+    placing.rollAttack = vi.fn().mockResolvedValue([]);
+    context.args = { autoRoll: true };
+
+    await RegionAutomations.useActivityHandler(context);
+
+    // core's own roll would read game.user.targets, so it is suppressed and made explicitly
+    expect(placing.use.mock.calls[0][0].subsequentActions).toBe(false);
+    const [config, , message] = placing.rollAttack.mock.calls[0];
+    expect(message.data.system.origin).toBe("msg1");
+    expect(message.data.system.targets).toEqual([expect.objectContaining({ token: "Scene.s.Token.tok1" })]);
+    expect(config).toHaveProperty("target");
+    expect((globalThis as any).canvas.tokens.setTargets).not.toHaveBeenCalled();
+  });
+
+  it("auto-rolls damage against the region's token", async () => {
+    const { context, placing } = setup();
+    placing.type = "damage";
+    placing.use = vi.fn().mockResolvedValue({ message: { id: "msg1" } });
+    placing.rollDamage = vi.fn().mockResolvedValue([]);
+    context.args = { autoRoll: true };
+
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.rollDamage).toHaveBeenCalledWith({}, {}, {
+      data: { system: { origin: "msg1", targets: [expect.objectContaining({ token: "Scene.s.Token.tok1" })] } },
+    });
+  });
+
+  it("auto-rolls an upcast use from a clone carrying the card's scaling", async () => {
+    const { context, placing } = setup();
+    placing.type = "damage";
+    placing.id = "actCast000";
+    placing.use = vi.fn().mockResolvedValue({ message: { id: "msg1", system: { scaling: 2 } } });
+    placing.rollDamage = vi.fn().mockResolvedValue([]);
+    const scaled = { type: "damage", rollDamage: vi.fn().mockResolvedValue([]) };
+    const clone = vi.fn().mockReturnValue({ system: { activities: new Map([["actCast000", scaled]]) } });
+    placing.item.clone = clone;
+    context.args = { autoRoll: true };
+
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(clone).toHaveBeenCalledWith({ "flags.dnd5e.scaling": 2 }, { keepId: true });
+    expect(placing.rollDamage).not.toHaveBeenCalled();
+    expect(scaled.rollDamage).toHaveBeenCalledWith({}, {}, {
+      data: { system: { origin: "msg1", targets: [expect.objectContaining({ token: "Scene.s.Token.tok1" })] } },
+    });
+  });
+
+  it("passes a macro parameters override through the usage config", async () => {
+    const { context, placing } = setup();
+    context.args = { macroParameters: { save: "ddbSpellStormSa1", upcast: 2 } };
+
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).toHaveBeenCalledWith(
+      expect.objectContaining({ ddbMacroParameters: "{\"save\":\"ddbSpellStormSa1\",\"upcast\":2}" }),
+      { configure: false },
+      expect.objectContaining({ data: expect.anything() }),
+    );
+
+    context.args = { macroParameters: "already=string" };
+    await RegionAutomations.useActivityHandler(context);
+    expect(placing.use).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ddbMacroParameters: "already=string" }),
+      { configure: false },
+      expect.objectContaining({ data: expect.anything() }),
+    );
+  });
+
+  // setFlag really goes out over the socket and only lands on the actor once the
+  // update round trips, so the write is deferred here rather than applied inline
+  function trackFlags(): Record<string, any> {
+    const flags: Record<string, any> = {};
+    vi.spyOn(DDBEffectHelper, "getFlag").mockImplementation((_a: any, id: string) => flags[id]);
+    vi.spyOn(DDBEffectHelper, "setFlag").mockImplementation(async (_a: any, id: string, value: any) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      flags[id] = value;
+      return undefined as any;
+    });
+    return flags;
+  }
+
+  it("skips a token that already triggered this behavior during the current combat turn", async () => {
+    const flags = trackFlags();
+    const { context, placing } = setup({ combat: { started: true, id: "c1", round: 1, turn: 2 } });
+
+    await RegionAutomations.useActivityHandler(context);
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).toHaveBeenCalledTimes(1);
+    expect(Object.keys(flags)).toEqual(["regionreg1b1tok1Turn"]);
+  });
+
+  it("shares the limit across every event on one behavior", async () => {
+    trackFlags();
+    const combat = { started: true, id: "c1", round: 1, turn: 2 };
+    const { context, placing } = setup({ combat });
+
+    // enters the region on its own turn, then ends that turn inside it: the turn
+    // event fires after the combat document has already advanced to turn 3
+    await RegionAutomations.useActivityHandler(context);
+    combat.turn = 3;
+    context.event = { ...context.event, name: "tokenTurnEnd", data: { ...context.event.data, combat, round: 1, turn: 2 } };
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).toHaveBeenCalledTimes(1);
+
+    // and fires again on the next turn it ends there
+    combat.turn = 4;
+    context.event = { ...context.event, data: { ...context.event.data, round: 1, turn: 3 } };
+    await RegionAutomations.useActivityHandler(context);
+    expect(placing.use).toHaveBeenCalledTimes(2);
+  });
+
+  it("tracks sibling behaviors on one region independently", async () => {
+    trackFlags();
+    const { context, placing } = setup({ combat: { started: true, id: "c1", round: 1, turn: 2 } });
+
+    await RegionAutomations.useActivityHandler(context);
+
+    // Hunger of Hadar's turn-start cold damage and turn-end acid save must both land
+    const other = makeContext("useActivity");
+    other.region.getFlag = context.region.getFlag;
+    other.behavior = { uuid: "Scene.s.Region.reg1.RegionBehavior.b2", id: "b2" };
+    await RegionAutomations.useActivityHandler(other);
+
+    expect(placing.use).toHaveBeenCalledTimes(2);
+  });
+
+  it("tracks two tokens sharing one linked actor apart", async () => {
+    trackFlags();
+    const actor = {};
+    const { context, placing } = setup({ combat: { started: true, id: "c1", round: 1, turn: 2 } });
+    context.event.data.token.actor = actor;
+
+    await RegionAutomations.useActivityHandler(context);
+
+    const other = makeContext("useActivity");
+    other.region.getFlag = context.region.getFlag;
+    other.event.data.token = { id: "tok2", name: "Bob 2", uuid: "Scene.s.Token.tok2", actor };
+    await RegionAutomations.useActivityHandler(other);
+
+    expect(placing.use).toHaveBeenCalledTimes(2);
+  });
+
+  it("collapses the several events one movement raises, out of combat", async () => {
+    const flags = trackFlags();
+    const { context, placing } = setup();
+    context.event.data.movement = { id: "mv1" };
+
+    // core fires tokenEnter and tokenMoveIn back to back for a single move
+    await RegionAutomations.useActivityHandler(context);
+    context.event = { ...context.event, name: "tokenMoveIn" };
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).toHaveBeenCalledTimes(1);
+    // recorded with a null combat id, so pruneTurnFlags sweeps it at world load
+    expect(Object.values(flags)).toEqual([{ id: null, round: null, turn: null, key: "movementmv1" }]);
+
+    // a later, deliberate move back in is a new trigger
+    context.event = { ...context.event, name: "tokenEnter", data: { ...context.event.data, movement: { id: "mv2" } } };
+    await RegionAutomations.useActivityHandler(context);
+    expect(placing.use).toHaveBeenCalledTimes(2);
+  });
+
+  it("collapses concurrently dispatched events of one movement", async () => {
+    trackFlags();
+    const { context, placing } = setup({ combat: { started: true, id: "c1", round: 1, turn: 2 } });
+    context.event.data.movement = { id: "mv1" };
+    const moveIn = { ...context, event: { ...context.event, name: "tokenMoveIn" } };
+
+    // core awaits neither, so both handlers are in flight at once
+    await Promise.all([
+      RegionAutomations.useActivityHandler(context),
+      RegionAutomations.useActivityHandler(moveIn),
+    ]);
+
+    expect(placing.use).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips the token the region is attached to, whoever placed it", async () => {
+    trackFlags();
+    const { context, placing } = setup();
+    // placed from the owner's sheet (origin tokOwner) onto a companion (the event token)
+    context.region.getFlag = vi.fn((_scope: string, key: string) => {
+      if (key === "activity") return "Actor.a.Item.b.Activity.actCast000";
+      if (key === "origin") return "Scene.s.Token.tokOwner";
+      return undefined;
+    });
+    (globalThis as any).fromUuidSync = vi.fn(() => ({ id: "tokOwner", uuid: "Scene.s.Token.tokOwner" }));
+    const eventToken = context.event.data.token as { id: string };
+    (context.region as any).attachment = { token: { id: eventToken.id } };
+    context.args = { excludeSelf: true };
+
+    await RegionAutomations.useActivityHandler(context);
+    expect(placing.use).not.toHaveBeenCalled();
+
+    delete (globalThis as any).fromUuidSync;
+  });
+
+  it("skips the token the region originates from when excludeSelf is set", async () => {
+    trackFlags();
+    const { context, placing } = setup();
+    context.region.getFlag = vi.fn((_scope: string, key: string) => {
+      if (key === "activity") return "Actor.a.Item.b.Activity.actCast000";
+      if (key === "origin") return "Scene.s.Token.tok1";
+      return undefined;
+    });
+    (globalThis as any).fromUuidSync = vi.fn(() => ({ id: "tok1", uuid: "Scene.s.Token.tok1" }));
+    context.args = { excludeSelf: true };
+
+    await RegionAutomations.useActivityHandler(context);
+    expect(placing.use).not.toHaveBeenCalled();
+
+    // a different token in the same emanation still triggers
+    context.event = {
+      ...context.event,
+      data: { token: { id: "tok2", name: "Ally", uuid: "Scene.s.Token.tok2", actor: {} } },
+    };
+    await RegionAutomations.useActivityHandler(context);
+    expect(placing.use).toHaveBeenCalledTimes(1);
+
+    delete (globalThis as any).fromUuidSync;
+  });
+
+  // core raises one tokenEnter per token already inside when a behavior becomes
+  // active, from a loop that awaits nothing
+  function burst(context: any, count = 3): any[] {
+    return Array.from({ length: count }, (_unused, index) => {
+      const n = index + 1;
+      return {
+        ...context,
+        event: {
+          ...context.event,
+          data: { token: { id: `tok${n}`, name: `Token ${n}`, uuid: `Scene.s.Token.tok${n}`, actor: {} }, movement: null },
+        },
+      };
+    });
+  }
+
+  it("groups the tokens of one event burst into a single usage", async () => {
+    const { context, placing } = setup();
+
+    await Promise.all(burst(context).map((c) => RegionAutomations.useActivityHandler(c)));
+
+    expect(placing.use).toHaveBeenCalledTimes(1);
+    expect(placing.use.mock.calls[0][2]).toEqual({
+      data: {
+        system: {
+          targets: [
+            expect.objectContaining({ token: "Scene.s.Token.tok1" }),
+            expect.objectContaining({ token: "Scene.s.Token.tok2" }),
+            expect.objectContaining({ token: "Scene.s.Token.tok3" }),
+          ],
+        },
+      },
+    });
+    expect((globalThis as any).canvas.tokens.setTargets).not.toHaveBeenCalled();
+  });
+
+  it("drops filtered and origin tokens from a group and still uses the rest once", async () => {
+    const { context, placing } = setup();
+    context.region.getFlag = vi.fn((_scope: string, key: string) => {
+      if (key === "activity") return "Actor.a.Item.b.Activity.actCast000";
+      if (key === "origin") return "Scene.s.Token.tok1";
+      return undefined;
+    });
+    (globalThis as any).fromUuidSync = vi.fn(() => ({ id: "tok1", uuid: "Scene.s.Token.tok1" }));
+    context.args = { excludeSelf: true, excludeTypes: ["ooze"] };
+    const contexts = burst(context, 4);
+    contexts[1].event.data.token.actor = { system: { details: { type: { value: "ooze" } } } };
+
+    await Promise.all(contexts.map((c) => RegionAutomations.useActivityHandler(c)));
+
+    expect(placing.use).toHaveBeenCalledTimes(1);
+    expect(placing.use.mock.calls[0][2].data.system.targets.map((t: any) => t.token))
+      .toEqual(["Scene.s.Token.tok3", "Scene.s.Token.tok4"]);
+
+    delete (globalThis as any).fromUuidSync;
+  });
+
+  it("posts nothing when every token of a burst is filtered", async () => {
+    const { context, placing } = setup();
+    context.args = { dispositions: [-1] };
+
+    await Promise.all(burst(context).map((c) => RegionAutomations.useActivityHandler(c)));
+
+    expect(placing.use).not.toHaveBeenCalled();
+    expect((globalThis as any).canvas.tokens.setTargets).not.toHaveBeenCalled();
+  });
+
+  it("keeps one usage per token when the behavior opts out of grouping", async () => {
+    const { context, placing } = setup();
+    context.args = { groupTargets: false };
+
+    await Promise.all(burst(context).map((c) => RegionAutomations.useActivityHandler(c)));
+
+    expect(placing.use).toHaveBeenCalledTimes(3);
+    expect(placing.use.mock.calls.map((call: any[]) => call[2].data.system.targets.length)).toEqual([1, 1, 1]);
+  });
+
+  it("never groups a ddbmacro activity, whose macro is handed one triggering token", async () => {
+    const { context, placing } = setup();
+    placing.type = "ddbmacro";
+
+    await Promise.all(burst(context).map((c) => RegionAutomations.useActivityHandler(c)));
+
+    expect(placing.use).toHaveBeenCalledTimes(3);
+    expect(placing.use.mock.calls.map((call: any[]) => call[0].ddbRegionContext.tokenUuid))
+      .toEqual(["Scene.s.Token.tok1", "Scene.s.Token.tok2", "Scene.s.Token.tok3"]);
+  });
+
+  it("groups per behavior and per region, never across them", async () => {
+    const { context, placing } = setup();
+    const [first, second, third] = burst(context);
+    second.behavior = { uuid: "Scene.s.Region.reg1.RegionBehavior.b2", id: "b2" };
+    third.region = { ...context.region, id: "reg2" };
+
+    await Promise.all([first, second, third].map((c) => RegionAutomations.useActivityHandler(c)));
+
+    expect(placing.use).toHaveBeenCalledTimes(3);
+  });
+
+  it("starts a new group for a token that triggers after the burst was used", async () => {
+    const { context, placing } = setup();
+    const [first, second, third] = burst(context);
+
+    await Promise.all([first, second].map((c) => RegionAutomations.useActivityHandler(c)));
+    await RegionAutomations.useActivityHandler(third);
+
+    expect(placing.use).toHaveBeenCalledTimes(2);
+    expect(placing.use.mock.calls.map((call: any[]) => call[2].data.system.targets.length)).toEqual([2, 1]);
+  });
+
+  it("hands midi-qol one workflow with every grouped token as a target", async () => {
+    const { context, placing } = setup();
+    (globalThis as any).game.modules = { get: (id: string) => (id === "midi-qol" ? { active: true } : undefined) };
+    const rollMidi = vi.spyOn(DDBEffectHelper, "rollMidiActivityUse").mockResolvedValue(undefined);
+
+    await Promise.all(burst(context).map((c) => RegionAutomations.useActivityHandler(c)));
+
+    expect(placing.use).not.toHaveBeenCalled();
+    expect(rollMidi).toHaveBeenCalledTimes(1);
+    expect(rollMidi).toHaveBeenCalledWith(placing, expect.objectContaining({
+      targets: ["Scene.s.Token.tok1", "Scene.s.Token.tok2", "Scene.s.Token.tok3"],
+    }));
+  });
+
+  it("every handler call of a group rejects when the shared usage fails", async () => {
+    const { context, placing } = setup();
+    placing.use = vi.fn().mockRejectedValue(new Error("use failed"));
+
+    const results = await Promise.allSettled(burst(context).map((c) => RegionAutomations.useActivityHandler(c)));
+
+    expect(results.map((r) => r.status)).toEqual(["rejected", "rejected", "rejected"]);
+    // the batch is closed regardless, so the next trigger is not stuck behind it
+    placing.use = vi.fn().mockResolvedValue({});
+    await RegionAutomations.useActivityHandler(burst(context, 1)[0]);
+    expect(placing.use).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs concurrent batches independently without touching the GM's targets", async () => {
+    const { context, placing } = setup();
+    (globalThis as any).game.user.targets = [{ id: "gmPick" }];
+    context.args = { oncePerTurn: false };
+    // two regions firing together flush as two independent batches
+    const [first, second] = burst(context, 2);
+    second.region = { ...context.region, id: "reg2" };
+
+    let releaseFirst!: () => void;
+    placing.use = vi.fn(async () => {
+      if (placing.use.mock.calls.length === 1) await new Promise<void>((resolve) => (releaseFirst = resolve));
+      return {};
+    });
+
+    const uses = [first, second].map((c) => RegionAutomations.useActivityHandler(c));
+    // the second batch does not queue behind a first use still waiting on its rolls
+    await vi.waitFor(() => expect(placing.use).toHaveBeenCalledTimes(2));
+    releaseFirst();
+    await Promise.all(uses);
+
+    expect(placing.use.mock.calls.map((call: any[]) => call[2].data.system.targets.map((t: any) => t.token)))
+      .toEqual([["Scene.s.Token.tok1"], ["Scene.s.Token.tok2"]]);
+    expect((globalThis as any).canvas.tokens.setTargets).not.toHaveBeenCalled();
+    expect((globalThis as any).game.user.targets).toEqual([{ id: "gmPick" }]);
+  });
+
+  it("ignores the limit for an event with neither a turn nor a movement", async () => {
+    trackFlags();
+    const { context, placing } = setup();
+
+    await RegionAutomations.useActivityHandler(context);
+    await RegionAutomations.useActivityHandler(context);
+
+    expect(placing.use).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("RegionAutomations.executeMacroHandler", () => {
+  const originalUser = (globalThis as any).game.user;
+  const originalMacros = (globalThis as any).game.macros;
+  const originalFromUuid = (globalThis as any).fromUuid;
+
+  afterEach(() => {
+    (globalThis as any).game.user = originalUser;
+    (globalThis as any).game.macros = originalMacros;
+    (globalThis as any).fromUuid = originalFromUuid;
+    vi.restoreAllMocks();
+  });
+
+  function setup() {
+    (globalThis as any).game.user = { isActiveGM: true };
+    (globalThis as any).game.combat = null;
+    (globalThis as any).fromUuid = vi.fn().mockResolvedValue(null);
+    const context = makeContext("executeMacro");
+    context.region.getFlag = vi.fn(() => undefined);
+    return context;
+  }
+
+  it("routes ddb.* functions through DDBSimpleMacro with the region context in scope", async () => {
+    const context = setup();
+    context.args = { macroFunction: "ddb.generic.light", macroParameters: { darkness: true } };
+    const execute = vi.spyOn(DDBSimpleMacro, "execute").mockResolvedValue(undefined as any);
+
+    await RegionAutomations.executeMacroHandler(context);
+
+    expect(execute).toHaveBeenCalledWith("generic", "light", {},
+      expect.objectContaining({ token: "Scene.s.Token.tok1" }),
+      expect.objectContaining({
+        parameters: "{\"darkness\":true}",
+        targetUuids: ["Scene.s.Token.tok1"],
+        regionContext: expect.objectContaining({ eventName: "tokenEnter", regionUuid: "Scene.s.Region.reg1" }),
+      }));
+  });
+
+  it("does not execute a macro for a token outside the allowed dispositions", async () => {
+    const context = setup();
+    context.event.data.token.disposition = 1;
+    context.args = { macroFunction: "ddb.generic.light", dispositions: [-1] };
+    const execute = vi.spyOn(DDBSimpleMacro, "execute").mockResolvedValue(undefined as any);
+
+    await RegionAutomations.executeMacroHandler(context);
+
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("runs a Foundry macro found by name with the triggering token", async () => {
+    const context = setup();
+    context.args = { macroFunction: "My World Macro" };
+    const macro = { name: "My World Macro", execute: vi.fn() };
+    (globalThis as any).game.macros = { find: (fn: any) => [macro].find(fn) };
+
+    await RegionAutomations.executeMacroHandler(context);
+
+    expect(macro.execute).toHaveBeenCalledWith(expect.objectContaining({
+      token: "Scene.s.Token.tok1",
+      regionContext: expect.objectContaining({ eventName: "tokenEnter" }),
+    }));
+  });
+
+  it("runs a compendium macro by uuid without importing it", async () => {
+    const context = setup();
+    const uuid = "Compendium.world.macros.Macro.pack1";
+    context.args = { macroFunction: uuid };
+    const macro = { documentName: "Macro", name: "Pack Macro", execute: vi.fn() };
+    (globalThis as any).fromUuid = vi.fn(async (value: string) => (value === uuid ? macro : null));
+    (globalThis as any).game.macros = { find: () => undefined };
+
+    await RegionAutomations.executeMacroHandler(context);
+
+    expect(macro.execute).toHaveBeenCalledWith(expect.objectContaining({
+      macroLabel: uuid,
+      token: "Scene.s.Token.tok1",
+    }));
+  });
+
+  it("warns and does nothing without a macroFunction or matching macro", async () => {
+    const context = setup();
+    context.args = {};
+    await expect(RegionAutomations.executeMacroHandler(context)).resolves.toBeUndefined();
+
+    context.args = { macroFunction: "Missing Macro" };
+    (globalThis as any).game.macros = { find: () => undefined };
+    await expect(RegionAutomations.executeMacroHandler(context)).resolves.toBeUndefined();
+  });
+});
+
+describe("RegionAutomations.notifyHandler", () => {
+  const originalUser = (globalThis as any).game.user;
+  const originalUsers = (globalThis as any).game.users;
+  const originalI18n = (globalThis as any).game.i18n;
+  const originalFromUuid = (globalThis as any).fromUuid;
+  const originalChatMessage = (globalThis as any).ChatMessage;
+
+  function setup({ actor = null as any } = {}) {
+    const create = vi.fn().mockResolvedValue({});
+    (globalThis as any).ChatMessage = { create };
+    (globalThis as any).game.user = { isActiveGM: true };
+    (globalThis as any).game.users = [
+      { id: "gm1", isGM: true },
+      { id: "owner1", isGM: false },
+      { id: "other1", isGM: false },
+    ];
+    (globalThis as any).game.i18n = {
+      has: (key: string) => key === "ddb-importer.behaviors.macro.notifyMessage" || key.startsWith("ddb-importer.behaviors.macro.events."),
+      localize: (key: string) => (key.endsWith("notifyMessage") ? "{token} triggered {region} ({event})." : "Token Enter"),
+    };
+    const placing = { item: { actor }, actor };
+    (globalThis as any).fromUuid = vi.fn().mockResolvedValue(placing);
+    const context = makeContext("notify");
+    context.region.getFlag = vi.fn((_scope: string, key: string) => (key === "activity" ? "Actor.a.Item.b.Activity.c" : undefined));
+    return { context, create };
+  }
+
+  afterEach(() => {
+    (globalThis as any).game.user = originalUser;
+    (globalThis as any).game.users = originalUsers;
+    (globalThis as any).game.i18n = originalI18n;
+    (globalThis as any).fromUuid = originalFromUuid;
+    (globalThis as any).ChatMessage = originalChatMessage;
+    vi.restoreAllMocks();
+  });
+
+  it("whispers the GM and the placing actor's owners, naming the token, region and event", async () => {
+    const actor = {
+      name: "Alarm Caster",
+      testUserPermission: (user: { id: string }) => user.id === "owner1",
+    };
+    const { context, create } = setup({ actor });
+
+    await RegionAutomations.notifyHandler(context);
+
+    expect(create).toHaveBeenCalledWith({
+      content: "<p>Bob triggered Test Region (Token Enter).</p>",
+      whisper: ["gm1", "owner1"],
+      speaker: { alias: "Alarm Caster" },
+    });
+  });
+
+  it("uses a custom message and honours the shared filters", async () => {
+    const { context, create } = setup();
+    context.args = { message: "The hound barks at {token}!", excludeSelf: true, dispositions: [-1] };
+    context.event.data.token.disposition = -1;
+    context.region.getFlag = vi.fn((_scope: string, key: string) => {
+      if (key === "activity") return "Actor.a.Item.b.Activity.c";
+      if (key === "origin") return "Scene.s.Token.origin";
+      return undefined;
+    });
+    (globalThis as any).fromUuidSync = vi.fn(() => ({ id: "origin", uuid: "Scene.s.Token.origin" }));
+
+    await RegionAutomations.notifyHandler(context);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      content: "<p>The hound barks at Bob!</p>",
+      // no placing actor: GM only
+      whisper: ["gm1"],
+    }));
+
+    create.mockClear();
+    context.event.data.token.disposition = 1;
+    await RegionAutomations.notifyHandler(context);
+    expect(create).not.toHaveBeenCalled();
+  });
+});

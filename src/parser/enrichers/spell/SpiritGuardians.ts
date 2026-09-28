@@ -1,44 +1,61 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
+/**
+ * Nothing is rolled by the cast itself. The area is forced to a "radius" template, an emanation
+ * that follows the caster, and the region fires the save on entering and on the turn event each
+ * printing names. 2014: when a creature passes into the area for the first time on a turn or
+ * starts its turn there; the emanation appearing on a creature or moving onto one is not entering
+ * (enterOn "movement"). 2024: whenever the emanation enters a creature's space, including as it
+ * appears around creatures on the cast, and whenever a creature enters it or ends its turn there
+ * (enterOn "any"). The default once-per-turn gate holds a creature to one save a turn. The save
+ * targets enemies, so only hostile tokens are affected and the caster is skipped; difficult
+ * terrain for the same hostile tokens stands in for the halved Speed. Sparing chosen hostile
+ * creatures and catching neutral ones are left to the table, and the damage roll offers radiant or
+ * necrotic.
+ */
 export default class SpiritGuardians extends DDBEnricherData {
-  get type() {
+
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
       data: {
-        midiProperties: {
-          autoTargetAction: "none",
-          triggeredActivityId: "none",
-          triggeredActivityTargets: "targets",
-          triggeredActivityRollAs: "self",
-          forceDialog: false,
-          confirmTargets: "never",
-        },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.difficultTerrain(),
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter", this.is2014 ? "tokenTurnStart" : "tokenTurnEnd"],
+            activityName: "Save vs Damage",
+            excludeSelf: true,
+            // 2014: only a creature passing into the area counts; 2024: "whenever the Emanation
+            // enters a creature's space" includes it appearing around creatures as it is cast
+            enterOn: this.is2014 ? "movement" : "any",
+          }),
+        ],
       },
     };
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         system: {
           target: {
+            affects: {
+              type: "enemy",
+            },
             template: {
               type: "radius",
             },
           },
         },
-        "midi-qol": {
-          autoTarget: "none",
-        },
       },
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -46,14 +63,21 @@ export default class SpiritGuardians extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
-          generateDamage: true,
-          generateSave: true,
           generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
           generateActivation: true,
+          generateConsumption: false,
           generateTarget: true,
-          generateRange: true,
           noSpellslot: true,
-          onSave: "half",
+          generateSave: true,
+          saveOverride: {
+            ability: ["wis"],
+            dc: {
+              formula: "",
+              calculation: "spellcasting",
+            },
+          },
+          generateDamage: true,
           damageParts: [
             DDBEnricherData.basicDamagePart({
               number: 3,
@@ -63,44 +87,29 @@ export default class SpiritGuardians extends DDBEnricherData {
               scalingNumber: 1,
             }),
           ],
-          noeffect: true,
+          onSave: "half",
           activationOverride: {
             type: "special",
-            condition: "Enters or ends turn in emanation (1/turn only)",
+            condition: this.is2014
+              ? "Enters the area for the first time on a turn or starts its turn there"
+              : "Enters the Emanation for the first time on a turn or ends its turn there",
           },
-          durationOverride: {
-            units: "inst",
-            concentration: false,
-          },
-          rangeOverride: {
-            value: "15",
-            units: "ft",
-          },
+          // the region takes its dispositions from this save rather than from Cast, so this is
+          // what keeps the caster's designated allies out of it
           targetOverride: {
-            template: {},
+            override: true,
             affects: {
               count: "1",
-              type: "creature",
+              type: "enemy",
             },
-          },
-          saveOverride: {
-            ability: ["wis"],
-            dc: {
-              formula: "",
-              calculation: "spellcasting",
-            },
+            template: {},
           },
         },
         overrides: {
           data: {
-            flags: {
-              midiProperties: {
-                autoTargetAction: "none",
-                triggeredActivityId: "none",
-                triggeredActivityTargets: "targets",
-                forceDialog: false,
-                confirmTargets: "never",
-              },
+            range: {
+              override: true,
+              units: "spec",
             },
           },
         },
@@ -108,92 +117,4 @@ export default class SpiritGuardians extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
-    //   `label=Spirit Guardians (${this.is2014 ? 'Start' : 'End'} of Turn)`,
-    //   `turn=${this.is2014 ? 'start' : 'end'}`,
-    //   "damageRoll=(@spellLevel)d8",
-    //   "damageType=radiant",
-    //   "saveRemove=false",
-    //   "saveDC=@attributes.spell.dc",
-    //   "saveAbility=wis",
-    //   "saveDamage=halfdamage",
-    //   "killAnim=true",
-    // ];
-    // if (this.is2024) {
-    //   overtimeOptions.push(
-    //     "applyCondition=!flags.ddbihelpers.SpiritGuardiansCalled",
-    //     "macroToCall=function",
-    //   );
-    // }
-    return [
-      {
-        name: "Spirit Guardians",
-      },
-      {
-        activityMatch: "Cast",
-        noCreate: true,
-        aurasOnly: true,
-        changes: [
-          DDBEnricherData.ChangeHelper.customChange("/2", 20, "system.attributes.movement.all"),
-        ],
-        // midiChanges: [
-        //   DDBEnricherData.ChangeHelper.overrideChange(
-        //     overtimeOptions.join(","),
-        //     20,
-        //     "flags.midi-qol.OverTime",
-        //   ),
-        // ],
-        macroChanges: [
-          {
-            // @token
-            macroValues: "@spellLevel",
-            macroType: "spell",
-            macroName: this.is2014 ? "spiritGuardians2014.js" : "spiritGuardians2024.js",
-          },
-        ],
-        data: {
-          flags: {
-            dae: {
-              macroRepeat: "startEndEveryTurn",
-              selfTarget: true,
-              selfTargetAlways: true,
-            },
-            ActiveAuras: {
-              isAura: true,
-              aura: "Enemy",
-              radius: "15",
-              alignment: "",
-              type: "",
-              ignoreSelf: true,
-              height: false,
-              hidden: false,
-              hostile: false,
-              onlyOnce: false,
-              displayTemp: true,
-            },
-          },
-        },
-        auraeffects: {
-          applyToSelf: false,
-          bestFormula: "",
-          canStack: false,
-          collisionTypes: ["move"],
-          combatOnly: true,
-          disableOnHidden: true,
-          distanceFormula: `15`,
-          disposition: -1,
-          evaluatePreApply: true,
-          overrideName: "",
-          script: "",
-        },
-      },
-    ];
-  }
-
-  get itemMacro(): IDDBItemMacro {
-    return {
-      type: "spell",
-      name: this.is2014 ? "spiritGuardians2014.js" : "spiritGuardians2024.js",
-    };
-  }
 }

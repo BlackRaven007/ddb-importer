@@ -35,11 +35,14 @@
   </div>
   {{/each}}
   </fieldset>
-  <button data-action="parseItems" type="button" id="munch-items-start" class="munch-button"
-      {{#if cobalt}}enabled{{else}}disabled{{/if}}>Item Munch</button>
+  <div class="munch-button-row">
+    <button data-action="parseItems" type="button" id="munch-items-start" class="munch-button"
+        {{#if cobalt}}enabled{{else}}disabled{{/if}}>Item Munch</button>
+    {{> "modules/ddb-importer/handlebars/muncher/munch/source-selection.hbs"}}
+  </div>
 
   <div style="text-align:center">
-  <a href ="https://docs.ddb.19blackraven007.co.uk/docs/faqs/ddb-importer#things-i-own-on-ddb-dont-import">All my items are not importing?</a>
+  <a href ="https://docs.ddb.blackraven007.co.uk/docs/faqs/ddb-importer#things-i-own-on-ddb-dont-import">All my items are not importing?</a>
   </div>
 
 

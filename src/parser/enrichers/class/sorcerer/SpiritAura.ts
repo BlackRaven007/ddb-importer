@@ -1,34 +1,52 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
+/**
+ * Spirit Caller: a bonus action raises a 10-foot aura on the sorcerer or a
+ * willing ally (drop the emanation on that token).
+ *
+ * "Spirit Aura" places it and the region fires Maddening Whispers (enemies: Wis save or disadvantage on
+ * checks and attacks) or Bolstering Whispers (allies: advantage, no save) when
+ * a creature enters or starts its turn inside - each behavior takes the
+ * disposition of the activity it fires, so the aura can carry both.
+ */
 export default class SpiritAura extends DDBEnricherData {
 
-  get type() {
-    return DDBEnricherData.ACTIVITY_TYPES.SAVE;
+  override get type(): IDDBActivityType | null {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Spirit Aura",
       targetType: "creature",
       activationType: "bonus",
       addItemConsume: true,
       data: {
-        save: {
-          ability: ["wis"],
-          dc: {
-            calculation: "spellcasting",
-            formula: "",
-          },
-        },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter", "tokenTurnStart"],
+            enterOn: "movement",
+            activityName: "Maddening Whispers",
+          }),
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter", "tokenTurnStart"],
+            enterOn: "movement",
+            activityName: "Bolstering Whispers",
+          }),
+        ],
         range: {
           units: "self",
         },
         target: {
+          override: true,
+          affects: {
+            type: "creature",
+          },
           template: {
             type: "radius",
             size: "10",
             units: "ft",
-            count: "",
+            count: "1",
             contiguous: false,
             width: "",
             height: "",
@@ -42,8 +60,78 @@ export default class SpiritAura extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
+      {
+        init: {
+          name: "Maddening Whispers",
+          type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
+        },
+        build: {
+          generateActivation: true,
+          generateConsumption: false,
+          generateTarget: true,
+          generateSave: true,
+          saveOverride: {
+            ability: ["wis"],
+            dc: {
+              formula: "",
+              calculation: "spellcasting",
+            },
+          },
+          activationOverride: {
+            type: "special",
+            condition: "An enemy enters the aura or starts its turn there",
+          },
+          targetOverride: {
+            override: true,
+            affects: {
+              count: "1",
+              type: "enemy",
+            },
+            template: {},
+          },
+        },
+        overrides: {
+          data: {
+            range: {
+              override: true,
+              units: "spec",
+            },
+          },
+        },
+      },
+      {
+        init: {
+          name: "Bolstering Whispers",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateActivation: true,
+          generateConsumption: false,
+          generateTarget: true,
+          activationOverride: {
+            type: "special",
+            condition: "An ally enters the aura or starts its turn there",
+          },
+          targetOverride: {
+            override: true,
+            affects: {
+              count: "1",
+              type: "ally",
+            },
+            template: {},
+          },
+        },
+        overrides: {
+          data: {
+            range: {
+              override: true,
+              units: "spec",
+            },
+          },
+        },
+      },
       {
         init: {
           name: "Spend Sorcery Points to Restore Use",
@@ -71,7 +159,7 @@ export default class SpiritAura extends DDBEnricherData {
               {
                 type: "itemUses",
                 value: "3",
-                target: "sorcery-points",
+                target: "feat:sorcery-points",
                 scaling: { allowed: false, max: "" },
               },
             ],
@@ -81,30 +169,30 @@ export default class SpiritAura extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Maddening Whispers",
-        activityMatch: "Spirit Aura",
+        activityMatch: "Maddening Whispers",
         options: {
-          durationRounds: 1,
-          description: "An enemy that enters the aura or starts its turn there and fails the save has Disadvantage on ability checks and attack rolls until the end of its next turn.",
+          expiry: "targetEnd",
+          description: "Disadvantage on ability checks and attack rolls until the end of its next turn.",
         },
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.disadvantage.attack.all"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.disadvantage.ability.check.all"),
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleDisadvantageChange("attack"),
+          DDBEnricherData.ChangeHelper.ruleDisadvantageChange("check"),
         ],
       },
       {
         name: "Bolstering Whispers",
-        activityMatch: "Spirit Aura",
+        activityMatch: "Bolstering Whispers",
         options: {
-          durationRounds: 1,
-          description: "An ally that enters the aura or starts its turn there has Advantage on ability checks and attack rolls until the end of its next turn.",
+          expiry: "targetEnd",
+          description: "Advantage on ability checks and attack rolls until the end of its next turn.",
         },
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.all"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.ability.check.all"),
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("check"),
         ],
       },
     ];

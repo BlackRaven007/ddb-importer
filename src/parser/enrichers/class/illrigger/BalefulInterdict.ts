@@ -3,16 +3,17 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 /**
  * Baleful Interdict is the Illrigger's seal pool (Baleful Interdict Seals
  * scale, short rest recovery). Placing a seal spends a use and applies a
- * stackable Interdict Seal effect to the target; burning seals deals 1d6 per
- * seal burned (the player removes stacks manually).
+ * stackable Interdict Seal effect to the target; burning seals deals the Seal
+ * Damage scale (1d6, rising to 4d6 at 20th level) per seal burned (the player
+ * removes stacks manually).
  */
 export default class BalefulInterdict extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Place Seal",
       targetType: "creature",
@@ -31,7 +32,7 @@ export default class BalefulInterdict extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -69,12 +70,11 @@ export default class BalefulInterdict extends DDBEnricherData {
           activationOverride: {
             type: "special",
             value: null,
-            condition: "Burn any number of seals on the target (1d6 per seal)",
+            condition: "Burn any number of seals on the target; roll once per seal burned",
           },
           damageParts: [
             DDBEnricherData.basicDamagePart({
-              number: 1,
-              denomination: 6,
+              customFormula: "@scale.illrigger.seal-damage",
               type: "fire",
             }),
           ],
@@ -98,12 +98,11 @@ export default class BalefulInterdict extends DDBEnricherData {
           activationOverride: {
             type: "special",
             value: null,
-            condition: "Burn any number of seals on the target (1d6 per seal)",
+            condition: "Burn any number of seals on the target; roll once per seal burned",
           },
           damageParts: [
             DDBEnricherData.basicDamagePart({
-              number: 1,
-              denomination: 6,
+              customFormula: "@scale.illrigger.seal-damage",
               type: "necrotic",
             }),
           ],
@@ -117,7 +116,18 @@ export default class BalefulInterdict extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  /**
+   * Moloch's Interdiction grants Incontrovertible at 18th level: interdicted creatures have
+   * disadvantage on Wisdom and Charisma saving throws, which the seal effect carries.
+   */
+  get hasIncontrovertible(): boolean {
+    const illrigger = this.ddbParser?.ddbData?.character.classes.find((klass) => klass.definition.name === "Illrigger");
+    return (illrigger?.level ?? 0) >= 18
+      && this.hasClassFeature({ featureName: "Moloch's Interdiction", className: "Illrigger" });
+  }
+
+  override get effects(): IDDBEffectHint[] {
+    const incontrovertible = this.hasIncontrovertible;
     return [
       {
         // stackable marker for seals on the target, applied by placing or
@@ -127,12 +137,21 @@ export default class BalefulInterdict extends DDBEnricherData {
         daeStackable: "count",
         options: {
           durationSeconds: 60,
+          ...(incontrovertible
+            ? { description: "Incontrovertible: disadvantage on Wisdom and Charisma saving throws." }
+            : {}),
         },
+        changes: incontrovertible
+          ? [
+            DDBEnricherData.ChangeHelper.disadvantageAbilitySaveChange("wis"),
+            DDBEnricherData.ChangeHelper.disadvantageAbilitySaveChange("cha"),
+          ]
+          : [],
       },
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         system: {

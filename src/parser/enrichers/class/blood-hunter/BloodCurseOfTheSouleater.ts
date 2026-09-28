@@ -9,17 +9,18 @@ import _BloodCurse from "./_BloodCurse";
  */
 export default class BloodCurseOfTheSouleater extends _BloodCurse {
 
-  get curseName(): string {
+  override get curseName(): string {
     return "Blood Curse of the Souleater";
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: this.curseName,
+      useActivitySnippet: true,
       targetType: "self",
       activationType: "reaction",
       activationCondition: "A creature that isn't a construct or undead is reduced to 0 hit points within 30 feet of you",
@@ -27,7 +28,7 @@ export default class BloodCurseOfTheSouleater extends _BloodCurse {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -41,21 +42,22 @@ export default class BloodCurseOfTheSouleater extends _BloodCurse {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       ignoredConsumptionActivities: this.ignoredConsumptionActivities,
       // the 1/long rest amplify limit lives on this document, so keep it and
+      // let the Blood Maledict link be added alongside it
       retainChildUses: true,
       retainOriginalConsumption: true,
     };
   }
 
-  get effects(): IDDBEffectHint[] {
-    const changes = DDBEnricherData.allDamageTypes().map((damage) =>
-      DDBEnricherData.ChangeHelper.damageResistanceChange(damage),
-    );
-    const midiChanges = [
-      DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.midi-qol.advantage.attack.all"),
+  override get effects(): IDDBEffectHint[] {
+    const changes = [
+      ...DDBEnricherData.allDamageTypes().map((damage) =>
+        DDBEnricherData.ChangeHelper.damageResistanceChange(damage),
+      ),
+      DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
     ];
 
     return [
@@ -63,25 +65,19 @@ export default class BloodCurseOfTheSouleater extends _BloodCurse {
         name: "Souleater",
         activityMatch: this.curseName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description: "You make attacks with advantage and you have resistance to all damage.",
         },
-        daeSpecialDurations: ["turnEndSource"],
         changes,
-        midiChanges,
       },
       {
         name: "Souleater (Amplified)",
         activityMatch: this.amplifiedName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description: "You make attacks with advantage and you have resistance to all damage. You also regain an expended warlock spell slot.",
         },
-        daeSpecialDurations: ["turnEndSource"],
         changes,
-        midiChanges,
       },
     ];
   }

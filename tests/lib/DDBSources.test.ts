@@ -25,6 +25,34 @@ describe("DDBSources.getSource", () => {
   });
 });
 
+describe("DDBSources.getSourceCoverURL", () => {
+  it("returns the cover for a book that has one", () => {
+    expect(DDBSources.getSourceCoverURL(DDBSources.getSource("PHB")))
+      .toBe("https://www.dndbeyond.com/avatars/10435/389/637248131811862290.jpeg");
+  });
+
+  it("rejects the bare avatar directory DDB sends for a book with no cover", () => {
+    // 52 of the 245 shipped sources look like this, and the URL is truthy enough to render as a
+    // broken image; Critical Role is one of them
+    expect(DDBSources.getSource("CR")?.avatarURL).toBe("https://www.dndbeyond.com/avatars/");
+    expect(DDBSources.getSourceCoverURL(DDBSources.getSource("CR"))).toBeNull();
+  });
+
+  it.each([
+    ["an empty string", ""],
+    ["whitespace", "   "],
+    ["a directory with a query string", "https://www.dndbeyond.com/avatars/?v=2"],
+  ])("returns null for %s", (_label, avatarURL) => {
+    expect(DDBSources.getSourceCoverURL({ avatarURL })).toBeNull();
+  });
+
+  it("returns null for a missing source or a missing avatarURL", () => {
+    expect(DDBSources.getSourceCoverURL(null)).toBeNull();
+    expect(DDBSources.getSourceCoverURL(undefined)).toBeNull();
+    expect(DDBSources.getSourceCoverURL({})).toBeNull();
+  });
+});
+
 describe("DDBSources.getBookName", () => {
   it("returns the description for legacy and 2024 books", () => {
     expect(DDBSources.getBookName("PHB")).toBe("Player’s Handbook (2014)");
@@ -142,6 +170,49 @@ describe("DDBSources.getChosenSourceIdSet", () => {
   });
 });
 
+describe("DDBSources.getBookFilter", () => {
+  // PHB (2) sits in category 26, EGtW (59) in category 2
+  const bookFilter = (overrides: Record<string, unknown> = {}) => {
+    setMockSettings({
+      "munching-policy-muncher-included-source-categories": [26],
+      "munching-policy-use-source-filter": true,
+      "munching-policy-muncher-sources": [2],
+      ...overrides,
+    });
+    return DDBSources.getBookFilter();
+  };
+
+  it("is inert while the filter is off, but still exposes the raw selection", () => {
+    expect(bookFilter({ "munching-policy-use-source-filter": false })).toEqual({
+      enabled: false, selected: [2], effective: [], ignored: [],
+    });
+  });
+
+  it("keeps books inside the included categories", () => {
+    expect(bookFilter()).toEqual({ enabled: true, selected: [2], effective: [2], ignored: [] });
+  });
+
+  it("ignores a selection made entirely of books outside the included categories", () => {
+    expect(bookFilter({ "munching-policy-muncher-included-source-categories": [2] })).toEqual({
+      enabled: true, selected: [2], effective: [], ignored: [2],
+    });
+  });
+
+  it("splits a mixed selection", () => {
+    expect(bookFilter({
+      "munching-policy-muncher-included-source-categories": [2],
+      "munching-policy-muncher-sources": [2, 59],
+    })).toEqual({ enabled: true, selected: [2, 59], effective: [59], ignored: [2] });
+  });
+
+  it("no longer empties the chosen book set when the selection is ineffective", () => {
+    bookFilter({ "munching-policy-muncher-included-source-categories": [21] });
+    const ids = DDBSources.getChosenSourceIdSet({ includeCore: false });
+    expect(ids.has(238)).toBe(true);
+    expect(ids.has(239)).toBe(true);
+  });
+});
+
 describe("DDBSources.isDefinitionInSourceIds", () => {
   it("matches when any source is allowed", () => {
     const definition: IDDBSourcesDefinition = { sources: [makeSource(238), makeSource(2)] };
@@ -161,14 +232,14 @@ describe("DDBSources.isDefinitionInSourceIds", () => {
   });
 });
 
-describe("DDBSources.groupByPrimarySourceId", () => {
+describe("DDBSources.groupBySourceIds", () => {
   const entry = (name: string, sourceIds: number[]) => ({
     name,
     definition: { name, sources: sourceIds.map((id) => makeSource(id)) },
   });
 
-  it("buckets entries by their first source", () => {
-    const grouped = DDBSources.groupByPrimarySourceId(
+  it("buckets entries by source", () => {
+    const grouped = DDBSources.groupBySourceIds(
       [entry("Fireball", [2]), entry("Shield", [2]), entry("Toll the Dead", [3])],
       (spell) => spell.definition,
     );
@@ -177,14 +248,24 @@ describe("DDBSources.groupByPrimarySourceId", () => {
     expect(grouped.get(3)?.map((spell) => spell.name)).toEqual(["Toll the Dead"]);
   });
 
-  it("keeps buckets disjoint for a reprinted entry", () => {
-    const grouped = DDBSources.groupByPrimarySourceId([entry("Fireball", [2, 145])], (spell) => spell.definition);
-    expect([...grouped.keys()]).toEqual([2]);
-    expect(grouped.get(145)).toBeUndefined();
+  it("files a reprinted entry under every source it lists", () => {
+    const grouped = DDBSources.groupBySourceIds([entry("Fireball", [2, 145])], (spell) => spell.definition);
+    expect([...grouped.keys()].sort((a, b) => a - b)).toEqual([2, 145]);
+    expect(grouped.get(2)?.map((spell) => spell.name)).toEqual(["Fireball"]);
+    expect(grouped.get(145)?.map((spell) => spell.name)).toEqual(["Fireball"]);
+  });
+
+  it("buckets an entry once per source even when a source is listed twice", () => {
+    const duplicated = {
+      name: "Shield",
+      definition: { name: "Shield", sources: [makeSource(2, 1), makeSource(2, 2)] },
+    };
+    const grouped = DDBSources.groupBySourceIds([duplicated], (spell) => spell.definition);
+    expect(grouped.get(2)).toHaveLength(1);
   });
 
   it("collects entries with no source data instead of dropping them", () => {
-    const grouped = DDBSources.groupByPrimarySourceId(
+    const grouped = DDBSources.groupBySourceIds(
       [entry("Homebrew Bolt", []), { name: "No definition", definition: undefined }],
       (spell) => spell.definition,
     );
@@ -192,10 +273,11 @@ describe("DDBSources.groupByPrimarySourceId", () => {
       .toEqual(["Homebrew Bolt", "No definition"]);
   });
 
-  it("round trips every entry exactly once", () => {
+  it("loses no entry, and gives every listed source a bucket", () => {
     const entries = [entry("A", [2]), entry("B", [2, 3]), entry("C", [3]), entry("D", [])];
-    const grouped = DDBSources.groupByPrimarySourceId(entries, (spell) => spell.definition);
-    expect([...grouped.values()].flat()).toHaveLength(entries.length);
+    const grouped = DDBSources.groupBySourceIds(entries, (spell) => spell.definition);
+    expect([...grouped.keys()].sort((a, b) => a - b)).toEqual([DDBSources.UNKNOWN_SOURCE_ID, 2, 3]);
+    expect(new Set([...grouped.values()].flat()).size).toBe(entries.length);
   });
 });
 

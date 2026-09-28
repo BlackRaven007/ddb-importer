@@ -2,15 +2,15 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class MaraudersReprisal extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.isAction ? DDBEnricherData.ACTIVITY_TYPES.HEAL : DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     if (!this.isAction) return {};
     return {
       targetType: "self",

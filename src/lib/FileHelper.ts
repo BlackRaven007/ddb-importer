@@ -2,7 +2,23 @@ import logger from "./Logger";
 import utils from "./Utils";
 import DDBProxy from "./DDBProxy";
 
-const FPClass = foundry.applications.apps.FilePicker.implementation;
+
+type TFPClass = typeof foundry.applications.apps.FilePicker.implementation;
+function getFPClass(): TFPClass {
+  return foundry.applications.apps.FilePicker.implementation;
+}
+
+// the zip.js vendor library is attached to the window as a global
+type TZipWriterWindow = typeof globalThis.window & {
+  zip: {
+    ZipWriter: new (writer: unknown) => {
+      add: (name: string, reader: unknown) => Promise<unknown>;
+      close: () => Promise<Blob>;
+    };
+    BlobWriter: new (mimeType: string) => unknown;
+    TextReader: new (text: string) => unknown;
+  };
+};
 
 interface ParsedDirectory {
   activeSource: string;
@@ -39,6 +55,20 @@ export class FileHelper {
     a.click();
   }
 
+  /**
+   * Bundle generated files into a single zip and download that.
+   */
+  static async downloadZip(files: { name: string; content: string }[], zipName: string) {
+    const zipApi = (globalThis.window as TZipWriterWindow).zip;
+    if (!zipApi?.ZipWriter) throw new Error("zip.js is not loaded, cannot build a zip");
+    const zipWriter = new zipApi.ZipWriter(new zipApi.BlobWriter("application/zip"));
+    for (const file of files) {
+      await zipWriter.add(file.name, new zipApi.TextReader(file.content));
+    }
+    const blob = await zipWriter.close();
+    FileHelper.download(blob, zipName, "application/zip");
+  }
+
   static addFileToKnown(parsedDir: ParsedDirectory, file: string) {
     if (!file) return;
     CONFIG.DDBI.KNOWN.FILES.add(file);
@@ -67,7 +97,7 @@ export class FileHelper {
   static async doesDirExist(directoryPath: string) {
     const dir = FileHelper.parseDirectory(directoryPath);
     try {
-      await FPClass.browse(dir.activeSource, dir.current, {
+      await getFPClass().browse(dir.activeSource, dir.current, {
         bucket: dir.bucket ?? undefined,
       });
       return true;
@@ -84,11 +114,11 @@ export class FileHelper {
     logger.verbose(`Checking for files in ${parsedDir.fullPath}...`, parsedDir);
 
     try {
-      const fileList = await FPClass.browse(parsedDir.activeSource, parsedDir.current, {
+      const fileList = await getFPClass().browse(parsedDir.activeSource, parsedDir.current, {
         bucket: parsedDir.bucket,
         // recursive is real but not in the types
         recursive: true,
-      } as unknown as Parameters<typeof FPClass.browse>[2]);
+      } as unknown as Parameters<TFPClass["browse"]>[2]);
       FileHelper.fileExistsUpdate(parsedDir, fileList.files);
       FileHelper.dirExistsUpdate(fileList.dirs);
       // lets do some forge fun because
@@ -303,42 +333,20 @@ export class FileHelper {
     const urlEncode = utils.getSetting<boolean>("cors-encode");
     const stripProtocol = utils.getSetting<boolean>("cors-strip-protocol");
     const corsPathPrefix = utils.getSetting<string>("cors-path-prefix");
-    const originalUrlWithoutQuery = originalUrl.split("?")[0];
+    let url = originalUrl.split("?")[0];
 
     try {
       const proxyEndpoint = DDBProxy.getCORSProxy();
-      const fiddledUrl = stripProtocol ? originalUrlWithoutQuery.replace(/^https:\/\//, corsPathPrefix) : `${corsPathPrefix}${originalUrlWithoutQuery}`;
+      const fiddledUrl = stripProtocol ? url.replace(/^https:\/\//, corsPathPrefix) : `${corsPathPrefix}${url}`;
       const target = urlEncode ? encodeURIComponent(fiddledUrl) : fiddledUrl;
-      const candidateUrls = [] as string[];
-
-      if (useProxy) {
-        candidateUrls.push(`${proxyEndpoint}${target}`);
-      }
-      candidateUrls.push(originalUrlWithoutQuery);
-
-      let lastError: unknown;
-      for (const candidateUrl of candidateUrls) {
-        try {
-          const data = await FileHelper.downloadImage(candidateUrl);
-          // hack as proxy returns ddb access denied as application/xml
-          if (data.type === "application/xml") {
-            lastError = new Error(`Remote image fetch returned XML for ${candidateUrl}`);
-            continue;
-          }
-          const result = await FileHelper.uploadImage(data, targetDirectory, filename + "." + ext);
-          FileHelper.addFileToKnown(FileHelper.parseDirectory(targetDirectory), result);
-          CONFIG.DDBI.KNOWN.LOOKUPS.set(`${targetDirectory}/${baseFilename}`, result);
-          return result;
-        } catch (error) {
-          lastError = error;
-          logger.warn(`Image upload failed for ${candidateUrl}`, error);
-        }
-      }
-
-      const fallbackMessage = `Image upload failed. Please check your ddb-importer upload folder setting. ${originalUrl}`;
-      logger.error(fallbackMessage, lastError);
-      ui.notifications.warn(fallbackMessage);
-      return null;
+      url = useProxy ? proxyEndpoint + target : url;
+      const data = await FileHelper.downloadImage(url);
+      // hack as proxy returns ddb access denied as application/xml
+      if (data.type === "application/xml") return null;
+      const result = await FileHelper.uploadImage(data, targetDirectory, filename + "." + ext);
+      FileHelper.addFileToKnown(FileHelper.parseDirectory(targetDirectory), result);
+      CONFIG.DDBI.KNOWN.LOOKUPS.set(`${targetDirectory}/${baseFilename}`, result);
+      return result;
     } catch (error) {
       logger.error("Image upload error", error);
       ui.notifications.warn(`Image upload failed. Please check your ddb-importer upload folder setting. ${originalUrl}`);
@@ -445,19 +453,19 @@ export class FileHelper {
       const imageExists = await FileHelper.fileExists(uploadDirectory, filename + "." + ext);
 
       if (imageExists && !force) {
+        // const image = await FileHelper.getFileUrl(uploadDirectory, filename + "." + ext);
         const image = CONFIG.DDBI.KNOWN.LOOKUPS.get(`${uploadDirectory}/${filename}.${ext}`);
-        if (image) return image.trim();
-      }
-
-      const image = await FileHelper.uploadRemoteImage(imageUrl, uploadDirectory, filename);
-      if (image) {
         return image.trim();
-      }
+      } else {
+        const image = await FileHelper.uploadRemoteImage(imageUrl, uploadDirectory, filename);
+        // did upload succeed? if not fall back to remote image path
+        if (image) {
+          return image.trim();
+        } else {
+          return null;
+        }
 
-      if (remoteImage) {
-        return imageUrl.trim();
       }
-      return null;
     } else if (imageUrl && remoteImage) {
       try {
         return imageUrl.trim();
@@ -493,7 +501,7 @@ export class FileHelper {
     if (typeof ForgeVTT !== "undefined" && ForgeVTT?.usingTheForge) {
       return FileHelper.forgeCreateDirectory(target);
     }
-    return FPClass.createDirectory(source, target, options);
+    return getFPClass().createDirectory(source, target, options);
   }
 
   /**
@@ -550,7 +558,7 @@ export class FileHelper {
 
   static async uploadToPath(path: string, file: File): Promise<FilePicker.UploadReturn> {
     const options = FileHelper.parseDirectory(path);
-    return FPClass.upload(options.activeSource, options.current, file, { bucket: options.bucket }, { notify: false });
+    return getFPClass().upload(options.activeSource, options.current, file, { bucket: options.bucket }, { notify: false });
   }
 
   static parseDirectory(str: string): ParsedDirectory {

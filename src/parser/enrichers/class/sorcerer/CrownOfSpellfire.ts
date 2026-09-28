@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class CrownOfSpellfire extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.ENCHANT;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       activationType: "special",
       targetType: "self",
@@ -64,7 +64,7 @@ export default class CrownOfSpellfire extends DDBEnricherData {
     };
   }
 
-  get hdActivities() {
+  get hdActivities(): IDDBAdditionalActivity[] {
     const base = [this.getSkeleton(6)] as IDDBAdditionalActivity[];
 
     const hitDiceSize = this.ddbParser.isMuncher
@@ -81,7 +81,7 @@ export default class CrownOfSpellfire extends DDBEnricherData {
     return base;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     const results: IDDBAdditionalActivity[] = this.hdActivities as IDDBAdditionalActivity[];
     results.push(
       {
@@ -125,7 +125,7 @@ export default class CrownOfSpellfire extends DDBEnricherData {
               {
                 type: "itemUses",
                 value: "5",
-                target: "sorcery-points",
+                target: "feat:sorcery-points",
                 scaling: { mode: "", formula: "" },
               },
             ],
@@ -136,12 +136,15 @@ export default class CrownOfSpellfire extends DDBEnricherData {
     return results;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Crown of Spellfire (Flight)",
+        // a rider stays inert on the feature until the enchantment copies it, and the copy must
+        // transfer to reach the actor
+        options: { transfer: true },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("60", 2, "system.attributes.movement.fly"),
+          DDBEnricherData.ChangeHelper.upgradeChange("60", 2, "system.attributes.movement.speeds.fly"),
           DDBEnricherData.ChangeHelper.overrideChange("true", 2, "system.attributes.movement.hover"),
         ],
         data: {
@@ -170,7 +173,7 @@ export default class CrownOfSpellfire extends DDBEnricherData {
 
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     const uses = this._getUsesWithSpent({
       type: "class",
       name: "Infuse Spellfire",

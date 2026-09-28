@@ -2,6 +2,7 @@ import { logger } from "../../../lib/_module";
 import { SUMMONS_ACTOR_STUB } from "./_data";
 import DDBCompanionMixin from "../DDBCompanionMixin";
 
+// const ELRITCH_CANNON_ABILITY_STUB = {
 //   id: 1,
 //   entityTypeId: 1120657896,
 //   limitedUse: null,
@@ -184,6 +185,7 @@ export async function getEldritchCannons2024({
   };
 
 
+  // console.warn("EldritchCannon result", results);
   logger.verbose("Eldritch Cannon results", results);
   return results;
 }

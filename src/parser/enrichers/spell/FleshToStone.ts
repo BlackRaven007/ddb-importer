@@ -2,22 +2,23 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class FleshToStone extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
         overrides: {
           name: "Save (no spellslot)",
+          data: { duration: { override: true, units: "inst", concentration: false } },
           activationType: "special",
           removeSpellSlotConsume: true,
           noConsumeTargets: true,
@@ -26,13 +27,25 @@ export default class FleshToStone extends DDBEnricherData {
     ];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return this.useMidiAutomations;
   }
 
 
-  get effects(): IDDBEffectHint[] {
-    return [
+  override get effects(): IDDBEffectHint[] {
+    const effects: IDDBEffectHint[] = [];
+    if (!this.is2014) {
+      effects.push({
+        name: "Unable to Move",
+        activityMatch: "Cast",
+        onSave: true,
+        changes: [
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0", 20),
+        ],
+        options: { expiry: "sourceStart" },
+      });
+    }
+    effects.push(
       {
         name: "Flesh to Stone (Automation)",
         activityMatch: "Cast",
@@ -43,8 +56,8 @@ export default class FleshToStone extends DDBEnricherData {
         ],
         options: {
           durationSeconds: 60,
+          expiry: "turnStart",
         },
-        daeSpecialDurations: [],
         data: {
           flags: {
             dae: {
@@ -53,10 +66,11 @@ export default class FleshToStone extends DDBEnricherData {
           },
         },
       },
-    ];
+    );
+    return effects;
   }
 
-  get itemMacro(): IDDBItemMacro {
+  override get itemMacro(): IDDBItemMacro {
     return {
       type: "spell",
       name: "fleshToStone.js",

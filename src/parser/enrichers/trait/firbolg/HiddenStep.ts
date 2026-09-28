@@ -2,27 +2,27 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class HiddenStep extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "bonus",
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Hidden Step",
         statuses: ["Invisible"],
         options: {
-          durationRounds: 1,
+          expiry: "sourceStart",
           description: "You are Invisible until the start of your next turn, or until you attack, deal damage, or force a saving throw.",
         },
-        daeSpecialDurations: ["turnStartSource", "1Attack"],
+        daeSpecialDurations: ["1Attack"],
       },
     ];
   }

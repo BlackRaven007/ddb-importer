@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class CurlUp extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Quill Retaliation",
       targetType: "creature",
@@ -22,7 +22,7 @@ export default class CurlUp extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -37,7 +37,7 @@ export default class CurlUp extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Curled Up",
@@ -46,9 +46,9 @@ export default class CurlUp extends DDBEnricherData {
           description: "AC 19 (no Dexterity bonus, shields allowed); you cannot move, attack, or cast spells with somatic components. If hit you are knocked prone at the end of the turn.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.overrideChange("flat", 50, "system.attributes.ac.calc"),
-          DDBEnricherData.ChangeHelper.overrideChange("19", 50, "system.attributes.ac.flat"),
-          DDBEnricherData.ChangeHelper.multiplyChange("0", 50, "system.attributes.movement.walk"),
+          // a formula rather than an override so shields still stack ("shields allowed")
+          DDBEnricherData.ChangeHelper.acFormulaAddChange("19", 50),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0", 50),
         ],
       },
     ];

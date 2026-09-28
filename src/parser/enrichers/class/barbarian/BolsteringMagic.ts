@@ -2,17 +2,17 @@ import Generic from "../Generic";
 
 export default class BolsteringMagic extends Generic {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.isAction ? Generic.ACTIVITY_TYPES.NONE : Generic.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Bolstering Magic",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return this.isAction
       ? []
       : [
@@ -50,18 +50,18 @@ export default class BolsteringMagic extends Generic {
       ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return this.isAction
       ? [
         {
           name: "Bolstering Magic",
           activityMatch: "Bolstering Magic",
           changes: [
-            Generic.ChangeHelper.addChange("1d3", 20, "system.bonuses.abilities.check"),
-            Generic.ChangeHelper.addChange("1d3", 20, "system.bonuses.msak.attack"),
-            Generic.ChangeHelper.addChange("1d3", 20, "system.bonuses.mwak.attack"),
-            Generic.ChangeHelper.addChange("1d3", 20, "system.bonuses.rsak.attack"),
-            Generic.ChangeHelper.addChange("1d3", 20, "system.bonuses.rwak.attack"),
+            Generic.ChangeHelper.addChange("1d3", 20, "system.rolls.ability.check.bonus"),
+            Generic.ChangeHelper.addChange("1d3", 20, "system.rolls.attack.msak.bonus"),
+            Generic.ChangeHelper.addChange("1d3", 20, "system.rolls.attack.mwak.bonus"),
+            Generic.ChangeHelper.addChange("1d3", 20, "system.rolls.attack.rsak.bonus"),
+            Generic.ChangeHelper.addChange("1d3", 20, "system.rolls.attack.rwak.bonus"),
           ],
           options: {
             durationSeconds: 600,
@@ -71,7 +71,7 @@ export default class BolsteringMagic extends Generic {
       : [];
   }
 
-  get addToDefaultAdditionalActivities() {
+  override get addToDefaultAdditionalActivities(): boolean {
     return true;
   }
 

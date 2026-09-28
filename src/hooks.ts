@@ -15,8 +15,11 @@ import { itemSheets } from "./hooks/ready/items";
 import checkVersion from "./hooks/ready/checkVersion";
 import { loadDDBConfig } from "./hooks/ready/ddbConfig";
 import { anchorInjection } from "./hooks/ready/anchorInjection";
-import { setupUpdateCreatedOrigins } from "./hooks/ready/originFixing";
+// import { setupUpdateCreatedOrigins } from "./hooks/ready/originFixing";
+import { pruneRegionTurnFlags } from "./hooks/ready/pruneRegionFlags";
 import DDBEffectHooks from "./hooks/init/DDBEffectHooks";
+import addRegionBehaviorHooks from "./hooks/regionBehaviors/loadBehaviors";
+import { setupRegionDisplayProfiles } from "./hooks/canvas/regionDisplaySetup";
 
 // monster muncher
 import { earlySettings } from "./hooks/init/settings";
@@ -39,6 +42,9 @@ import { registerTokenizer2FrameLoader } from "./hooks/init/tokenizer2Frames";
 import welcomeMessage from "./hooks/ready/welcomeMessage";
 import { migration } from "./hooks/ready/migraton";
 import { multiSelectHover } from "./hooks/ready/multiSelectHover";
+import { registerIconBrowserShiftClick } from "./hooks/ready/iconBrowserShiftClick";
+import { DDBToolProficiencies, RegionDisplayProfiles } from "./lib/_module";
+import RegionBehaviorSettings from "./lib/RegionBehaviorSettings";
 // import { createStorage } from "./hooks/ready/storage";
 
 // foundry is initializing
@@ -50,6 +56,9 @@ export function init() {
   chatHooks();
   adventureImporter();
   DDBEffectHooks.loadHooks();
+  addRegionBehaviorHooks();
+  // after earlySettings(): the region display master switch is an early setting
+  setupRegionDisplayProfiles();
   registerCustomEnrichers();
   addActivitiesHooks();
   addTattooConsumable();
@@ -57,8 +66,18 @@ export function init() {
   logger.info("Init complete");
 }
 
+// foundry has localized the system config, but nothing has rendered yet
+export function setup() {
+  DDBToolProficiencies.registerDictionaryTools();
+  RegionDisplayProfiles.markSettled();
+  logger.info("Setup complete");
+}
+
 // foundry is ready
 export async function onceReady() {
+  await RegionBehaviorSettings.migrate().catch((error: unknown) => {
+    logger.warn("Unable to copy the region import setting; it will be retried on the next load", { error });
+  });
   // register the game settings
   await registerGameSettings();
 
@@ -68,10 +87,15 @@ export async function onceReady() {
   await checkCompendiums();
   DDBEnhancers.loadEnhancers();
   multiSelectHover();
+  registerIconBrowserShiftClick();
 
   // notifications
   Notifications.registerNotifications();
   await loadDDBConfig();
+
+  // after loadDDBConfig, which is what puts CONFIG.DDB in place: the stub tool items
+  // take their descriptions from CONFIG.DDB.tools
+  await DDBToolProficiencies.syncCompendiumItems();
 
   await migration();
 
@@ -81,8 +105,9 @@ export async function onceReady() {
     // register the D&DBeyond Button on the character sheets
     registerSheets();
     itemSheets();
-    setupUpdateCreatedOrigins();
+    // setupUpdateCreatedOrigins();
     activateUpdateHooks();
+    pruneRegionTurnFlags();
   }, 500);
 
   anchorInjection();
@@ -100,6 +125,27 @@ export const renderCompendiumTab: Hooks.Function<"renderCompendiumDirectory"> = 
 
 export const getSceneControlButtons: Hooks.Function<"getSceneControlButtons"> = (controls) => {
   addStickerBrowserControl(controls);
+};
+
+// Hooks.callAll is synchronous, so nothing awaits these: they have to swallow their own
+// errors, and a compendium problem must not surface as an import failure.
+function syncToolCompendiumItems(after: string) {
+  DDBToolProficiencies.syncCompendiumItems().catch((error: unknown) => {
+    logger.warn(`Unable to sync D&D Beyond tool compendium items after ${after}`, { error });
+  });
+}
+
+// a munch may have brought in real items for tools we only had stubs for
+// so relink and clear the stubs out
+export const itemsCompendiumUpdateComplete: Hooks.Function<"ddb-importer.itemsCompendiumUpdateComplete"> = () => {
+  syncToolCompendiumItems("an item import");
+};
+
+// an imported character may have registered custom tools that have no compendium item yet.
+// The tools are already in DDBToolProficiencies.registered from parse time, so this only
+// needs to trigger the write.
+export const characterProcessDataComplete: Hooks.Function<"ddb-importer.characterProcessDataComplete"> = () => {
+  syncToolCompendiumItems("a character import");
 };
 
 export const renderJournalSheet: Hooks.Function<"renderJournalPageSheet"> = (sheet, html, data) => {
@@ -122,4 +168,3 @@ export const renderJournalEntryPageSheet: Hooks.Function<"renderJournalEntryPage
     adventureFlags(sheet, html, data);
   }
 };
-

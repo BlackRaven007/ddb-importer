@@ -1,7 +1,7 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class RingOfTheRam extends DDBEnricherData {
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -21,7 +21,7 @@ export default class RingOfTheRam extends DDBEnricherData {
         },
         overrides: {
           addScalingMode: "amount",
-          addConsumptionScalingMax: "3",
+          addConsumptionScalingMax: "min(3, @item.uses.value)",
         },
       },
     ];

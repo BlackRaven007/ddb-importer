@@ -68,8 +68,9 @@ DDBCharacter.prototype.getCustomSkillAbility = function getCustomSkillAbility(th
     );
     if (customAbility) {
       const ability = DICTIONARY.actor.abilities.find((ability) => ability.id == customAbility.value);
-      if (ability)
+      if (ability) {
         mod = ability.value;
+      }
     }
   }
   return mod;
@@ -184,10 +185,10 @@ DDBCharacter.prototype._generateCustomSkills = async function _generateCustomSki
             ability: value.ability,
             value: prof,
             bonuses: {
-              "check": `${parseInt(checkBonus) === 0 ? "" : checkBonus}`,
               "passive": "",
             },
             roll: {
+              bonus: `${parseInt(checkBonus) === 0 ? "" : checkBonus}`,
               min: null,
               max: null,
               mode: 0,
@@ -263,10 +264,10 @@ DDBCharacter.prototype._generateSkills = async function _generateSkills(this: DD
       value: proficient,
       ability: ability,
       bonuses: {
-        check: `${skillBonus === 0 ? "" : skillBonus}`,
         passive: passiveBonus === 0 ? "" : String(passiveBonus),
       },
       roll: {
+        bonus: `${skillBonus === 0 ? "" : skillBonus}`,
         min: null,
         max: null,
         mode: 0,

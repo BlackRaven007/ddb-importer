@@ -202,8 +202,8 @@ function weaponAttack(caster, sourceItemData, origin, target) {
             _id: effectId,
             changes: [DDBImporter.lib.DDBMacros.generateMacroChange({ macroType: "spell", macroName: "greenFlameBlade.js", document: { name: weaponCopy.name } })],
             disabled: false,
-            // duration: { turns: 0 },
-            duration: { turns: 1 },
+            // the flame leaps on the hit made this turn
+            duration: { value: null, units: "seconds", expiry: "turnEnd" },
             img: sourceItemData.img,
             name: sourceItemData.name,
             origin,
@@ -237,6 +237,7 @@ function weaponAttack(caster, sourceItemData, origin, target) {
           attackItem.prepareFinalAttributes();
           const [config, options] = DDBImporter.EffectHelper.syntheticItemWorkflowOptions({ targets: [target.uuid] });
           const result = await MidiQOL.completeItemUse(attackItem, config, options);
+          // console.warn("HERE6", {weaponCopy, sourceItemData, attackItem, options, result})
         },
       },
       Cancel: {

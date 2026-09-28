@@ -9,19 +9,19 @@ import _BloodCurse from "./_BloodCurse";
  */
 export default class BloodCurseOfTheHowl extends _BloodCurse {
 
-  get curseName(): string {
+  override get curseName(): string {
     return "Blood Curse of the Howl";
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get clearAutoEffects(): boolean {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: this.curseName,
       targetType: "creature",
@@ -47,7 +47,7 @@ export default class BloodCurseOfTheHowl extends _BloodCurse {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -67,17 +67,15 @@ export default class BloodCurseOfTheHowl extends _BloodCurse {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Howl",
         activitiesMatch: [this.curseName, this.amplifiedName],
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description: "You are frightened of the blood hunter. If you failed the saving throw by 5 or more, you are also stunned while frightened in this way. On a success you are immune to this blood curse for the next 24 hours.",
         },
-        daeSpecialDurations: ["turnEndSource"],
         statuses: ["Frightened"],
       },
     ];

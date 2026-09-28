@@ -10,6 +10,7 @@ DDBCharacter.prototype._generateInitiative = function _generateInitiative(this: 
     return;
   }
   const initMods = DDBModifiers.filterBaseModifiers(ddb, "bonus", { subType: "initiative" });
+  // const initiativeBonus = DDBModifiers.getModifierSum(initMods, this.raw.character);
 
   let initiativeBonus = DDBModifiers.getValueFromModifiers(initMods, "initiative", "initiative", "bonus") ?? "";
 
@@ -27,7 +28,9 @@ DDBCharacter.prototype._generateInitiative = function _generateInitiative(this: 
   // If we have the alert Feat set, lets sub 5 so it's correct
   attributes.init = {
     ability: "dex",
-    bonus: initiativeBonus,
+    roll: {
+      bonus: initiativeBonus,
+    },
   };
 
 };

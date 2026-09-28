@@ -1,3 +1,7 @@
+
+
+//
+
 import logger from "../../../lib/Logger";
 import DDBCompanionMixin from "../DDBCompanionMixin";
 import { SUMMONS_ACTOR_STUB } from "./_data";
@@ -90,6 +94,7 @@ export async function getFlamingSphere({
   stub = await DDBCompanionMixin.addEnrichedImageData(stub);
   const enriched = foundry.utils.getProperty(document, "flags.monsterMunch.enrichedImages");
 
+  // console.warn("Flaming Sphere", {
   //   stub: deepClone(stub),
   //   enriched,
   //   description,

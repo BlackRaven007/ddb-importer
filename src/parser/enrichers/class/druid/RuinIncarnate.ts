@@ -2,16 +2,16 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class RuinIncarnate extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities(): boolean {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     if (this.isAction) return null;
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (this.isAction) return null;
     return {
       name: "Activate",
@@ -31,7 +31,7 @@ export default class RuinIncarnate extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (this.isAction) return [];
     return [
       {
@@ -42,8 +42,11 @@ export default class RuinIncarnate extends DDBEnricherData {
           description: "You have Advantage on attack rolls against Bloodied creatures, you can attack twice when you take the Attack action, and your base AC becomes 17 plus your Wisdom modifier (disable this effect if your AC is already higher).",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.overrideChange("custom", 10, "system.attributes.ac.calc"),
-          DDBEnricherData.ChangeHelper.overrideChange("17 + max(1, @abilities.wis.mod)", 15, "system.attributes.ac.formula"),
+          DDBEnricherData.ChangeHelper.acFormulaAddChange("17 + max(1, @abilities.wis.mod)", 15),
+        ],
+        // "against Bloodied creatures" is about the target; core roll data has no target, AC5e does
+        ac5eChanges: [
+          DDBEnricherData.ChangeHelper.ac5eChange("opponentActor.statuses.bloodied", 20, "flags.automated-conditions-5e.attack.advantage"),
         ],
       },
     ];

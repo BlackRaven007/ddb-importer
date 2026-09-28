@@ -1,16 +1,48 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
+const AURA = { bestFormula: "max(1, @abilities.cha.mod)", overrideName: "Aura of Hate" };
+
 export default class AuraOfHate extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get type(): IDDBActivityType | null {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  override get activity(): IDDBActivityData {
+    return {
+      name: "Place Aura",
+      targetType: "creature",
+      activationType: "special",
+      data: {
+        target: {
+          template: {
+            contiguous: false,
+            type: "radius",
+            size: "@scale.oathbreaker.aura-of-hate",
+            units: "ft",
+          },
+        },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.applyEffect({
+            effects: "Aura of Hate (Fiends and Undead)",
+            types: ["fiend", "undead"],
+            auraeffectsNever: true,
+          }),
+        ],
+      },
+    };
+  }
+
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Aura of Hate (Self)",
+        auraeffectsNever: true,
         daeStackable: "none",
         data: {
           system: {
             changes: [
-              DDBEnricherData.ChangeHelper.unsignedAddChange("+@abilities.cha.mod", 20, "system.bonuses.mwak.damage"),
+              DDBEnricherData.ChangeHelper.unsignedAddChange(`+${AURA.bestFormula}`, 20, "system.rolls.damage.mwak.bonus"),
             ],
           },
         },
@@ -21,25 +53,21 @@ export default class AuraOfHate extends DDBEnricherData {
       },
       {
         name: "Aura of Hate (Fiends and Undead)",
-        aurasOnly: true,
+        standalone: true,
+        originReplacement: true,
+        auraeffectsNever: true,
+        data: { flags: { ddbimporter: { aura: { ...AURA } } } },
+        changes: [
+          DDBEnricherData.ChangeHelper.unsignedAddChange(`+${AURA.bestFormula}`, 20, "system.rolls.damage.mwak.bonus"),
+        ],
+      },
+      {
+        name: "Aura of Hate (Fiends and Undead)",
+        auraeffectsOnly: true,
         daeStackable: "none",
-        data: {
-          flags: {
-            ActiveAuras: {
-              aura: "All",
-              radius: "@scale.oathbreaker.aura-of-hate",
-              isAura: true,
-              ignoreSelf: true,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-              type: "undead; fiend",
-            },
-          },
-        },
         auraeffects: {
-          applyToSelf: false,
-          bestFormula: "",
+          ...AURA,
+          applyToSelf: true,
           canStack: false,
           collisionTypes: ["move"],
           combatOnly: false,
@@ -47,12 +75,11 @@ export default class AuraOfHate extends DDBEnricherData {
           distanceFormula: "@scale.oathbreaker.aura-of-hate",
           disposition: 0,
           evaluatePreApply: true,
-          overrideName: "",
-          script: `(Object.values(actor.system.details.type).concat(actor.system.details.race?.name).some(type => "undead; fiend".split(";").filter(t => t).includes(type?.toLowerCase())))`,
+          script: `actor.uuid === sourceToken.actor.uuid || ["fiend", "undead"].includes(actor.system.details.type?.value?.toLowerCase())`,
         },
         statuses: ["Aura of Hate (Fiends and Undead)"],
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("+@abilities.cha.mod", 20, "system.bonuses.mwak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(`+${AURA.bestFormula}`, 20, "system.rolls.damage.mwak.bonus"),
         ],
         options: {
           transfer: true,

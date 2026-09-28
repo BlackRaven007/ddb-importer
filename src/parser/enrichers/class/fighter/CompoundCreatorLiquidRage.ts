@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class CompoundCreatorLiquidRage extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Liquid Rage",
@@ -15,8 +15,8 @@ export default class CompoundCreatorLiquidRage extends DDBEnricherData {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1d4", 20, "system.bonuses.mwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1d4", 20, "system.bonuses.rwak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("1d4", 20, "system.rolls.damage.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("1d4", 20, "system.rolls.damage.rwak.bonus"),
         ],
       },
     ];

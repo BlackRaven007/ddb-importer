@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class RadiantSoul extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Activate",
       addItemConsume: true,
@@ -16,7 +16,7 @@ export default class RadiantSoul extends DDBEnricherData {
   }
 
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -43,16 +43,15 @@ export default class RadiantSoul extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Radiant Soul",
         options: {
           durationSeconds: 60,
-          durationRounds: 10,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("30", 20, "system.attributes.movement.fly"),
+          DDBEnricherData.ChangeHelper.upgradeChange("30", 20, "system.attributes.movement.speeds.fly"),
         ],
         midiOptionalChanges: [
           {

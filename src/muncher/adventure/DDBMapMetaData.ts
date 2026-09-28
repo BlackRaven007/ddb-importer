@@ -244,6 +244,7 @@ export default class DDBMapMetaData {
   // flag normalisation, stairways flag reshape, wall doorSound default. The
   // meta-data proxy payload skips _loadDocumentAssets so we mirror its
   // cleansing here before merge / createEmbeddedDocuments.
+  //
   // Public so the native adventure importer can apply the same cleansing to
   // its own scene docs before create (NativeSceneBuilder).
   static cleanseSceneInfo(info: I5eSceneData): I5eSceneData {
@@ -288,7 +289,7 @@ export default class DDBMapMetaData {
   //   - `gridType`, `gridDistance`, `gridUnits`, `gridColor`, `gridAlpha` are
   //     separate top-level scalars
   // V12+ collapses these into a `grid: { type, size, distance, units, color,
-  // alpha }` object. `_migrateSceneDataToV14` migrates V12→V14 but doesn't
+  // alpha }` object. `_migrateSceneDataToV14` migrates V12->V14 but doesn't
   // know about the V10/V11 split-grid shape, so we normalise here first.
   // Subsequent migration + buildSceneUpdate then see a proper grid object.
   private static _normaliseLegacyGrid(info: any): void {
@@ -606,6 +607,7 @@ export default class DDBMapMetaData {
   // This is more accurate than a width/height-ratio rescale because it
   // re-derives canvas coords using the new scene's reference frame instead
   // of compounding the muncher's earlier transform.
+  //
   // Mirrors DDBQuickplay._tileForSticker math, with the parameters now read
   // off the meta-applied scene:
   //   - imageWidth/imageHeight: from quickplayContext (DDB's source image
@@ -724,6 +726,7 @@ export default class DDBMapMetaData {
   // and embedded collections (which go through createEmbeddedDocuments).
   // Flags merge with the existing scene flags - the ddbimporter block must
   // not be clobbered.
+  //
   // Public so the native adventure importer can reuse this projection when
   // applying meta-data into pre-create scene docs (NativeSceneBuilder).
   static buildSceneUpdate(scene: Scene, info: I5eSceneData): Record<string, any> {
@@ -759,6 +762,7 @@ export default class DDBMapMetaData {
         // touching the deprecated scene-level field. The src is owned by
         // the muncher's locally-uploaded image and re-stamped separately
         // after merge.
+        //
         // Post-cleanse this branch is a no-op (info.background is deleted by
         // _migrateSceneDataToV14) - kept as a safety net for un-cleansed
         // input. The post-cleanse path goes through `key === "levels"` below.
@@ -1172,7 +1176,7 @@ export default class DDBMapMetaData {
       } catch (_e) { /* ignore */ }
     };
 
-    // 2014→2024 monster swap (native importer): map a token's legacy DDB id to its
+    // 2014->2024 monster swap (native importer): map a token's legacy DDB id to its
     // 2024 replacement id; unswapped ids pass through unchanged.
     const swapId = (id: number): number =>
       (Number.isFinite(id) ? (options.monsterSwap?.get(id)?.id2024 ?? id) : id);
@@ -1193,7 +1197,7 @@ export default class DDBMapMetaData {
       }
     }
 
-    // Step 2: collect DDB monster ids (post 2014→2024 swap, so the 2024 actors
+    // Step 2: collect DDB monster ids (post 2014->2024 swap, so the 2024 actors
     // get imported and placed).
     const ddbIds = [...new Set(
       metaTokens
@@ -1261,7 +1265,7 @@ export default class DDBMapMetaData {
     const tokenData: any[] = [];
     for (const t of metaTokens) {
       const rawId = Number(foundry.utils.getProperty(t, "flags.ddbActorFlags.id"));
-      // Apply the 2014→2024 swap: place the 2024 actor and use its name when the
+      // Apply the 2014->2024 swap: place the 2024 actor and use its name when the
       // token carried a hard-coded legacy name.
       const ddbEntityId = swapId(rawId);
       const swapped = Number.isFinite(rawId) ? options.monsterSwap?.get(rawId) : undefined;
@@ -1276,7 +1280,7 @@ export default class DDBMapMetaData {
       const stub: Record<string, any> = {
         x: Number.isFinite(t.x) ? t.x : 0,
         y: Number.isFinite(t.y) ? t.y : 0,
-        hidden: !!t.hidden,
+        hidden: true,
         name: swapped?.name2024 ?? (typeof t.name === "string" ? t.name : worldActor.name),
         flags: foundry.utils.mergeObject({}, t.flags ?? {}, { inplace: false }),
       };

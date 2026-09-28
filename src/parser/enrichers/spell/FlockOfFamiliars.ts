@@ -2,14 +2,14 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class FlockOfFamiliars extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
       id: "flockOfFamiliar1",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -17,6 +17,7 @@ export default class FlockOfFamiliars extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.FORWARD,
         },
         build: {
+          noSpellslot: true,
         },
         overrides: {
           activationType: "special",
@@ -28,6 +29,9 @@ export default class FlockOfFamiliars extends DDBEnricherData {
             midiProperties: {
               confirmTargets: "default",
             },
+            // the forwarded summon joins the running concentration instead of restarting it
+            // (ConcentrationFollowUp)
+            flags: { ddbimporter: { joinConcentration: true } },
           },
         },
       },

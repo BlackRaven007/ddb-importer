@@ -2,16 +2,17 @@ import { utils } from "../../../../lib/_module";
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class StarryForm extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.ENCHANT;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       noTemplate: true,
       targetType: "self",
       activationType: "bonus",
       name: "Assume Starry Form",
+      useActivitySnippet: true,
       id: utils.namedIDStub("assume", { prefix: "starry", postfix: "core" }),
       data: {
         enchant: {
@@ -22,7 +23,7 @@ export default class StarryForm extends DDBEnricherData {
     };
   }
 
-  get starForms() {
+  get starForms(): string[] {
     return ["Archer", "Chalice", "Dragon"];
   }
 
@@ -159,7 +160,7 @@ export default class StarryForm extends DDBEnricherData {
     ];
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       ...this.formActivities,
     ];
@@ -249,7 +250,7 @@ export default class StarryForm extends DDBEnricherData {
         }
         if (data.min && data.min >= 10 && formType === "Dragon") {
           changes.push(
-            DDBEnricherData.ChangeHelper.upgradeChange("20", 20, "system.attributes.movement.fly"),
+            DDBEnricherData.ChangeHelper.upgradeChange("20", 20, "system.attributes.movement.speeds.fly"),
             DDBEnricherData.ChangeHelper.upgradeChange("true", 20, "system.attributes.movement.hover"),
           );
         }
@@ -294,7 +295,7 @@ export default class StarryForm extends DDBEnricherData {
   }
 
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const results = [
       ...this.enchantEffects,
       ...this.formEffects,
@@ -304,7 +305,7 @@ export default class StarryForm extends DDBEnricherData {
     return results;
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       ignoredConsumptionActivities: ["Archer Attack", "Chalice Healing", "Dragon Constitution", "Twinkling Constellations (Change Form)"],
     };

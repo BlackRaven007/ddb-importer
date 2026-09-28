@@ -2,7 +2,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class ResilientSphere extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Encased",
@@ -10,7 +10,7 @@ export default class ResilientSphere extends DDBEnricherData {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.customChange("* 0.5", 20, "system.attributes.movement.all"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0.5", 20),
           DDBEnricherData.ChangeHelper.customChange("ALL", 20, "system.traits.di.value"),
         ],
       },

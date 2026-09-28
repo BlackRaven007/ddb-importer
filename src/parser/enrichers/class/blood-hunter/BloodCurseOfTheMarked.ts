@@ -3,24 +3,25 @@ import _BloodCurse from "./_BloodCurse";
 
 export default class BloodCurseOfTheMarked extends _BloodCurse {
 
-  get curseName(): string {
+  override get curseName(): string {
     return "Blood Curse of the Marked";
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: this.curseName,
+      useActivitySnippet: true,
       targetType: "creature",
       targetCount: 1,
       activationType: "bonus",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -33,30 +34,29 @@ export default class BloodCurseOfTheMarked extends _BloodCurse {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const description = "When the blood hunter hits you with a weapon carrying an active crimson rite, they roll an additional hemocraft die for the rite damage.";
 
     return [
       {
-        // until the end of the caster's turn
+        // "Until the end of your turn" - the turn the mark is placed on
         name: "Marked",
+        statuses: ["Marked"],
         activityMatch: this.curseName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "turnEnd",
           description,
         },
-        daeSpecialDurations: ["turnEndSource"],
       },
       {
         name: "Marked (Amplified)",
+        statuses: ["Marked"],
         activityMatch: this.amplifiedName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "turnEnd",
           description: `${description} Their next attack roll against you before the end of their turn has advantage.`,
         },
-        daeSpecialDurations: ["turnEndSource", "1Attack"],
+        daeSpecialDurations: ["1Attack"],
         midiChanges: [
           DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.midi-qol.grants.advantage.attack.all"),
         ],

@@ -6,11 +6,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
  */
 export default class SecondSkin extends DDBEnricherData {
 
-  get stopDefaultActivity() {
+  override get stopDefaultActivity(): boolean {
     return true;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -67,14 +67,13 @@ export default class SecondSkin extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Unable to Change",
         activityMatch: "Involuntary Change",
         options: {
           durationSeconds: 6,
-          durationRounds: 1,
         },
         riderStatuses: ["stunned"],
       },

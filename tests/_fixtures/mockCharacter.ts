@@ -49,7 +49,7 @@ export function makeMockCharacter(overrides: MockCharacterOverrides = {}): any {
           race: { fullName: "Human" },
           background: { definition: { grantedFeats: [] } },
           options: { class: [], race: [], feat: [] },
-          choices: { class: [], race: [], feat: [] },
+          choices: { class: [], race: [], feat: [], choiceDefinitions: [] },
           optionalClassFeatures: [],
           customProficiencies: [],
           ...overrides.ddbCharacter,
@@ -66,7 +66,8 @@ export function makeMockCharacter(overrides: MockCharacterOverrides = {}): any {
           skills: {},
           traits: { languages: "", weaponProf: {}, armorProf: {} },
           tools: {},
-          bonuses: { rsak: {}, msak: {}, mwak: {}, rwak: {}, abilities: {}, spell: {} },
+          bonuses: { spell: {} },
+          rolls: {},
           ...overrides.rawSystem,
         },
         flags: {

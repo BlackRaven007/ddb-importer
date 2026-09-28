@@ -1,16 +1,17 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
+import _Illrigger from "./_Illrigger";
 
 /**
  * Infernal Conduit is a pool of d10s (Infernal Conduit Dice scale, long rest
  * recovery) spent to transfer HP by touch or drain a target.
  */
-export default class InfernalConduit extends DDBEnricherData {
+export default class InfernalConduit extends _Illrigger {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.HEAL;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Transfer HP",
       targetType: "creature",
@@ -19,10 +20,8 @@ export default class InfernalConduit extends DDBEnricherData {
       addItemConsume: true,
       addScalingMode: "amount",
       addConsumptionScalingMax: "@scale.illrigger.infernal-conduit",
+      rangeType: "touch",
       data: {
-        range: {
-          units: "touch",
-        },
         healing: DDBEnricherData.basicDamagePart({
           number: 1,
           denomination: 10,
@@ -32,7 +31,7 @@ export default class InfernalConduit extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -60,7 +59,7 @@ export default class InfernalConduit extends DDBEnricherData {
           ],
           saveOverride: {
             ability: ["con"],
-            dc: { calculation: "cha", formula: "" },
+            dc: _Illrigger.INTERDICT_DC,
           },
           consumptionOverride: {
             targets: [
@@ -74,11 +73,14 @@ export default class InfernalConduit extends DDBEnricherData {
             scaling: { allowed: true, max: "@scale.illrigger.infernal-conduit" },
           },
         },
+        overrides: {
+          rangeType: "touch",
+        },
       },
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         system: {

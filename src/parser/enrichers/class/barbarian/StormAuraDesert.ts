@@ -1,11 +1,22 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
+import _StormAura from "./_StormAura";
 
-export default class StormAuraDesert extends DDBEnricherData {
-  get type() {
+export default class StormAuraDesert extends _StormAura {
+
+  override get element(): string {
+    return "fire";
+  }
+
+  override get tundra(): string {
+    return "Desert";
+  }
+
+
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
       activationType: "bonus",
@@ -15,7 +26,7 @@ export default class StormAuraDesert extends DDBEnricherData {
           parts: [
             DDBEnricherData.basicDamagePart({
               customFormula: "@scale.storm-herald.storm-aura-desert",
-              types: ["fire"],
+              types: [this.element],
             }),
           ],
         },

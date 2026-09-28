@@ -1,11 +1,11 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class FrostsChill extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       activationType: "special",
@@ -24,17 +24,17 @@ export default class FrostsChill extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         changes: [
-          DDBEnricherData.ChangeHelper.signedAddChange("-10", 20, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.movementBonusChange("-10", 20),
         ],
       },
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       uses: this._getUsesWithSpent({
         type: "race",

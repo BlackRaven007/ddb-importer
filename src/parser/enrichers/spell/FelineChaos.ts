@@ -10,11 +10,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
  */
 export default class FelineChaos extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Save",
       data: {
@@ -54,7 +54,7 @@ export default class FelineChaos extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -69,6 +69,7 @@ export default class FelineChaos extends DDBEnricherData {
           noTemplate: true,
           allowCritical: false,
           data: {
+            duration: { override: true, units: "inst", concentration: false },
             damage: {
               parts: [DDBEnricherData.basicDamagePart({
                 number: 4,
@@ -93,6 +94,7 @@ export default class FelineChaos extends DDBEnricherData {
           activationCondition: "A creature moves within the area",
           noTemplate: true,
           data: {
+            duration: { override: true, units: "inst", concentration: false },
             save: {
               ability: ["dex"],
               dc: {
@@ -114,7 +116,7 @@ export default class FelineChaos extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Feline Chaos",
@@ -123,14 +125,12 @@ export default class FelineChaos extends DDBEnricherData {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.addChange("-1", 20, "system.abilities.str.check.roll.mode"),
-          DDBEnricherData.ChangeHelper.addChange("-1", 20, "system.abilities.dex.check.roll.mode"),
-          DDBEnricherData.ChangeHelper.addChange("-1", 20, "system.abilities.con.check.roll.mode"),
-          DDBEnricherData.ChangeHelper.addChange("-1", 20, "system.abilities.int.check.roll.mode"),
-          DDBEnricherData.ChangeHelper.addChange("-1", 20, "system.abilities.wis.check.roll.mode"),
-        ],
-        ac5eChanges: [
-          DDBEnricherData.ChangeHelper.overrideChange("1", 50, "flags.automated-conditions-5e.attack.disadvantage"),
+          DDBEnricherData.ChangeHelper.disadvantageAbilityCheckChange("str"),
+          DDBEnricherData.ChangeHelper.disadvantageAbilityCheckChange("dex"),
+          DDBEnricherData.ChangeHelper.disadvantageAbilityCheckChange("con"),
+          DDBEnricherData.ChangeHelper.disadvantageAbilityCheckChange("int"),
+          DDBEnricherData.ChangeHelper.disadvantageAbilityCheckChange("wis"),
+          DDBEnricherData.ChangeHelper.disadvantageAttackChange(),
         ],
       },
       {

@@ -3,11 +3,11 @@ import ArcaneShotOption from "./ArcaneShotOption";
 
 export default class GraspingArrow extends ArcaneShotOption {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.isAction ? DDBEnricherData.ACTIVITY_TYPES.DAMAGE : DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     return this.isAction
       ? {
         name: "Cast",
@@ -22,12 +22,12 @@ export default class GraspingArrow extends ArcaneShotOption {
       : null;
   }
 
-  get addToDefaultAdditionalActivities() {
+  override get addToDefaultAdditionalActivities(): boolean {
     return this.isAction;
   }
 
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return this.isAction
       ? []
       : [
@@ -61,7 +61,7 @@ export default class GraspingArrow extends ArcaneShotOption {
               "associated": [
                 "ath",
               ],
-              "ability": ["str"],
+              "ability": "str",
               "dc": {
                 "calculation": "int",
                 "formula": "",
@@ -72,7 +72,7 @@ export default class GraspingArrow extends ArcaneShotOption {
       ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return this.isAction
       ? []
       : [
@@ -80,7 +80,7 @@ export default class GraspingArrow extends ArcaneShotOption {
           name: "Grasped",
           activityMatch: "Cast",
           changes: [
-            DDBEnricherData.ChangeHelper.customChange("-10", 10, "system.attributes.movement.all"),
+            DDBEnricherData.ChangeHelper.movementBonusChange("-10", 10),
           ],
         },
       ];

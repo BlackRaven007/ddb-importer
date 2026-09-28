@@ -2,19 +2,19 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ReversalOfFortune extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       activationType: "reaction",
       targetType: "self",
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         data: {
@@ -29,13 +29,13 @@ export default class ReversalOfFortune extends DDBEnricherData {
           DDBEnricherData.ChangeHelper.customChange("1", 20, "system.traits.dm.midi.all"),
         ],
         daeSpecialDurations: [
-          "1Reaction" as const,
+          "1Reaction",
         ],
       },
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       midiDamageReaction: true,
     };

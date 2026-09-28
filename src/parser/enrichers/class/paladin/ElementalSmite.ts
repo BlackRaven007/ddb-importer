@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ElementalSmite extends DDBEnricherData {
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -125,7 +125,7 @@ export default class ElementalSmite extends DDBEnricherData {
             "associated": [
               "ath",
             ],
-            "ability": ["str"],
+            "ability": "str",
             "dc": {
               "calculation": "int",
               "formula": "",
@@ -136,7 +136,7 @@ export default class ElementalSmite extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Dao's Crush: Grappled",
@@ -153,17 +153,16 @@ export default class ElementalSmite extends DDBEnricherData {
       {
         name: "Djinni's Escape: Incorporeal Form",
         options: {
-          durationSeconds: 12,
+          expiry: "sourceEnd",
         },
-        daeSpecialDurations: ["turnEndSource" as const],
         activityMatch: "Djinni's Escape",
         changes: [
           DDBEnricherData.ChangeHelper.damageResistanceChange("piercing"),
           DDBEnricherData.ChangeHelper.damageResistanceChange("slashing"),
           DDBEnricherData.ChangeHelper.damageResistanceChange("bludgeoning"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("grappled", 20, "system.traits.ci.value"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("restrained", 20, "system.traits.ci.value"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("prone", 20, "system.traits.ci.value"),
+          DDBEnricherData.ChangeHelper.conditionImmunityChange("grappled"),
+          DDBEnricherData.ChangeHelper.conditionImmunityChange("restrained"),
+          DDBEnricherData.ChangeHelper.conditionImmunityChange("prone"),
         ],
       },
       {
@@ -174,11 +173,11 @@ export default class ElementalSmite extends DDBEnricherData {
     ];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         system: {

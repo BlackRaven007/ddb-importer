@@ -2,15 +2,15 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ShadowGrasp extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.isAction ? DDBEnricherData.ACTIVITY_TYPES.SAVE : DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       activationType: "special",
@@ -27,7 +27,7 @@ export default class ShadowGrasp extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (!this.isAction) return [];
     return [
       {
@@ -37,6 +37,13 @@ export default class ShadowGrasp extends DDBEnricherData {
           durationSeconds: 60,
           description: "Restrained for 1 minute; repeats the saving throw at the end of each of its turns, ending the effect on a success.",
         },
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.customChange(
+            "label=Shadow Grasp (End of Turn Save),turn=end,saveDC=@abilities.dex.dc,saveAbility=dex,savingThrow=true,saveRemove=true,killAnim=true",
+            20,
+            "flags.midi-qol.OverTime",
+          ),
+        ],
       },
     ];
   }

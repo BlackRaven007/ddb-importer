@@ -2,7 +2,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class WandOfFear extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Command",
       type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
@@ -30,7 +30,7 @@ export default class WandOfFear extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -57,6 +57,12 @@ export default class WandOfFear extends DDBEnricherData {
               size: "60",
               units: "ft",
             },
+          },
+          rangeOverride: {
+            override: true,
+            value: null,
+            units: "self",
+            special: "",
           },
         },
         overrides: {

@@ -1,5 +1,7 @@
 node_modules/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 /dist/
 diff-folder/
 diff/
@@ -18,6 +20,8 @@ foundry
 dnd5e
 
 .fallow/
+.vitest/
+.vitest-tmp/
 coverage/
 
 # Secrets

@@ -2,19 +2,19 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class FaithfulHound extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SUMMON;
   }
 
-  get summonsFunction() {
+  override get summonsFunction(): ((data: ICompanionData) => Promise<ICompanionResult>) | null {
     return DDBImporter.lib.DDBSummonsInterface.getFaithfulHound;
   }
 
-  get generateSummons() {
+  override get generateSummons(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       type: DDBEnricherData.ACTIVITY_TYPES.SUMMON,
       noTemplate: true,
@@ -36,7 +36,7 @@ export default class FaithfulHound extends DDBEnricherData {
     };
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         flags: {

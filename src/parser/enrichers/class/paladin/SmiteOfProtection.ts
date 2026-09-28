@@ -1,27 +1,61 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
+/**
+ * Half Cover for the paladin and allies inside the Aura of Protection until the start of the
+ * paladin's next turn, triggered by casting Divine Smite. Without auraeffects the activity places
+ * a template whose region applies the standalone effect.
+ */
 export default class SmiteOfProtection extends DDBEnricherData {
-  get effects(): IDDBEffectHint[] {
-    return [
-      {
-        statuses: ["coverHalf"],
-        options: {
-          durationSeconds: 6,
-        },
-        daeStackable: "noneNameOnly",
-        data: {
-          flags: {
-            ActiveAuras: {
-              aura: "Allies",
-              radius: `@scale.paladin.${this.data.name.toLowerCase().replaceAll(" ", "-")}`,
-              isAura: true,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-              statuses: ["coverHalf"],
-            },
+
+  override get type(): IDDBActivityType | null {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  }
+
+  override get activity(): IDDBActivityData {
+    return {
+      name: "Smite of Protection",
+      activationType: "special",
+      activationCondition: "When you cast Divine Smite",
+      targetType: "ally",
+      data: {
+        target: {
+          template: {
+            contiguous: false,
+            type: "radius",
+            size: "@scale.paladin.aura-of-protection",
+            units: "ft",
           },
         },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.applyEffect({
+            effects: "Smite of Protection",
+            auraeffectsNever: true,
+          }),
+        ],
+      },
+    };
+  }
+
+  override get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Smite of Protection",
+        standalone: true,
+        auraeffectsNever: true,
+        statuses: ["coverHalf"],
+        options: {
+          expiry: "sourceStart",
+        },
+      },
+      {
+        name: "Smite of Protection",
+        activityMatch: "Smite of Protection",
+        auraeffectsOnly: true,
+        statuses: ["coverHalf"],
+        options: {
+          expiry: "sourceStart",
+        },
+        daeStackable: "noneNameOnly",
         auraeffects: {
           applyToSelf: true,
           bestFormula: "",
@@ -29,7 +63,7 @@ export default class SmiteOfProtection extends DDBEnricherData {
           collisionTypes: ["move"],
           combatOnly: false,
           disableOnHidden: true,
-          distanceFormula: `@scale.paladin.${this.data.name.toLowerCase().replaceAll(" ", "-")}`,
+          distanceFormula: "@scale.paladin.aura-of-protection",
           disposition: 1,
           evaluatePreApply: true,
           overrideName: "",
@@ -38,4 +72,5 @@ export default class SmiteOfProtection extends DDBEnricherData {
       },
     ];
   }
+
 }

@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class SpiritTotem extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -40,6 +40,13 @@ export default class SpiritTotem extends DDBEnricherData {
             type: "temphp",
           }),
         },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.applyEffect({ effects: DDBEnricherData.SRDEffects.checkAndSaveAdvantage("str") }),
+            ],
+          },
+        },
       },
       {
         init: {
@@ -69,6 +76,13 @@ export default class SpiritTotem extends DDBEnricherData {
             units: "ft",
           },
         },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.applyEffect({ effects: DDBEnricherData.SRDEffects.skillAdvantage("prc") }),
+            ],
+          },
+        },
       },
       {
         init: {
@@ -96,6 +110,13 @@ export default class SpiritTotem extends DDBEnricherData {
           rangeOverride: {
             value: "60",
             units: "ft",
+          },
+        },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.applyEffect({ effects: "Unicorn Spirit" }),
+            ],
           },
         },
       },
@@ -129,107 +150,16 @@ export default class SpiritTotem extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
-        name: "Bear Totem",
-        activityMatch: "Bear Totem",
-        changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.abilities.str.save.roll.mode"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.abilities.str.check.roll.mode"),
-        ],
-        midiNever: true,
-      },
-      {
-        name: "Bear Totem Aura",
-        activityMatch: "Bear Totem",
-        changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.abilities.str.save.roll.mode"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.abilities.str.check.roll.mode"),
-        ],
-        midiOnly: true,
-        data: {
-          flags: {
-            ActiveAuras: {
-              aura: "Allies",
-              radius: "30",
-              isAura: true,
-              ignoreSelf: false,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-            },
-          },
-        },
-      },
-      {
-        name: "Hawk Spirit",
-        activityMatch: "Hawk Spirit",
-        changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.prc.roll.mode"),
-        ],
-        midiNever: true,
-      },
-      {
-        name: "Hawk Spirit Aura",
-        activityMatch: "Hawk Spirit",
-        changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.prc.roll.mode"),
-        ],
-        midiOnly: true,
-        data: {
-          flags: {
-            ActiveAuras: {
-              aura: "Allies",
-              radius: "30",
-              isAura: true,
-              ignoreSelf: false,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-            },
-          },
-        },
-      },
-      {
         name: "Unicorn Spirit",
-        activityMatch: "Unicorn Spirit",
-        midiNever: true,
-      },
-      {
-        name: "Unicorn Spirit Aura",
-        activityMatch: "Unicorn Spirit",
-        midiOnly: true,
-        data: {
-          flags: {
-            ActiveAuras: {
-              aura: "Allies",
-              radius: "30",
-              isAura: true,
-              ignoreSelf: false,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-            },
-          },
+        standalone: true,
+        options: {
+          durationSeconds: 60,
         },
       },
     ];
-  }
-
-  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
-    return {
-      type: "generic",
-      name: "activeAuraOnly.js",
-      triggerPoints: ["preActiveEffects"],
-    };
-  }
-
-  get itemMacro(): IDDBItemMacro {
-    return {
-      type: "generic",
-      name: "activeAuraOnly.js",
-    };
   }
 
 }

@@ -1,26 +1,18 @@
-import { logger, utils } from "../../../lib/_module";
+import logger from "../../../lib/Logger";
+import utils from "../../../lib/Utils";
 import AutoEffects from "./AutoEffects";
 import ChangeHelper from "./ChangeHelper";
 import MidiEffects from "./MidiEffects";
-import { DDBModifiers, ProficiencyFinder, DDBDataUtils } from "../../lib/_module";
+import RestrictionRules from "./RestrictionRules";
+import DDBModifiers from "../../lib/DDBModifiers";
+import ProficiencyFinder from "../../lib/ProficiencyFinder";
+import DDBDataUtils from "../../lib/DDBDataUtils";
 import { DICTIONARY } from "../../../config/_module";
 import { isEqual } from "../../../../vendor/lowdash/_module.mjs";
+import { applyDaeSpecialDurations, applyNativeExpiry } from "./EffectExpiryHelpers";
 
-
-const EFFECT_EXPIRY_TYPES = [
-  "turnStart", "turnEnd", "roundStart", "roundEnd", "combatStart", "combatEnd",
-] as const;
-export const DAE_EFFECT_EXPIRY_TYPES = [
-  ...EFFECT_EXPIRY_TYPES,
-  "sourceStart", "sourceEnd", "targetStart", "targetEnd",
-] as const;
-
+// DAE's turn and combat expiries are left out: core dnd5e expiry handles those
 export const DAE_SPECIAL_DURATIONS = [
-  "turnStart",
-  "turnEnd",
-  "turnStartSource",
-  "turnEndSource",
-  "combatEnd",
   // Attack/Action triggers
   "1Action",
   "1Attack",
@@ -52,7 +44,7 @@ export const DAE_SPECIAL_DURATIONS = [
   "1Hit:rwak",
   "1Hit:msak",
   "1Hit:rsak",
-];
+] as const;
 
 const BASE_RESTRICTIONS = [
   "",
@@ -94,6 +86,8 @@ export default class EffectGenerator {
   isCompendiumItem: boolean;
   type: TEffectGeneratorType;
   grantedModifiers: IDDBModifier[];
+  /** Save modifiers restricted to concentration, routed to `attributes.concentration.roll`. */
+  concentrationModifiers: IDDBModifier[];
   noGenerate: boolean;
   separateACEffects: boolean | undefined;
 
@@ -138,12 +132,28 @@ export default class EffectGenerator {
       : [];
 
     if (this.grantedModifiers && type === "item") {
+      // A weapon bakes its own damage modifiers into its damage parts (DDBItem), so they must not
+      // become effect changes as well. Other items cannot: Bracers of Archery is equipment whose
+      // damage modifiers name a weapon, and those only reach the actor as a weapon-scoped rule.
+      const isWeapon = this.document.type === "weapon";
       this.grantedModifiers = this.grantedModifiers.filter((modifier) =>
-        modifier.type !== "damage" && modifier.subType !== null,
+        modifier.subType !== null
+        && (modifier.type !== "damage"
+          || (!isWeapon && EffectGenerator.weaponBaseItemForSubType(modifier.subType) !== null)),
       );
     }
 
-    this.noGenerate = !this.grantedModifiers || this.grantedModifiers.length === 0;
+    // Concentration-restricted save modifiers have a native home (attributes.concentration.roll)
+    // and must stay out of the plain save paths, which would flatten them onto every Con save.
+    this.concentrationModifiers = (this.grantedModifiers ?? []).filter((modifier) =>
+      RestrictionRules.isConcentration(modifier.restriction)
+      && ["saving-throws", "constitution-saving-throws"].includes(modifier.subType ?? ""),
+    );
+    if (this.concentrationModifiers.length > 0) {
+      this.grantedModifiers = this.grantedModifiers.filter((modifier) => !this.concentrationModifiers.includes(modifier));
+    }
+
+    this.noGenerate = (!this.grantedModifiers || this.grantedModifiers.length === 0) && this.concentrationModifiers.length === 0;
 
     this.separateACEffects = separateACEffects ?? utils.getSetting<boolean>("separate-ac-effects");
 
@@ -155,6 +165,7 @@ export default class EffectGenerator {
   };
 
   _addAddBonusChanges(modifiers: IDDBModifier[], type: TDDBModifierType, key: string) {
+    // const bonus = DDBModifiers.filterModifiersOld(modifiers, "bonus", type).reduce((a, b) => a + b.value, 0);
     const bonus = DDBModifiers.getValueFromModifiers(modifiers, this.document.name, type, "bonus");
     if (bonus) {
       logger.debug(`Generating ${type} bonus for ${this.document.name}`, bonus);
@@ -186,7 +197,7 @@ export default class EffectGenerator {
 
   _addGlobalSavingBonusEffect() {
     const type: TDDBModifierType = "saving-throws";
-    const key = "system.bonuses.abilities.save";
+    const key = "system.rolls.ability.save.bonus";
     const changes: IActiveEffectChangeData[] = [];
     const regularBonuses = this.grantedModifiers.filter((mod) => !mod.bonusTypes?.includes(2));
     const customBonuses = this.grantedModifiers.filter((mod) => mod.bonusTypes?.includes(2));
@@ -309,9 +320,7 @@ export default class EffectGenerator {
   _addAbilityAdvantageEffect(subType: string, type: "check" | "save", mode = "advantage") {
     const bonuses = DDBModifiers.filterModifiersOld(this.grantedModifiers, mode, subType);
 
-    const modifier = mode === "advantage"
-      ? CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE
-      : CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE;
+    const modifier = mode === "advantage" ? ChangeHelper.ADVANTAGE : ChangeHelper.DISADVANTAGE;
 
     if (bonuses.length > 0) {
       const ability = DICTIONARY.actor.abilities.find((ability) => ability.long === subType.split("-")[0])?.value;
@@ -320,7 +329,10 @@ export default class EffectGenerator {
         return;
       }
       logger.debug(`Generating ${subType} ${type} ${mode} for ${this.document.name}`);
-      this.effect.system.changes.push(ChangeHelper.addChange(`${modifier}`, 8, `system.abilities.${ability}.${type}.roll.mode`));
+      const change = type === "check"
+        ? ChangeHelper.abilityCheckRollModeChange(ability, modifier, 8)
+        : ChangeHelper.abilitySaveRollModeChange(ability, modifier, 8);
+      this.effect.system.changes.push(change);
     }
   }
 
@@ -340,6 +352,49 @@ export default class EffectGenerator {
     }
   }
 
+  // CONFIG.DND5E.maxAbilityScore, read as a constant so compendium munches do not depend on world config
+  static STANDARD_ABILITY_MAXIMUM = 20;
+
+  /**
+   * An "ability-score-maximum" modifier's value as an increase. DDB mostly ships the increase
+   * (Manuals +10, i.e. up to 30), but the legacy Book of Exalted Deeds ships its absolute ceiling
+   * (24); a value above the standard maximum can only be the latter.
+   */
+  static statMaximumIncrease(modifier: IDDBBaseModifier): number {
+    const value = Number(modifier.value) || 0;
+    return value > EffectGenerator.STANDARD_ABILITY_MAXIMUM ? value - EffectGenerator.STANDARD_ABILITY_MAXIMUM : value;
+  }
+
+  /** Total this document adds to one ability's score maximum (Manuals and Tomes raise it with the score). */
+  _statMaximumBonus(statId: number): number {
+    return this.grantedModifiers
+      .filter((modifier) =>
+        modifier.type === "bonus"
+        && modifier.subType === "ability-score-maximum"
+        && modifier.statId === statId,
+      )
+      .reduce((total, modifier) => total + EffectGenerator.statMaximumIncrease(modifier), 0);
+  }
+
+  /**
+   * The ceiling for one ability score bonus. DDB has no field for it: the item's own limit is
+   * written in the modifier's restriction text ("to a maximum of 24", "Can exceed 20, but not 30").
+   * Without one, it is the standard maximum plus whatever this document adds to the score maximum.
+   * `@abilities.x.max` is not usable as the limit, it is null until derived data unless the actor sets it.
+   */
+  _statBonusCeiling(bonus: IDDBBaseModifier, statId: number): number {
+    const restriction = bonus.restriction ?? "";
+    const written = restriction.match(/maximum of\s*(\d+)/i) ?? restriction.match(/\bnot\s*(\d+)/i);
+    if (written) return Number(written[1]);
+    return EffectGenerator.STANDARD_ABILITY_MAXIMUM + this._statMaximumBonus(statId);
+  }
+
+  /** The floor a score penalty stops at, from restriction text such as "Curse. (minimum of 7)"; null when unstated. */
+  static statBonusFloor(bonus: IDDBBaseModifier): number | null {
+    const written = (bonus.restriction ?? "").match(/minimum of\s*(\d+)/i);
+    return written ? Number(written[1]) : null;
+  }
+
   _addStatMaximumEffect(subType: string) {
     const ability = DICTIONARY.actor.abilities.find((ability) => ability.long === subType);
     if (!ability) {
@@ -355,7 +410,7 @@ export default class EffectGenerator {
     if (bonuses.length > 0) {
       bonuses.forEach((bonus) => {
         logger.debug(`Generating ${subType} stat max for ${this.document.name}`);
-        this.effect.system.changes.push(ChangeHelper.addChange(String(bonus.value), 3, `system.abilities.${ability.value}.max`));
+        this.effect.system.changes.push(ChangeHelper.addChange(String(EffectGenerator.statMaximumIncrease(bonus)), 3, `system.abilities.${ability.value}.max`));
       });
     }
   }
@@ -374,8 +429,8 @@ export default class EffectGenerator {
         logger.warn(`Unable to determine ability for "${stat}", skipping stat bonus changes for ${this.document.name}`);
         return;
       }
-      this._addAddBonusChanges(this.grantedModifiers, `${stat}-saving-throws`, `system.abilities.${ability.value}.bonuses.save`);
-      this._addAddBonusChanges(this.grantedModifiers, `${stat}-ability-checks`, `system.abilities.${ability.value}.bonuses.check`);
+      this._addAddBonusChanges(this.grantedModifiers, `${stat}-saving-throws`, `system.abilities.${ability.value}.save.roll.bonus`);
+      this._addAddBonusChanges(this.grantedModifiers, `${stat}-ability-checks`, `system.abilities.${ability.value}.check.roll.bonus`);
     });
   }
 
@@ -393,12 +448,16 @@ export default class EffectGenerator {
           return;
         }
 
-        if (game.modules.get("dae")?.active) {
-          const bonusString = `min(@abilities.${ability.value}.max, @abilities.${ability.value}.value + ${bonus.value})`;
-          // min(20, @abilities.con.value + 2)
-          this.effect.system.changes.push(ChangeHelper.overrideChange(bonusString, 5, `system.abilities.${ability.value}.value`));
+        if (Number(bonus.value) > 0) {
+          // dnd5e 6 clamps the add natively
+          const limit = this._statBonusCeiling(bonus, ability.id);
+          this.effect.system.changes.push(ChangeHelper.clampedAddChange(String(bonus.value), limit, 5, `system.abilities.${ability.value}.value`));
         } else {
-          this.effect.system.changes.push(ChangeHelper.signedAddChange(String(bonus.value), 5, `system.abilities.${ability.value}.value`));
+          const floor = EffectGenerator.statBonusFloor(bonus);
+          const change = floor === null
+            ? ChangeHelper.signedAddChange(String(bonus.value), 5, `system.abilities.${ability.value}.value`)
+            : ChangeHelper.clampedSubtractChange(String(bonus.value), floor, 5, `system.abilities.${ability.value}.value`);
+          this.effect.system.changes.push(change);
         }
       });
     }
@@ -427,10 +486,6 @@ export default class EffectGenerator {
       if (base.length > 0) {
         logger.debug(`Generating ${sense} base for ${this.document.name}`);
         this.effect.system.changes.push(ChangeHelper.upgradeChange(Math.max(...base), 10, `system.attributes.senses.ranges.${sense}`));
-        if (AutoEffects.effectModules().atlInstalled) {
-          this.effect.system.changes.push(ChangeHelper.upgradeChange(Math.max(...base), 10, "ATL.sight.range"));
-          this.effect.system.changes.push(ChangeHelper.atlChange("ATL.sight.visionMode", "override", sense, 5));
-        }
       }
       const bonus = this.grantedModifiers
         .filter((modifier) => modifier.type === "sense" && modifier.subType === sense)
@@ -438,10 +493,6 @@ export default class EffectGenerator {
       if (bonus > 0) {
         logger.debug(`Generating ${sense} bonus for ${this.document.name}`);
         this.effect.system.changes.push(ChangeHelper.unsignedAddChange(bonus, 20, `system.attributes.senses.ranges.${sense}`));
-        if (AutoEffects.effectModules().atlInstalled) {
-          this.effect.system.changes.push(ChangeHelper.unsignedAddChange(bonus, 20, "ATL.sight.range"));
-          this.effect.system.changes.push(ChangeHelper.atlChange("ATL.sight.visionMode", "override", sense, 6));
-        }
       }
     });
   }
@@ -472,9 +523,9 @@ export default class EffectGenerator {
         const speed = bonus.value
           ? bonus.value
           : game.modules.get("dae")?.active
-            ? "##attributes.movement.walk"
-            : "@attributes.movement.walk";
-        this.effect.system.changes.push(ChangeHelper.upgradeChange(speed, 5, `system.attributes.movement.${speedType}`));
+            ? "##attributes.movement.speeds.walk"
+            : "@attributes.movement.speeds.walk";
+        this.effect.system.changes.push(ChangeHelper.upgradeChange(speed, 5, `system.attributes.movement.speeds.${speedType}`));
       });
     }
   }
@@ -498,26 +549,38 @@ export default class EffectGenerator {
   }
 
   _addSpellAttackBonuses() {
-    this._addAddBonusChanges(this.grantedModifiers, "spell-attacks", "system.bonuses.msak.attack");
-    this._addAddBonusChanges(this.grantedModifiers, "melee-spell-attacks", "system.bonuses.msak.attack");
-    this._addAddBonusChanges(this.grantedModifiers, "spell-attacks", "system.bonuses.rsak.attack");
-    this._addAddBonusChanges(this.grantedModifiers, "ranged-spell-attacks", "system.bonuses.rsak.attack");
+    this._addAddBonusChanges(this.grantedModifiers, "spell-attacks", "system.rolls.attack.msak.bonus");
+    this._addAddBonusChanges(this.grantedModifiers, "melee-spell-attacks", "system.rolls.attack.msak.bonus");
+    this._addAddBonusChanges(this.grantedModifiers, "spell-attacks", "system.rolls.attack.rsak.bonus");
+    this._addAddBonusChanges(this.grantedModifiers, "ranged-spell-attacks", "system.rolls.attack.rsak.bonus");
     for (const type of ["wizard", "sorcerer", "warlock", "druid", "cleric", "artificer", "ranger"] as TDDBClassModifierNames[]) {
-      if (!(this.changeAdded.bonus as Record<string, any>)["system.bonuses.msak.attack"])
-        this._addAddBonusChanges(this.grantedModifiers, `${type}-spell-attacks`, "system.bonuses.msak.attack");
-      if (!(this.changeAdded.bonus as Record<string, any>)["system.bonuses.rsak.attack"])
-        this._addAddBonusChanges(this.grantedModifiers, `${type}-spell-attacks`, "system.bonuses.rsak.attack");
-      if (!(this.changeAdded.bonus as Record<string, any>)["system.bonuses.spell.dc"])
+      if (!(this.changeAdded.bonus as Record<string, any>)["system.rolls.attack.msak.bonus"]) {
+        this._addAddBonusChanges(this.grantedModifiers, `${type}-spell-attacks`, "system.rolls.attack.msak.bonus");
+      }
+      if (!(this.changeAdded.bonus as Record<string, any>)["system.rolls.attack.rsak.bonus"]) {
+        this._addAddBonusChanges(this.grantedModifiers, `${type}-spell-attacks`, "system.rolls.attack.rsak.bonus");
+      }
+      if (!(this.changeAdded.bonus as Record<string, any>)["system.bonuses.spell.dc"]) {
         this._addAddBonusChanges(this.grantedModifiers, `${type}-spell-save-dc`, "system.bonuses.spell.dc");
+      }
     }
 
     this._addAddBonusChanges(this.grantedModifiers, "spell-save-dc", "system.bonuses.spell.dc");
-    this._addCustomChange(
-      this.grantedModifiers,
-      "spell-group-healing",
-      "system.bonuses.heal.damage",
-      " + @item.level",
-    );
+    // "Spell Group - Healing" is Disciple of Life's "2 + the spell's level". The rule value
+    // rides into the heal roll as the @ruleBonus part; dnd5e resolves nested references in it
+    // (recursive formula replacement, dnd5e #7354), so @item.level reads the CAST level (base
+    // plus upcast, SpellData#getRollData). The levelled-spell gate is RAW ("a spell of 1st level
+    // or higher") and also keeps @item.level off potions and features, whose roll data has no
+    // item.level to substitute. In conditions item is the rolled spell, not this feature (dnd5e
+    // 6.0.2, #7450), and the value formula resolves against the roll's own data.
+    const healingBonus = DDBModifiers
+      .filterModifiersOld(this.grantedModifiers, "bonus", "spell-group-healing")
+      .reduce((a, b) => a + parseInt(String(b.value)), 0);
+    if (healingBonus !== 0) {
+      this.effect.system.changes.push(
+        ChangeHelper.healingBonusChange(`${healingBonus} + @item.level`, 18, ChangeHelper.LEVELLED_SPELL_FILTER),
+      );
+    }
   }
 
   _addSkillProficiencies() {
@@ -546,7 +609,7 @@ export default class EffectGenerator {
       logger.debug(`Generating tool proficiencies for ${this.document.name}`);
       this.effect.system.changes.push(ChangeHelper.customChange(String(value.value), 8, `system.tools.${key}.value`));
       this.effect.system.changes.push(ChangeHelper.customChange(`${value.ability}`, 8, `system.tools.${key}.ability`));
-      this.effect.system.changes.push(ChangeHelper.customChange("0", 8, `system.tools.${key}.bonuses.check`));
+      this.effect.system.changes.push(ChangeHelper.customChange("0", 8, `system.tools.${key}.roll.bonus`));
     }
     weaponProf.value?.forEach((prof) => {
       logger.debug(`Generating weapon proficiencies for ${this.document.name}`);
@@ -556,7 +619,6 @@ export default class EffectGenerator {
       logger.debug(`Generating armor proficiencies for ${this.document.name}`);
       this.effect.system.changes.push(ChangeHelper.unsignedAddChange(prof, 8, "system.traits.armorProf.value"));
     });
-    // if (toolProf?.custom != "") changes.push(generateCustomChange(toolProf.custom, 8, "system.traits.toolProf.custom"));
     if (weaponProf.custom) {
       this.effect.system.changes.push(ChangeHelper.unsignedAddChange(weaponProf.custom, 8, "system.traits.weaponProf.custom"));
     }
@@ -578,7 +640,11 @@ export default class EffectGenerator {
       }
     });
 
-    const hpBonusModifiers = DDBModifiers.filterModifiersOld(this.grantedModifiers, "bonus", "hit-points");
+    // DDB reuses bonus/hit-points for healing amounts as well as max HP increases, e.g. the
+    // Periapt of Health's "2d4 + 2". Dice mean healing, not max HP, and hp.bonuses.overall is a
+    // deterministic formula field. Healing is handled by DDBItem's granted modifier damage parts.
+    const hpBonusModifiers = DDBModifiers.filterModifiersOld(this.grantedModifiers, "bonus", "hit-points")
+      .filter((modifier) => !(modifier.dice ?? modifier.die));
     if (hpBonusModifiers.length > 0
       && (!this.ddbItem.definition || !("isConsumable" in this.ddbItem.definition) || !this.ddbItem.definition.isConsumable)
     ) {
@@ -596,7 +662,7 @@ export default class EffectGenerator {
     const bonus = DDBModifiers.getValueFromModifiers(modifiers, this.document.name, skill.subType, "bonus");
     if (bonus) {
       logger.debug(`Generating ${skill.subType} skill bonus for ${this.document.name}`, bonus);
-      this.effect.system.changes.push(ChangeHelper.unsignedAddChange(bonus, 12, `system.skills.${skill.name}.bonuses.check`));
+      this.effect.system.changes.push(ChangeHelper.unsignedAddChange(bonus, 12, `system.skills.${skill.name}.roll.bonus`));
     }
   }
 
@@ -612,10 +678,8 @@ export default class EffectGenerator {
     const advantage = DDBModifiers.filterModifiersOld(modifiers, mode, skill.subType, allowedRestrictions);
     if (advantage.length > 0) {
       logger.debug(`Generating ${skill.subType} skill ${mode} for ${this.document.name}`);
-      const modifier = mode === "advantage"
-        ? CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE
-        : CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE;
-      this.effect.system.changes.push(ChangeHelper.addChange(`${modifier}`, 10, `system.skills.${skill.name}.roll.mode`));
+      const modifier = mode === "advantage" ? ChangeHelper.ADVANTAGE : ChangeHelper.DISADVANTAGE;
+      this.effect.system.changes.push(ChangeHelper.skillRollModeChange(skill.name, modifier, 10));
       // handled by midi already
       // advantage/disadvantage on skill grants +/-5 passive bonus, https://www.dndbeyond.com/sources/phb/using-ability-scores#PassiveChecks
       // if (midiEffect === "advantage") {
@@ -664,7 +728,66 @@ export default class EffectGenerator {
     // alert feet gets special bonus
     if (advantageBonus && this.document.name !== "Alert") {
       logger.debug(`Generating Initiative bonus for ${this.document.name}`);
-      this.effect.system.changes.push(ChangeHelper.unsignedAddChange(advantageBonus, 20, "system.attributes.init.bonus"));
+      this.effect.system.changes.push(ChangeHelper.unsignedAddChange(advantageBonus, 20, "system.attributes.init.roll.bonus"));
+    }
+  }
+
+  /**
+   * "Advantage on Constitution saving throws to maintain concentration" and its bonus cousins.
+   * dnd5e rolls concentration through `attributes.concentration.roll`, so the mode and bonus land
+   * there rather than on the ability save, which would also catch poison and petrification.
+   */
+  _addConcentrationChanges() {
+    const key = "system.attributes.concentration.roll";
+    for (const mode of ["advantage", "disadvantage"] as const) {
+      const mods = this.concentrationModifiers.filter((mod) => mod.type === mode);
+      if (mods.length === 0) continue;
+      logger.debug(`Generating concentration ${mode} for ${this.document.name}`);
+      const value = mode === "advantage" ? ChangeHelper.ADVANTAGE : ChangeHelper.DISADVANTAGE;
+      this.effect.system.changes.push(ChangeHelper.concentrationRollModeChange(value, 20));
+    }
+    const bonus = this.concentrationModifiers
+      .filter((mod) => mod.type === "bonus")
+      .map((mod) => DDBModifiers.extractModifierValue(mod))
+      .filter((value) => value !== "")
+      .join(" + ");
+    if (bonus) {
+      logger.debug(`Generating concentration bonus for ${this.document.name}`, bonus);
+      this.effect.system.changes.push(ChangeHelper.unsignedAddChange(bonus, 20, `${key}.bonus`));
+    }
+  }
+
+  /**
+   * Advantage or disadvantage on a class of attack roll (DDB subtypes such as `spell-attacks` or
+   * `weapon-attacks`) as a dnd5e attack rule gated on the attack being rolled. An unrestricted
+   * modifier gets the subtype's scope; a restricted one only lands when RestrictionRules can
+   * express the restriction, otherwise it stays dropped like every other restricted modifier.
+   */
+  _addAttackRollModeRules() {
+    const emitted = new Set<string>();
+    for (const mode of ["advantage", "disadvantage"] as const) {
+      for (const [subType, scope] of Object.entries(RestrictionRules.ATTACK_SUBTYPE_CONDITIONS)) {
+        const mods = DDBModifiers.filterModifiersOld(this.grantedModifiers, mode, subType, null);
+        for (const mod of mods) {
+          let conditions = scope;
+          if (mod.restriction && mod.restriction.trim() !== "") {
+            const match = RestrictionRules.match(mod.restriction);
+            if (!match?.conditions) {
+              logger.debug(`Skipping restricted ${mode} ${subType} for ${this.document.name}: "${mod.restriction}"`);
+              continue;
+            }
+            conditions = scope.concat(match.conditions);
+          }
+          const change = mode === "advantage"
+            ? ChangeHelper.ruleAdvantageChange("attack", { conditions })
+            : ChangeHelper.ruleDisadvantageChange("attack", { conditions });
+          const signature = `${mode}:${change.conditions}`;
+          if (emitted.has(signature)) continue;
+          emitted.add(signature);
+          logger.debug(`Generating ${mode} ${subType} attack rule for ${this.document.name}`);
+          this.effect.system.changes.push(change);
+        }
+      }
     }
   }
 
@@ -695,6 +818,22 @@ export default class EffectGenerator {
     }
   }
 
+  /**
+   * The document's ruleset. Items and features stamp `system.source.rules` and the is2024 flag
+   * before their effects are generated.
+   */
+  get #is2024(): boolean {
+    const rules = foundry.utils.getProperty(this.document, "system.source.rules");
+    if (rules === "2024") return true;
+    if (rules === "2014") return false;
+    return foundry.utils.getProperty(this.document, "flags.ddbimporter.is2024") === true;
+  }
+
+  /**
+   * `speedType` "all" raises every speed through `movement.bonus`; DDB's generic "speed" modifier
+   * asks for it on 2024 documents, where "Speed" means every speed, while in 2014 it is the
+   * walking speed.
+   */
   _addBonusSpeedChanges(subType: string, speedType: string | null = null) {
     const bonuses = this.grantedModifiers.filter((modifier) => modifier.type === "bonus" && modifier.subType === subType);
     // "Equal to Walking Speed"
@@ -710,13 +849,60 @@ export default class EffectGenerator {
         }
         speedType = speedEntry.type;
       }
-      const bonusValue = bonuses.reduce((speed, mod) => speed + parseInt(String(mod.value)), 0);
-      if (speedType === "all") {
-        this.effect.system.changes.push(ChangeHelper.unsignedAddChange(`+ ${bonusValue}`, 9, `system.attributes.movement.${speedType}`));
-      } else {
-        this.effect.system.changes.push(ChangeHelper.unsignedAddChange(bonusValue, 9, `system.attributes.movement.${speedType}`));
+      const hasValue = (mod: IDDBModifier) => Number.isFinite(Number.parseInt(String(mod.value)));
+      const valued = bonuses.filter(hasValue);
+      if (valued.length > 0) {
+        const bonusValue = valued.reduce((speed, mod) => speed + Number.parseInt(String(mod.value)), 0);
+        if (speedType === "all") {
+          this.effect.system.changes.push(ChangeHelper.movementBonusChange(bonusValue, 9));
+        } else {
+          this.effect.system.changes.push(ChangeHelper.unsignedAddChange(bonusValue, 9, `system.attributes.movement.speeds.${speedType}`));
+        }
+      }
+      for (const bonus of bonuses.filter((mod) => !hasValue(mod))) {
+        this._addUnvaluedSpeedBonus(bonus, speedType);
       }
     }
+  }
+
+  /**
+   * DDB sends some speed bonuses with a null value and puts the speed in the restriction text
+   * instead: "Equal to your walking speed", "30ft. swim speed", or "Speed Doubled" (Haste).
+   * A modifier with a duration belongs to an activated property (Boots of Speed, Vanisher Hat),
+   * so it is left to the item's enricher rather than becoming an always-on transfer effect.
+   * Anything the text does not describe is skipped; parsing the null would emit NaN.
+   */
+  _addUnvaluedSpeedBonus(modifier: IDDBModifier, speedType: string) {
+    if (modifier.duration) {
+      logger.debug(`Skipping timed ${modifier.subType} speed bonus for ${this.document.name}`, { modifier });
+      return;
+    }
+    const restriction = String(modifier.restriction ?? "");
+    const multiplier = restriction.match(/speed (doubled|halved)/i);
+    if (multiplier) {
+      const key = "system.attributes.movement.multiplier";
+      // DDB repeats the multiplier on every speed subType, but it applies to movement once
+      if (this.effect.system.changes.some((change) => change.key === key)) return;
+      const value = multiplier[1].toLowerCase() === "doubled" ? "2" : "0.5";
+      this.effect.system.changes.push(ChangeHelper.movementMultiplierChange(value, 20));
+      return;
+    }
+    if (speedType === "all") {
+      logger.debug(`Skipping ${modifier.subType} speed bonus with no value for ${this.document.name}`, { modifier });
+      return;
+    }
+    const key = `system.attributes.movement.speeds.${speedType}`;
+    if ((/equal to your (walking )?speed/i).test(restriction)) {
+      if (speedType === "walk") return;
+      this.effect.system.changes.push(ChangeHelper.upgradeChange("@attributes.movement.speeds.walk", 5, key));
+      return;
+    }
+    const distance = restriction.match(/(\d+)\s*(?:ft|feet|foot)\b/i);
+    if (distance) {
+      this.effect.system.changes.push(ChangeHelper.upgradeChange(Number.parseInt(distance[1]), 5, key));
+      return;
+    }
+    logger.debug(`Skipping ${modifier.subType} speed bonus with no value for ${this.document.name}`, { modifier });
   }
 
   _addBonusSpeeds() {
@@ -726,7 +912,7 @@ export default class EffectGenerator {
     });
 
     this._addBonusSpeedChanges("unarmored-movement", "walk");
-    this._addBonusSpeedChanges("speed", "walk");
+    this._addBonusSpeedChanges("speed", this.#is2024 ? "all" : "walk");
     // probably all, but doesn't handle cases of where no base speed set, so say fly gets set to 10.
   }
 
@@ -734,52 +920,149 @@ export default class EffectGenerator {
     this._addAddBonusChanges(
       this.grantedModifiers,
       "melee-attacks",
-      "system.bonuses.mwak.attack",
+      "system.rolls.attack.mwak.bonus",
     );
     this._addAddBonusChanges(
       this.grantedModifiers,
       "ranged-attacks",
-      "system.bonuses.rwak.attack",
+      "system.rolls.attack.rwak.bonus",
     );
     this._addAddBonusChanges(
       this.grantedModifiers,
       "melee-weapon-attacks",
-      "system.bonuses.mwak.attack",
+      "system.rolls.attack.mwak.bonus",
     );
     this._addAddBonusChanges(
       this.grantedModifiers,
       "ranged-weapon-attacks",
-      "system.bonuses.rwak.attack",
+      "system.rolls.attack.rwak.bonus",
     );
     this._addAddBonusChanges(
       this.grantedModifiers,
       "weapon-attacks",
-      "system.bonuses.mwak.attack",
+      "system.rolls.attack.mwak.bonus",
     );
     this._addAddBonusChanges(
       this.grantedModifiers,
       "weapon-attacks",
-      "system.bonuses.rwak.attack",
+      "system.rolls.attack.rwak.bonus",
     );
+    this._addUnarmedAttackBonus();
+    this._addCantripDamageBonus();
   }
 
-  _damageBonus(type: I5eAttackBonusTypes, modifiers: IModifiersMod[]) {
+  /**
+   * Generator types whose document is a character feature.
+   */
+  static FEATURE_TYPES: TEffectGeneratorType[] = ["feat", "feature"];
+
+  /**
+   * `bonus/unarmed-attacks` translates to `system.rolls.attack.<type>.bonus` and has a classification of the attack being
+   * rolled (unarmed, plus "natural" for DDB natural weapons). Features only.
+   * An item carrying the subtype is already handled by its own enricher.
+   * Only unrestricted modifiers qualify: a restricted one needs its own reviewed
+   * condition rather than a silently widened gate. See docs/effect-condition-candidates.md.
+   */
+  _addUnarmedAttackBonus() {
+    if (!EffectGenerator.FEATURE_TYPES.includes(this.type)) return;
+    // getValueFromModifiers disables restriction filtering, so the restriction gate is applied here
+    const unrestricted = DDBModifiers.filterModifiersOld(this.grantedModifiers, "bonus", "unarmed-attacks");
+    const bonus = DDBModifiers.getValueFromModifiers(unrestricted, this.document.name, "unarmed-attacks", "bonus");
+    if (!bonus) return;
+    logger.debug(`Generating unarmed attack bonus rule for ${this.document.name}`, bonus);
+    this.effect.system.changes.push(ChangeHelper.ruleBonusChange("attack", bonus, {
+      priority: 20,
+      conditions: ChangeHelper.UNARMED_FILTER,
+    }));
+  }
+
+  /**
+   * `bonus/<class>-cantrip-damage` carrying a stat is Potent Spellcasting ("add your Wisdom modifier to
+   * the damage you deal with any cleric cantrip"): a `damage:bonus` rule of that ability modifier, gated
+   * on a cantrip granted by that class.
+   *
+   * The rules iterator applies a rule once per roll and every  cleric and druid cantrip is a single roll, so per roll is per cast.
+   *
+   * Features only, unrestricted modifiers only (the 2024 temp-HP rider is restricted and stays with its enricher)
+   *
+   * A feature whose rules text is not per-roll (artificer Fine Tuning: "one damage roll of the spell") opts out with
+   * `clearAutoEffects` in an enricher and keeps its own automation.
+   */
+  _addCantripDamageBonus() {
+    if (!EffectGenerator.FEATURE_TYPES.includes(this.type)) return;
+    for (const modifier of this.grantedModifiers) {
+      if (modifier.type !== "bonus") continue;
+      const match = (/^([a-z-]+)-cantrip-damage$/).exec(modifier.subType ?? "");
+      if (!match) continue;
+      if (modifier.restriction && modifier.restriction !== "") continue;
+      const ability = DICTIONARY.actor.abilities.find((a) => a.id === modifier.statId)?.value;
+      if (!ability) continue;
+      logger.debug(`Generating ${match[1]} cantrip damage rule for ${this.document.name}`, ability);
+      this.effect.system.changes.push(ChangeHelper.ruleBonusChange("damage", `@abilities.${ability}.mod`, {
+        priority: 20,
+        conditions: [ChangeHelper.CANTRIP_FILTER, ChangeHelper.classSpellFilter(match[1])],
+      }));
+    }
+  }
+
+  _damageBonusFormula(modifiers: IModifiersMod[]): string | null {
     const bonus = modifiers
       .filter((mod) => mod.dice || mod.die || mod.value)
       .map((mod) => {
         const die = mod.dice ? mod.dice : mod.die ? mod.die : undefined;
         // parseDiceString joins mods with "", so undefined behaves identically to the previous null
         if (die) {
-          return utils.parseDiceString(die.diceString, undefined, mod.subType ? `[${mod.subType}]` : undefined).diceString;
+          return utils.parseDiceString(die.diceString, undefined, mod.subType ? `[${mod.subType}]` : undefined, undefined, true).diceString;
         } else {
-          return utils.parseDiceString(String(mod.value), undefined, mod.subType ? `[${mod.subType}]` : undefined).diceString;
+          return utils.parseDiceString(String(mod.value), undefined, mod.subType ? `[${mod.subType}]` : undefined, undefined, true).diceString;
         }
       });
-    if (bonus && bonus.length > 0) {
+    return bonus.length > 0 ? bonus.join(" + ") : null;
+  }
+
+  _damageBonus(type: I5eAttackBonusTypes, modifiers: IModifiersMod[]) {
+    const bonus = this._damageBonusFormula(modifiers);
+    if (bonus) {
       logger.debug(`Generating ${type} damage for ${this.document.name}`);
-      const change = ChangeHelper.unsignedAddChange(`${bonus.join(" + ")}`, 22, `system.bonuses.${type}.damage`);
+      const change = ChangeHelper.unsignedAddChange(bonus, 22, `system.rolls.damage.${type}.bonus`);
       this.effect.system.changes.push(change);
     }
+  }
+
+  /**
+   * A damage bonus that only applies to some attacks. `system.rolls.damage.<type>.bonus` cannot
+   * express "in one hand", "unarmed" or "with a longbow", so these emit a rule change instead and
+   * let the system test the filter against the attack actually being rolled.
+   */
+  _conditionedDamageBonus(modifiers: IModifiersMod[], conditions: IEffectChangeFilter | IEffectChangeFilter[], label: string) {
+    const bonus = this._damageBonusFormula(modifiers);
+    if (!bonus) return;
+    logger.debug(`Generating ${label} damage for ${this.document.name}`);
+    this.effect.system.changes.push(ChangeHelper.ruleBonusChange("damage", bonus, { priority: 22, conditions }));
+  }
+
+  /**
+   * DDB carries these gates in the modifier subtype rather than in a restriction string, so the
+   * restriction filtering keeps them; without a condition from this table they would apply to
+   * every melee or every weapon damage roll.
+   */
+  static ATTACK_MODE_DAMAGE_SUBTYPES: Record<string, IEffectChangeFilter> = {
+    "one-handed-melee-attacks": { k: "roll.attack.mode", v: "oneHanded" },
+    "unarmed-attacks": ChangeHelper.UNARMED_FILTER,
+  };
+
+  /**
+   * DDB names a weapon-specific damage bonus (Bracers of Archery: +2 with a longbow or shortbow)
+   * by putting the weapon's slug in the modifier subtype. Resolve that slug to the dnd5e base item
+   * id through the proficiency table so the rule can test `item.type.baseItem`; null for any
+   * subtype that is not a weapon we know.
+   */
+  static weaponBaseItemForSubType(subType: string | null | undefined): string | null {
+    if (!subType) return null;
+    const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const weapon = DICTIONARY.actor.proficiencies.find((p) =>
+      p.type === "Weapon" && Boolean(p.foundryValue) && slug(p.name) === subType);
+    return weapon?.foundryValue || null;
   }
 
   _addGlobalDamageBonus() {
@@ -792,19 +1075,26 @@ export default class EffectGenerator {
     const rangedRestrictionMods = DDBModifiers.filterModifiersOld(this.grantedModifiers, "damage", null, rangedRestrictions);
     this._damageBonus("rwak", rangedRestrictionMods);
 
-    const DAMAGE_SUBTYPE_MAP: Record<string, I5eAttackBonusTypes[]> = {
-      "one-handed-melee-attacks": ["mwak"],
-    };
+    const modeSubTypes = EffectGenerator.ATTACK_MODE_DAMAGE_SUBTYPES;
+    for (const [subType, conditions] of Object.entries(modeSubTypes)) {
+      const subTypeMods = DDBModifiers.filterModifiersOld(this.grantedModifiers, "damage", subType);
+      this._conditionedDamageBonus(subTypeMods, conditions, subType);
+    }
 
-    for (const [subtype, damageTypes] of Object.entries(DAMAGE_SUBTYPE_MAP)) {
-      const subTypeMods = DDBModifiers.filterModifiersOld(this.grantedModifiers, "damage", subtype);
-      for (const damageType of damageTypes) {
-        this._damageBonus(damageType, subTypeMods);
-      }
+    // a bonus for one weapon type is conditioned on that base item; it is not a melee or ranged bonus
+    const weaponSubTypes = new Set<string>();
+    for (const mod of DDBModifiers.filterModifiersOld(this.grantedModifiers, "damage", null)) {
+      if (mod.subType && EffectGenerator.weaponBaseItemForSubType(mod.subType)) weaponSubTypes.add(mod.subType);
+    }
+    for (const subType of weaponSubTypes) {
+      const baseItem = EffectGenerator.weaponBaseItemForSubType(subType) as string;
+      const subTypeMods = DDBModifiers.filterModifiersOld(this.grantedModifiers, "damage", subType);
+      this._conditionedDamageBonus(subTypeMods, { k: "item.type.baseItem", o: "exact", v: baseItem }, subType);
     }
 
     const allBonusMods = DDBModifiers.filterModifiersOld(this.grantedModifiers, "damage", null)
-      .filter((mod) => !Object.keys(DAMAGE_SUBTYPE_MAP).includes(mod.subType))
+      .filter((mod) => !Object.keys(modeSubTypes).includes(mod.subType))
+      .filter((mod) => !weaponSubTypes.has(mod.subType))
       .filter((mod) => mod.dice || mod.die || mod.value);
     if (allBonusMods.length > 0) {
       logger.debug(`Generating all damage for ${this.document.name}`);
@@ -867,10 +1157,12 @@ export default class EffectGenerator {
       foundry.utils.setProperty(this.document, "flags.dae.alwaysActive", false);
     }
 
-    if ("id" in this.ddbItem)
+    if ("id" in this.ddbItem) {
       foundry.utils.setProperty(effect, "flags.ddbimporter.itemId", this.ddbItem.id);
-    if ("entityTypeId" in this.ddbItem)
+    }
+    if ("entityTypeId" in this.ddbItem) {
       foundry.utils.setProperty(effect, "flags.ddbimporter.itemEntityTypeId", this.ddbItem.entityTypeId);
+    }
     // set dae flag for active equipped
     if (canEquip || canAttune) {
       foundry.utils.setProperty(this.document, "flags.dae.activeEquipped", true);
@@ -891,12 +1183,12 @@ export default class EffectGenerator {
     this._addAddBonusChanges(
       this.grantedModifiers,
       "ability-checks",
-      "system.bonuses.abilities.check",
+      "system.rolls.ability.check.bonus",
     );
     this._addAddBonusChanges(
       this.grantedModifiers,
       "skill-checks",
-      "system.bonuses.abilities.skill",
+      "system.rolls.ability.skill.bonus",
     );
     this._addLanguages();
     this._addDamageConditions();
@@ -911,6 +1203,8 @@ export default class EffectGenerator {
     this._addHPEffect();
     this._addSkillBonuses();
     this._addInitiativeBonuses();
+    this._addConcentrationChanges();
+    this._addAttackRollModeRules();
     this._addAttackRollDisadvantage();
     this._addMagicalAdvantage();
     this._addBonusSpeeds();
@@ -918,13 +1212,13 @@ export default class EffectGenerator {
     this._addGlobalDamageBonus();
     this._addAttunementSlots();
 
-    const hasInitiative = this.effect.system.changes.find((c) => c.key === "system.attributes.init.bonus"
+    const hasInitiative = this.effect.system.changes.find((c) => c.key === "system.attributes.init.roll.bonus"
       && c.type === "add");
-    const hasCheck = this.effect.system.changes.find((c) => c.key === "system.bonuses.abilities.check"
+    const hasCheck = this.effect.system.changes.find((c) => c.key === "system.rolls.ability.check.bonus"
       && c.type === "add");
 
     if (hasInitiative && hasCheck) {
-      this.effect.system.changes = this.effect.system.changes.filter((c) => !(c.key === "system.attributes.init.bonus"
+      this.effect.system.changes = this.effect.system.changes.filter((c) => !(c.key === "system.attributes.init.roll.bonus"
         && c.type === "add"
         && c.value === hasCheck.value));
     }
@@ -1001,25 +1295,9 @@ export default class EffectGenerator {
       }
 
       logger.debug(`Generating ${subType} AC set for ${this.document.name}: ${formula}`);
-      this.effect.system.changes.push(
-        {
-          key: "system.attributes.ac.formula",
-          value: formula,
-          type: "override",
-          priority: 15,
-        },
-      );
 
-      const calcType = "entityType" in this.ddbItem && this.ddbItem.entityType === "racial-trait"
-        ? "natural"
-        : "custom";
       this.effect.system.changes.push(
-        {
-          key: "system.attributes.ac.calc",
-          value: calcType,
-          type: "override",
-          priority: 10,
-        },
+        ChangeHelper.acFormulaAddChange(formula, 15),
       );
     }
   }
@@ -1175,63 +1453,11 @@ export default class EffectGenerator {
 
   }
 
-  static applyDaeSpecialDurations(effect: I5eEffectData, durations: TDAESpecialDuration[]) {
-    const daeActive: boolean = game.modules.get("dae")?.active ?? false;
-    const daeManagesTurnExpiry: boolean = daeActive && !foundry.utils.isNewerVersion(game.system.version, "5.99.99");
-    const deprecatedSpecialDurMap: Record<string, TDAEEffectExpiryTypes> = daeManagesTurnExpiry ? {
-      "turnStart": "targetStart",
-      "turnEnd": "targetEnd",
-      "turnStartSource": "sourceStart",
-      "turnEndSource": "sourceEnd",
-      "combatEnd": "combatEnd",
-      "sourceStart": "sourceStart",
-      "sourceEnd": "sourceEnd",
-      "targetStart": "targetStart",
-      "targetEnd": "targetEnd",
-    } : {
-      "turnStart": "turnStart",
-      "turnEnd": "turnEnd",
-      "turnStartSource": "turnStart",
-      "turnEndSource": "turnEnd",
-      "combatEnd": "combatEnd",
-      "sourceStart": "turnStart",
-      "sourceEnd": "turnEnd",
-      "targetStart": "turnStart",
-      "targetEnd": "turnEnd",
-    };
+  // expiry translation lives in the EffectExpiryHelpers leaf so AutoEffects can
+  // use it without importing EffectGenerator (which imports AutoEffects); these
+  // statics stay as the established call surface
+  static applyNativeExpiry = applyNativeExpiry;
 
-    effect.duration ??= {};
-
-    if (durations.includes("turnStart")) {
-      effect.duration.expiry = deprecatedSpecialDurMap["turnStart"];
-    } else if (durations.includes("turnEnd")) {
-      effect.duration.expiry = deprecatedSpecialDurMap["turnEnd"];
-    } else if (durations.includes("combatEnd")) {
-      effect.duration.expiry = deprecatedSpecialDurMap["combatEnd"];
-    } else if (durations.includes("turnStartSource")) {
-      effect.duration.expiry = deprecatedSpecialDurMap["turnStartSource"];
-    } else if (durations.includes("turnEndSource")) {
-      effect.duration.expiry = deprecatedSpecialDurMap["turnEndSource"];
-    }
-
-    // these are new for v14 so more likely to be correct
-    if (durations.includes("sourceStart")) {
-      effect.duration.expiry = deprecatedSpecialDurMap["sourceStart"];
-    } else if (durations.includes("sourceEnd")) {
-      effect.duration.expiry = deprecatedSpecialDurMap["sourceEnd"];
-    } else if (durations.includes("targetStart")) {
-      effect.duration.expiry = deprecatedSpecialDurMap["targetStart"];
-    } else if (durations.includes("targetEnd")) {
-      effect.duration.expiry = deprecatedSpecialDurMap["targetEnd"];
-    }
-
-    const durationsToFlag: TDAESpecialDuration[] = durations.filter((d) =>
-      !(DAE_EFFECT_EXPIRY_TYPES as readonly string[]).includes(d),
-    );
-
-    if (durationsToFlag.length > 0)
-      foundry.utils.setProperty(effect, "flags.dae.specialDuration", durationsToFlag);
-    return effect;
-  }
+  static applyDaeSpecialDurations = applyDaeSpecialDurations;
 
 }

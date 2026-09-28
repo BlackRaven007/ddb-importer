@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ExitStrategy extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "reaction",
@@ -15,20 +15,19 @@ export default class ExitStrategy extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Exit Strategy: Invisible",
         options: {
-          durationRounds: 1,
+          expiry: "sourceStart",
         },
         statuses: ["Invisible"],
-        daeSpecialDurations: ["turnStartSource"],
       },
     ];
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {

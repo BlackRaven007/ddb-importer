@@ -63,8 +63,9 @@ DDBCharacter.prototype._generateSpeed = function _generateSpeed(this: DDBCharact
 
   // speed bonuses
   for (const type in movementTypes) {
+    const innateName = DICTIONARY.actor.speeds.find((s) => s.type === type)?.innate ?? `${type}ing`;
     const innateBonus = DDBModifiers
-      .filterBaseModifiers(ddb, "bonus", { subType: `speed-${type}ing`, restriction })
+      .filterBaseModifiers(ddb, "bonus", { subType: `speed-${innateName}`, restriction })
       .reduce((speed, feat) => speed + parseInt(String(feat.value)), 0);
 
     // overwrite the (perhaps) changed value
@@ -138,11 +139,13 @@ DDBCharacter.prototype._generateSpeed = function _generateSpeed(this: DDBCharact
   }
 
   attributes.movement = {
-    burrow: movementTypes["burrow"] ? String(movementTypes["burrow"]) : "",
-    climb: movementTypes["climb"] ? String(movementTypes["climb"]) : "",
-    fly: movementTypes["fly"] ? String(movementTypes["fly"]) : "",
-    swim: movementTypes["swim"] ? String(movementTypes["swim"]) : "",
-    walk: movementTypes["walk"] ? String(movementTypes["walk"]) : "",
+    speeds: {
+      burrow: movementTypes["burrow"] ? String(movementTypes["burrow"]) : "",
+      climb: movementTypes["climb"] ? String(movementTypes["climb"]) : "",
+      fly: movementTypes["fly"] ? String(movementTypes["fly"]) : "",
+      swim: movementTypes["swim"] ? String(movementTypes["swim"]) : "",
+      walk: movementTypes["walk"] ? String(movementTypes["walk"]) : "",
+    },
     units: "ft",
     hover: false,
   };

@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class FrozenHaunt extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Activate Frozen Haunt",
       targetType: "self",
@@ -16,7 +16,7 @@ export default class FrozenHaunt extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -101,24 +101,32 @@ export default class FrozenHaunt extends DDBEnricherData {
   }
 
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       name: "Partially Incorporeal",
+      statuses: ["Transformed"],
       options: {
         durationSeconds: 600,
       },
       changes: [
-        DDBEnricherData.ChangeHelper.unsignedAddChange("cold", 20, "system.traits.di.value"),
-        DDBEnricherData.ChangeHelper.unsignedAddChange("grappled", 20, "system.traits.ci.value"),
-        DDBEnricherData.ChangeHelper.unsignedAddChange("prone", 20, "system.traits.ci.value"),
-        DDBEnricherData.ChangeHelper.unsignedAddChange("restrained", 20, "system.traits.ci.value"),
+        DDBEnricherData.ChangeHelper.damageImmunityChange("cold"),
+        DDBEnricherData.ChangeHelper.conditionImmunityChange("grappled"),
+        DDBEnricherData.ChangeHelper.conditionImmunityChange("prone"),
+        DDBEnricherData.ChangeHelper.conditionImmunityChange("restrained"),
       ],
       activityMatch: "Activate Frozen Haunt",
     }];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
+  }
+
+  // DDB ships no action (and so no limited use) for this feature; the activities consume item uses, which need a max
+  override get override(): IDDBOverrideData {
+    return {
+      uses: { spent: null, max: "1", recovery: [{ period: "lr", type: "recoverAll", formula: undefined }] },
+    };
   }
 
 }

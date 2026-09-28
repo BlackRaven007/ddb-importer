@@ -1,10 +1,12 @@
 import { DICTIONARY } from "../../../config/_module";
-import { logger } from "../../../lib/_module";
-import { DDBDataUtils, DDBTemplateStrings } from "../../lib/_module";
-import CharacterSpellFactory from "../../spells/CharacterSpellFactory";
-import DDBSpell from "../../spells/DDBSpell";
+import logger from "../../../lib/Logger";
+import utils from "../../../lib/Utils";
+import DDBDataUtils from "../../lib/DDBDataUtils";
+import * as DDBTemplateStrings from "../../lib/DDBTemplateStrings";
+import SpellDataUtils from "../../spells/SpellDataUtils";
 import type DDBSummonsManager from "../../companions/DDBSummonsManager";
-import { AutoEffects, ChangeHelper } from "../effects/_module";
+import AdvancementBuilder from "../../advancements/AdvancementBuilder";
+import { AutoEffects, BehaviorHelper, ChangeHelper, SRDEffects } from "../effects/_module";
 
 export interface IDDBBasicDamage {
   number?: number | null;
@@ -16,12 +18,32 @@ export interface IDDBBasicDamage {
   scalingNumber?: number | null;
   scalingFormula?: string | number;
   customFormula?: string | null;
+  /** dnd5e 6 die-modifier suffixes appended to the die term, e.g. ["r1"] -> "1d8r1". */
+  modifiers?: string[];
 }
 
 export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnricher> {
 
-  static AutoEffects = AutoEffects;
-  static ChangeHelper = ChangeHelper;
+  // Static getters, not fields
+  static get AutoEffects(): typeof AutoEffects {
+    return AutoEffects;
+  }
+
+  static get BehaviorHelper(): typeof BehaviorHelper {
+    return BehaviorHelper;
+  }
+
+  static get SRDEffects(): typeof SRDEffects {
+    return SRDEffects;
+  }
+
+  static get ChangeHelper(): typeof ChangeHelper {
+    return ChangeHelper;
+  }
+
+  static get AdvancementBuilder(): typeof AdvancementBuilder {
+    return AdvancementBuilder;
+  }
   static ACTIVITY_TYPES = DICTIONARY.parsing.activity.types;
   static SPELL_PROPERTIES = DICTIONARY.spell.components;
 
@@ -101,6 +123,26 @@ export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnric
     )?.text ?? null;
   }
 
+  /**
+   * The parsed description of a DDB action on this character, for enrichers whose document folds in
+   * an action's text (the default action match copies activities but not descriptions). Returns null
+   * when the action is absent.
+   */
+  getActionDescription({ name, type = "class" }: { name: string; type?: IActionTypes }): string | null {
+    const action = this.hasAction({ name, type });
+    if (!action?.description) return null;
+
+    const rawCharacter = this.ddbParser.rawCharacter;
+    if (rawCharacter?.type !== "character") return action.description;
+
+    return DDBTemplateStrings.parse(
+      this.ddbParser.ddbData,
+      rawCharacter,
+      action.description,
+      this.ddbParser.ddbFeature,
+    )?.text ?? null;
+  }
+
   hasSpeciesTrait({ traitName }: { traitName: string }): boolean {
     if (!this.ddbParser?.ddbData) return false;
 
@@ -134,9 +176,14 @@ export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnric
     return DDBDataUtils.classIdentifierName(name);
   }
 
+  /**
+   * The character's DDB action of this name, compared through nameString so curly apostrophes
+   * and trailing spaces in DDB's names ("Slippery Ploy ") still match.
+   */
   hasAction({ name, type }: { name: string; type: IActionTypes }): IDDBAction | undefined {
+    const target = utils.nameString(name);
     return this.ddbParser?.ddbData?.character.actions[type].find((a) =>
-      a.name === name,
+      utils.nameString(a.name) === target,
     );
   }
 
@@ -223,32 +270,34 @@ export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnric
   _getSpellsForFeature({ type, name, onlyLimitedUse = true }: { type: IActionTypes; name: string; onlyLimitedUse?: boolean }): any[] {
     const ddbData = this.ddbParser?.ddbData;
     if (!ddbData) return [];
-    const spells = (ddbData.character.spells[type] ?? []).filter((s) => {
+    const spells = (ddbData.character.spells?.[type] ?? []).filter((s) => {
       if (onlyLimitedUse && !s.limitedUse) return false;
       const id = type === "class"
         ? DDBDataUtils.determineActualFeatureId(ddbData, s.componentId)
         : s.componentId;
       const lookupType = type === "class" ? "classFeature" : type;
-      const lookup = CharacterSpellFactory.getDDBSpellLookup(ddbData, lookupType, id);
-      if (lookup?.name === name) return true;
-      return false;
+      const lookup = SpellDataUtils.getDDBSpellLookup(ddbData, lookupType, id);
+      // DDB feature names carry curly apostrophes ("Paladin’s Smite"); enrichers use straight ones
+      return lookup?.name !== undefined && utils.nameString(lookup.name) === utils.nameString(name);
     });
     return spells;
   }
 
   _getSpellUsesWithSpent({ type, name, max = null, defaultSpent = null, period = "", formula = null, override = null }: { type: IActionTypes; name: string; max?: string | null; defaultSpent?: number | null; period?: TLimitedUsePeriod; formula?: string | null; override?: boolean | null }): I5eSystemLimitedUses {
     const spells = this._getSpellsForFeature({ type, name });
+    const system = this.ddbParser?.data?.system;
+
+    const uses: I5eSystemLimitedUses = spells.length > 0
+      ? SpellDataUtils.getUses(spells[0].limitedUse)
+      : foundry.utils.deepClone(system && "uses" in system ? system.uses ?? {} : {});
 
     if (spells.length === 0) {
-      logger.error(`No spells found for feature ${name} of type ${type}`);
-      return {
-        spent: defaultSpent,
-        max,
-        recovery: [],
-      };
+      logger.warn(`No spells found for feature ${name} of type ${type}`);
+      // Preserve the feature's existing uses when DDB supplies no charge pool.
+      // Explicit defaults still apply, including the recovery configured below.
+      if (defaultSpent !== null) uses.spent = defaultSpent;
+      if (max !== null) uses.max = max;
     }
-
-    const uses: I5eSystemLimitedUses = DDBSpell.getUses(spells[0].limitedUse);
 
     if (formula) {
       uses.recovery = [{ period, type: "formula", formula }];
@@ -281,7 +330,7 @@ export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnric
 
   static basicDamagePart({
     number = null, denomination = null, type = null, types = [], bonus = "", scalingMode = "whole",
-    scalingNumber = 1, scalingFormula = "", customFormula = null,
+    scalingNumber = 1, scalingFormula = "", customFormula = null, modifiers = [],
   }: IDDBBasicDamage = {}): I5eDamagePart {
     return {
       number,
@@ -293,6 +342,8 @@ export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnric
         // dnd5e's FormulaField coerces null to "" so this is output equivalent
         formula: customFormula ?? "",
       },
+      // omitted when empty so unmodified parts keep their existing shape
+      ...(modifiers.length > 0 ? { modifiers } : {}),
       scaling: {
         mode: scalingMode,
         number: scalingNumber,
@@ -301,16 +352,25 @@ export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnric
     };
   }
 
-  // matches a single non-nested blockquote; a DOM round trip is not used here because
-  // re-serialising would escape the & in Foundry's &Reference[...] enrichers
-  static BLOCKQUOTE_REGEX = /<blockquote\b[^>]*>(?:(?!<\/blockquote>)[\s\S])*<\/blockquote>\s*/gi;
+  /**
+   * Activity data for a form-mode transform ("Select Form"): the actor keeps its own stats and the
+   * forms are the effects linked to the activity by `activityMatch`, in hint order, the first being
+   * the default. `formless` adds a "No Form" choice that removes every applied form. Profiles and
+   * settings are written out empty because form mode never reads them. Duration is left to the
+   * caller: a form effect is cloned straight onto the actor, so it carries its own duration.
+   */
+  static formTransformData({ formless = true }: { formless?: boolean } = {}): Partial<I5eTransformActivity> {
+    return {
+      profiles: [],
+      settings: null,
+      transform: { mode: "form", formless, customize: false, preset: "" },
+    };
+  }
 
+  // DDB sheet instructions are now stripped centrally in DDBFeatureMixin.getDescription,
+  // so this is only needed for notes whose phrasing is not in DDB_SHEET_NOTE_MARKERS.
   static stripBuilderNote(html: string, builderNote = "Character Builder"): string {
-    if (!html?.includes(builderNote)) return html;
-
-    return html.replace(DDBEnricherData.BLOCKQUOTE_REGEX, (match) =>
-      match.includes(builderNote) ? "" : match,
-    );
+    return utils.stripNoteBlocks(html, [builderNote]);
   }
 
   get useMidiAutomations(): boolean {
@@ -328,6 +388,29 @@ export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnric
 
   get data(): any {
     return this.ddbEnricher.ddbParser.data;
+  }
+
+  /**
+   * `flags` pointing a feature-held scale value at one class's level. Without an advancement root
+   * dnd5e reads such a scale against the character's total level, which overshoots on a
+   * multiclass. Empty when the class is not on the character, as in the muncher.
+   */
+  classAdvancementRootFlags(className: string): { dnd5e?: { advancementRoot: string } } {
+    const klass = this.ddbParser?.ddbCharacter?.raw?.classes?.find((entry) => entry.name === className);
+    return klass?._id ? { dnd5e: { advancementRoot: klass._id } } : {};
+  }
+
+  /**
+   * The spell's own duration without concentration, for a duplicated follow-up activity (a
+   * region's ongoing save, a transformation used again later). Using an activity whose duration
+   * concentrates begins concentration again, ending the spell's; an instantaneous duration avoids
+   * that but gives any effect it applies no length, since dnd5e hands a linked effect with no
+   * expiry of its own the activity's duration. Built activities get the same through the
+   * `noConcentration` build option.
+   */
+  get followUpDuration(): I5eActivityDuration {
+    const duration = (this.data?.system?.duration ?? {}) as I5eSystemDurationData;
+    return { ...foundry.utils.deepClone(duration), concentration: false, override: true };
   }
 
   get activity(): IDDBActivityData | null {
@@ -382,6 +465,16 @@ export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnric
     return true;
   }
 
+  /**
+   * An enricher that authors `additionalActivities` normally replaces the save and check
+   * activities the parser builds from the description. Return true when the enricher's activities
+   * sit beside those, not instead of them: a lair-action list gaining a terrain placer still
+   * needs each of its parsed saves.
+   */
+  get keepParsedActivities(): boolean {
+    return false;
+  }
+
   get builtFeaturesFromActionFilters(): any[] {
     return [];
   }
@@ -391,6 +484,34 @@ export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnric
   }
 
   get parseAllChoiceFeatures(): boolean {
+    return false;
+  }
+
+  /**
+   * Suppress the per-choice child features, keeping the options as description text on the
+   * parent. The class-scoped equivalent of NO_CHOICE_BUILD, for names that are shared between
+   * classes and so cannot be listed there (e.g. Gunslinger vs Fighter "Maneuvers").
+   */
+  get noChoiceBuild(): boolean {
+    return false;
+  }
+
+  /**
+   * When a lone chosen option merges into a parent that already has activities, append the
+   * option's activities instead of dropping them, skipping any whose name the parent already
+   * carries. For parents whose enricher builds the primary activity itself but still wants
+   * DDB's per-option actions beside it (Semblance of Life's spirit-form attacks).
+   */
+  get mergeChoiceActivities(): boolean {
+    return false;
+  }
+
+  /**
+   * Refuse the option modifiers that DDBFeatureMixin._suppressedChoiceModifiers would otherwise
+   * carry onto this feature, for a parent whose enricher automates those options itself. Order of
+   * the Lycan: Improved Predatory Strikes/Stalker's Prowess.
+   */
+  get noSuppressedChoiceModifiers(): boolean {
     return false;
   }
 
@@ -422,6 +543,7 @@ export default abstract class DDBEnricherData<T extends TDDBEnricher = TDDBEnric
     return null;
   }
 
+  /** Disables parser-generated versatile activities and conditional attack modes. */
   get noVersatile(): boolean {
     return false;
   }

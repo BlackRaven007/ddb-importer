@@ -56,6 +56,7 @@ function createFunctionLink(label: string, dataset: Record<string, any>) {
 
 
 async function enrichFunction(config: Record<string, any>, label: string, options: TextEditor.EnrichmentOptions) {
+  // console.warn("ENRICHER DEGUG", {
   //   config,
   //   label,
   //   options,
@@ -99,7 +100,7 @@ async function enrichFunction(config: Record<string, any>, label: string, option
 
   if (foundItem) {
     if (!label) label = foundry.utils.getProperty(foundItem, "name") as string;
-    dataset.rollItemUuid = foundItem.uuid;
+    dataset.rollItemUuid = foundItem.uuid ?? undefined;
     return createFunctionLink(label, dataset);
   }
 

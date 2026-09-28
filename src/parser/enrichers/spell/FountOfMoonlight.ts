@@ -2,31 +2,17 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class FountOfMoonlight extends DDBEnricherData {
 
-  get type() {
-    return DDBEnricherData.AutoEffects.effectModules().atlInstalled ? DDBEnricherData.ACTIVITY_TYPES.UTILITY : DDBEnricherData.ACTIVITY_TYPES.DDBMACRO;
+  override get type(): IDDBActivityType | null {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
-    if (DDBEnricherData.AutoEffects.effectModules().atlInstalled) {
-      return {
-        name: "Cast Spell",
-      };
-    } else {
-      return {
-        name: "Cast Spell",
-        data: {
-          macro: {
-            name: "Place Light on Token",
-            function: "ddb.generic.light",
-            visible: false,
-            parameters: `{"distance":20,"targetsSelf":true,"targetsToken":true,"lightConfig":{"dim":40,"bright":20},"flag":"light"}`,
-          },
-        },
-      };
-    }
+  override get activity(): IDDBActivityData {
+    return {
+      name: "Cast Spell",
+    };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -34,6 +20,7 @@ export default class FountOfMoonlight extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
+          generateDuration: true,
           generateDamage: false,
           generateSave: true,
           noSpellslot: true,
@@ -67,23 +54,22 @@ export default class FountOfMoonlight extends DDBEnricherData {
     ];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Wreathed in Moonlight",
         activityMatch: "Cast Spell",
         options: {
           durationSeconds: 600,
-          durationRounds: 60,
         },
         changes: [
           DDBEnricherData.ChangeHelper.damageResistanceChange("radiant"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("2d6[radiant]", 20, "system.bonuses.mwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("2d6[radiant]", 20, "system.bonuses.msak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("2d6[radiant]", 20, "system.rolls.damage.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("2d6[radiant]", 20, "system.rolls.damage.msak.bonus"),
           DDBEnricherData.ChangeHelper.upgradeChange("40", 20, "token.light.dim"),
           DDBEnricherData.ChangeHelper.upgradeChange("20", 20, "token.light.bright"),
           DDBEnricherData.ChangeHelper.overrideChange("#97a9ab", 20, "token.light.color"),

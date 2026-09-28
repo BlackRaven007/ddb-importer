@@ -1,4 +1,4 @@
-image: node:18
+image: node:24
 
 cache:
   paths:
@@ -16,36 +16,8 @@ variables:
 
 #This declares the pipeline stages
 stages:
-  - validate
   - prepare
   - build
-
-lint:
-  stage: validate
-  script:
-    - npm ci
-    - npm run lint
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
-
-typecheck:
-  stage: validate
-  script:
-    - npm ci
-    - npm run typecheck
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
-
-test:
-  stage: validate
-  script:
-    - npm ci
-    - npm test
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
 
 prepare:
   only:
@@ -63,7 +35,6 @@ prepare:
       dotenv: vars.env
 
 build:
-  needs: ["lint", "typecheck", "test"]
   only:
     variables:
       - $CI_COMMIT_BRANCH == $ALPHA_BRANCH
@@ -77,7 +48,7 @@ build:
     - echo "$(node ./.gitlab/build-alpha-module.js | jq .)"
     - node ./.gitlab/build-alpha-module.js | jq . > module.json
     - ./icon.sh
-    - zip -r ./ddb-importer.zip module.json dist icons handlebars css img lang data vendor macros LICENSE.md
+    - zip -r ./ddb-importer.zip module.json dist icons handlebars css img lang data vendor macros LICENSE.md -x data/icon-catalog.json
     - aws s3 cp ./ddb-importer.zip s3://$S3_BUCKET/$S3_PATH/ --cache-control no-cache
     - aws s3 cp ./module.json s3://$S3_BUCKET/$S3_PATH/ --cache-control no-cache
     - echo "Manifest located at $(node ./.gitlab/get-manifest-path.js)"

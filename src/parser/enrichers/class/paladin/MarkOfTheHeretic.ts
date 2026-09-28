@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class MarkOfTheHeretic extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Mark of the Heretic",
       type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
@@ -19,9 +19,10 @@ export default class MarkOfTheHeretic extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       name: "Marked as Heretic",
+      statuses: ["Marked"],
       options: {
         durationSeconds: 60,
         description: "The paladin's weapon attacks and Unarmed Strikes against this creature score a Critical Hit on a roll of 19 or 20. When this creature starts its turn, the paladin can take a Reaction to make a melee attack against it if it is within reach.",

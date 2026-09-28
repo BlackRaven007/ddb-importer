@@ -10,14 +10,14 @@
   "readme": "https://github.com/BlackRaven007/ddb-importer/blob/main/README.md",
   "changelog": "https://github.com/BlackRaven007/ddb-importer/blob/main/CHANGELOG.md",
   "compatibility": {
-    "minimum": "14.359",
-    "verified": "14.359",
+    "minimum": "14.367",
+    "verified": "14.367",
     "maximum": 14
   },
   "authors": [
     {
       "name": "BlackRaven007",
-      "email": "admin@blackraven007.co.uk",
+      "email": "jack@blackraven007.co.uk",
       "url": "https://blackraven007.co.uk",
       "patreon": "https://www.patreon.com/BlackRaven007",
       "discord": "https://discord.gg/WzPuRuDJVP"
@@ -36,9 +36,8 @@
         "id": "dnd5e",
         "type": "system",
         "compatibility": {
-          "minimum": "6.0.1",
-          "verified": "6.0.1",
-          "maximum": "6.0.99"
+          "minimum": "6.0.3",
+          "verified": "6.0.3"
         }
       }
     ],

@@ -2,16 +2,16 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class MantleOfTheWolf extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities(): boolean {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     if (this.isAction) return null;
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (this.isAction) return null;
     return {
       name: "Manifest Mantle",
@@ -31,7 +31,7 @@ export default class MantleOfTheWolf extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (this.isAction) return [];
     return [
       {
@@ -42,8 +42,8 @@ export default class MantleOfTheWolf extends DDBEnricherData {
           description: "You add your Wisdom modifier to Strength (Athletics) checks and Strength saving throws, and can replace one melee attack with a spectral bite attack.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("max(1, @abilities.wis.mod)", 20, "system.abilities.str.bonuses.save"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("max(1, @abilities.wis.mod)", 20, "system.skills.ath.bonuses.check"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("max(1, @abilities.wis.mod)", 20, "system.abilities.str.save.roll.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("max(1, @abilities.wis.mod)", 20, "system.skills.ath.roll.bonus"),
         ],
       },
     ];

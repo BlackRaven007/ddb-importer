@@ -1,6 +1,8 @@
+// ---------------------------------------------------------------------------
 // DDB Spell Source Interfaces
 // Models the JSON returned by the DDB proxy API for spells.
 // Leaf objects that are not yet fully typed use `any`.
+// ---------------------------------------------------------------------------
 
 export {};
 
@@ -153,6 +155,7 @@ global {
     items: IDDBItemDefinition[];
     spells: IDDBItemsResponseSpell[];
     extra: IDDBItemsResponseExtra[];
+    evolved?: Record<string, string>;
   }
 
   // Full proxy `/proxy/items` HTTP response.
@@ -168,6 +171,7 @@ global {
     items: IDDBItemDefinition[];
     spells: IDDBSpellEntry[];
     extra: IDDBItemsResponseExtra[];
+    evolved?: Record<string, string>;
   }
 
 }

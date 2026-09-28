@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class DeflectingShroud extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -26,7 +26,7 @@ export default class DeflectingShroud extends DDBEnricherData {
           },
           damageParts: [
             DDBEnricherData.basicDamagePart({
-              customFormula: "floor(@classes.wizard.level / 2)",
+              customFormula: "floor(@classes.wizard.levels / 2)",
               types: ["force"],
             }),
           ],

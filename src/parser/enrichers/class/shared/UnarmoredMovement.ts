@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class UnarmoredMovement extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (this.isAction) return [];
     const value = this.isClass("Monk")
       ? "@scale.monk.unarmored-movement.value"
@@ -13,13 +13,13 @@ export default class UnarmoredMovement extends DDBEnricherData {
 
     return [{
       changes: [
-        DDBEnricherData.ChangeHelper.unsignedAddChange(`${value}`, 20, "system.attributes.movement.walk"),
+        DDBEnricherData.ChangeHelper.unsignedAddChange(`${value}`, 20, "system.attributes.movement.speeds.walk"),
       ],
       options: { transfer: true },
     }];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 

@@ -1,6 +1,8 @@
 import { getClassFeatures, getAllClassFeatures } from "../../../src/parser/lib/FilterModifiers";
 
+// =============================================================================
 // Helper: mock class data
+// =============================================================================
 function makeClass({ name, level, subclassName = null, classFeatures = [], subclassFeatures = [], isStartingClass = true }: {
   name: string;
   level: number;
@@ -28,7 +30,9 @@ function makeClass({ name, level, subclassName = null, classFeatures = [], subcl
   return cls;
 }
 
+// =============================================================================
 // getClassFeatures
+// =============================================================================
 describe("getClassFeatures", () => {
   const fighter = makeClass({
     name: "Fighter",
@@ -129,7 +133,9 @@ describe("getClassFeatures", () => {
   });
 });
 
+// =============================================================================
 // getAllClassFeatures
+// =============================================================================
 describe("getAllClassFeatures", () => {
   it("returns features from all classes", () => {
     const data = {

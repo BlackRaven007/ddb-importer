@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class StoneRune extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     // if (!this.isAction) return null;
     return {
       name: "Invoke Rune",
@@ -22,7 +22,7 @@ export default class StoneRune extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     if (this.isAction) return [];
     return [
       {
@@ -31,20 +31,62 @@ export default class StoneRune extends DDBEnricherData {
           type: "class",
         },
       },
+      // "Rune Aura" places a 30-foot emanation on the fighter whose region offers
+      // Invoke Rune (the once-per-rest reaction) when a creature ends its turn inside
+      {
+        init: {
+          name: "Rune Aura",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateActivation: true,
+          generateConsumption: false,
+          generateTarget: true,
+          activationOverride: {
+            type: "special",
+            condition: "Places the 30-foot aura the rune watches",
+          },
+          targetOverride: {
+            override: true,
+            affects: {
+              type: "creature",
+            },
+            template: {
+              count: "1",
+              contiguous: false,
+              type: "radius",
+              size: "30",
+              units: "ft",
+            },
+          },
+        },
+        overrides: {
+          data: {
+            range: {
+              override: true,
+              units: "self",
+            },
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.activity({
+                events: ["tokenTurnEnd"],
+                activityName: "Invoke Rune",
+                excludeSelf: true,
+              }),
+            ],
+          },
+        },
+      },
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         noCreate: true,
         name: "Stone Rune: Passive Bonuses",
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.ins.roll.mode"),
-        ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.atlChange("ATL.sight.range", "upgrade", 120, 5),
-          DDBEnricherData.ChangeHelper.atlChange("ATL.sight.visionMode", "override", "darkvision", 5),
+          DDBEnricherData.ChangeHelper.advantageSkillChange("ins"),
+          DDBEnricherData.ChangeHelper.upgradeChange("120", 20, "system.attributes.senses.ranges.darkvision"),
         ],
       },
       {
@@ -70,7 +112,7 @@ export default class StoneRune extends DDBEnricherData {
   //   return true;
   // }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     const uses = this._getUsesWithSpent({
       name: "Stone Rune",
       type: "class",

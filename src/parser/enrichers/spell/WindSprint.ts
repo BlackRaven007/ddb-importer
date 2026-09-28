@@ -6,29 +6,30 @@ import DDBEnricherData from "../data/DDBEnricherData";
  */
 export default class WindSprint extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       rangeSelf: true,
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Wind Sprint",
         ac5eOnly: true,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          // "the next time you hit ... before the end of the turn" - rides the caster; the
+          // spell's own duration must not be inherited beside a turn-edge expiry
+          expiry: "turnEnd",
+          durationSeconds: null,
         },
-        daeSpecialDurations: ["turnEnd"],
         ac5eChanges: [
-          DDBEnricherData.ChangeHelper.addChange(
+          DDBEnricherData.ChangeHelper.ac5eChange(
             "bonus=1d6; addTo=base,types(slashing); cadence=once",
             20,
             "flags.automated-conditions-5e.damage.bonus",

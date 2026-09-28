@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class SlowingBreath extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Slowed",
@@ -11,13 +11,10 @@ export default class SlowingBreath extends DDBEnricherData {
           description: "Speed halved and unable to use reactions. The target repeats the save at the end of each of its turns, ending the effect on a success.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.customChange("/2", 20, "system.attributes.movement.all"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0.5", 20),
+          // the 2024 wording adds Disadvantage on Dexterity saving throws
+          ...(this.is2014 ? [] : [DDBEnricherData.ChangeHelper.disadvantageAbilitySaveChange("dex")]),
         ],
-        midiChanges: this.is2014
-          ? []
-          : [
-            DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.disadvantage.ability.save.dex"),
-          ],
       },
     ];
   }

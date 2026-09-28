@@ -1,4 +1,5 @@
 // Interface for the local RULE_DATA fallback object (data/fallback-rules.json).
+//
 // RULE_DATA is a superset of the remote DDB config (IDDBConfig in ddb-config.d.ts):
 // it carries the same reference tables plus local-only rule constants, image URLs
 // and a few element shapes that have drifted from the remote API. Shared element

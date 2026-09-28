@@ -38,6 +38,78 @@ describe("Utils.stringKindaEqual", () => {
   });
 });
 
+describe("Utils.stringKindaContains", () => {
+  it("matches an exact string across markup, case and whitespace", () => {
+    expect(Utils.stringKindaContains("<p>Fire Bolt </p>", "fire   BOLT")).toBe(true);
+  });
+
+  it("matches a needle quoted inside a larger haystack", () => {
+    expect(Utils.stringKindaContains("<p>Before. <em>Fire Bolt</em>. After.</p>", "fire bolt")).toBe(true);
+  });
+
+  it("rejects an empty needle rather than matching everything", () => {
+    expect(Utils.stringKindaContains("<p>Fire Bolt</p>", "")).toBe(false);
+    expect(Utils.stringKindaContains("<p>Fire Bolt</p>", "<p> </p>")).toBe(false);
+  });
+
+  it("rejects a needle that is not present", () => {
+    expect(Utils.stringKindaContains("Fire Bolt", "Firebolt")).toBe(false);
+  });
+});
+
+describe("Utils.stripNoteBlocks", () => {
+  const MARKERS = ["Deselect", "Character Builder", "updated the character sheet"];
+
+  it("removes an italic instruction paragraph and keeps the surrounding text", () => {
+    const html = "<p>Real rules text.</p><p><em>Activate Adaptive Wild Shape by selecting an option from the drop down. Deselect it to end Adaptive Wild Shape.</em></p>";
+    expect(Utils.stripNoteBlocks(html, MARKERS)).toBe("<p>Real rules text.</p>");
+  });
+
+  it("removes the DDB-styled paragraph variant", () => {
+    const html = "<p>Keep me.</p><p class=\"styles_description__uABlx\"><em>Activate Burning Wrath below to apply the effects from Burning Wrath. Deselect it to end the effect.</em></p>";
+    expect(Utils.stripNoteBlocks(html, MARKERS)).toBe("<p>Keep me.</p>");
+  });
+
+  it("removes a whole blockquote rather than leaving an empty shell", () => {
+    const html = "<p>Keep me.</p><blockquote>\n<p>In the <em>Character Builder</em>, set the option for Hybrid Transformation.</p>\n</blockquote>";
+    expect(Utils.stripNoteBlocks(html, MARKERS)).toBe("<p>Keep me.</p>");
+  });
+
+  it("leaves real rules text that merely mentions selecting an option", () => {
+    // Armed Combat Lessons: "select this option" is rules text, not a sheet instruction
+    const html = "<p>A seasoned fighter taught you how to use a simple combat stance to wield your weapons more effectively. When you select this option, choose from the following Fighting Styles:</p>";
+    expect(Utils.stripNoteBlocks(html, MARKERS)).toBe(html);
+  });
+
+  it("leaves Foundry reference enrichers in retained blocks untouched", () => {
+    const html = "<p>If you use Reckless &Reference[attack]{Attack} while raging.</p><p><em>Select Activate Rage below. Deselect it to stop Raging.</em></p>";
+    expect(Utils.stripNoteBlocks(html, MARKERS)).toBe("<p>If you use Reckless &Reference[attack]{Attack} while raging.</p>");
+  });
+
+  it("returns the input unchanged when no marker is present", () => {
+    const html = "<p>Nothing to strip here.</p>";
+    expect(Utils.stripNoteBlocks(html, MARKERS)).toBe(html);
+    expect(Utils.stripNoteBlocks("", MARKERS)).toBe("");
+  });
+
+  it("takes the <hr> separator DDB fences the note off with", () => {
+    // the real Grotesque Growth description; leaving the rule behind kept this copy of the
+    // feature from matching the builder copy, so the whole thing was appended as a duplicate
+    const html = "<p>When you use your Dread Hand feature, you gain the benefits of the Enlarge effect.</p>\n<hr />\n<p><em>Select Activate Grotesque Growth below to apply the effects from Grotesque Growth. Deselect it to stop the effects.</em></p>";
+    expect(Utils.stripNoteBlocks(html, MARKERS)).toBe("<p>When you use your Dread Hand feature, you gain the benefits of the Enlarge effect.</p>\n");
+  });
+
+  it("takes an unclosed <hr> with attributes too", () => {
+    const html = "<p>Keep me.</p><hr class=\"styles_divider__x1\"><blockquote><p>In the Character Builder, set the option.</p></blockquote>";
+    expect(Utils.stripNoteBlocks(html, MARKERS)).toBe("<p>Keep me.</p>");
+  });
+
+  it("keeps an <hr> that separates real rules text", () => {
+    const html = "<p>Deselect it to end the effect.</p><hr /><p>Real rules text that stays.</p>";
+    expect(Utils.stripNoteBlocks(html, MARKERS)).toBe("<hr /><p>Real rules text that stays.</p>");
+  });
+});
+
 describe("Utils.intSigner", () => {
   it("prefixes positive numbers and zero with a plus", () => {
     expect(Utils.intSigner(3)).toBe("+3");

@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class HolyNimbus extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
       data: {
@@ -15,8 +15,45 @@ export default class HolyNimbus extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
+      {
+        init: {
+          name: "Place Aura",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateActivation: true,
+          generateTarget: true,
+          generateConsumption: false,
+          activationOverride: {
+            type: "special",
+            condition: "While the aura is active",
+          },
+          targetOverride: {
+            override: true,
+            affects: {
+              type: "enemy",
+            },
+            template: {
+              contiguous: false,
+              type: "radius",
+              size: "@scale.paladin.aura-of-protection",
+              units: "ft",
+            },
+          },
+        },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.activity({
+                events: ["tokenTurnStart"],
+                activityName: "Aura Damage",
+              }),
+            ],
+          },
+        },
+      },
       {
         init: {
           name: "Aura Damage",
@@ -25,7 +62,7 @@ export default class HolyNimbus extends DDBEnricherData {
         build: {
           noeffect: true,
           generateConsumption: false,
-          generateTarget: false,
+          generateTarget: true,
           generateRange: false,
           generateActivation: true,
           generateDamage: true,
@@ -33,6 +70,9 @@ export default class HolyNimbus extends DDBEnricherData {
             type: "special",
             value: 1,
             condition: "",
+          },
+          targetOverride: {
+            affects: { type: "enemy" },
           },
           damageParts: [DDBEnricherData.basicDamagePart({ customFormula: "@abilities.mod.cha + @prof", types: ["radiant"] })],
         },
@@ -73,7 +113,7 @@ export default class HolyNimbus extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const effects = [
       {
         activityMatch: "Use/Apply Light",
@@ -88,7 +128,7 @@ export default class HolyNimbus extends DDBEnricherData {
     return effects;
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     const uses = this._getUsesWithSpent({ type: "class", name: "Imbue Aura of Protection", max: "1", period: "lr" });
     return {
       uses,

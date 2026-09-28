@@ -1,10 +1,921 @@
-import { logger, utils } from "../../lib/_module";
+import logger from "../../lib/Logger";
+import utils from "../../lib/Utils";
 import { DICTIONARY } from "../../config/_module";
+import SystemHelpers from "../../lib/SystemHelpers";
 import AutoEffects from "../enrichers/effects/AutoEffects";
+
+/** A description section label found in a DDB description or snippet. */
+interface ISectionMarker {
+  /** index just past the label, where the section's rules text starts */
+  end: number;
+  /** index the previous section ends at: the label, or the block/blank line opening it */
+  boundaryStart: number;
+  /** the block tag opening the label's block, restored onto an extracted fragment */
+  blockOpen: string | null;
+  blockTag: string | null;
+  /** heading (3) > strong/b (2) > em/i/u (1); a section ends at an equal or stronger label */
+  rank: number;
+  /** normalized label text */
+  name: string;
+  /** the label as DDB wrote it, for naming a generated activity */
+  rawLabel: string;
+}
 
 export default class DDBDescriptions {
 
   static DEFAULT_DURATION_SECONDS = 60;
+
+  /**
+   * Normalize a section label or activity name for comparison: strip tags,
+   * decode common entities, collapse whitespace, drop trailing punctuation and
+   * lowercase. A regex tag strip is used instead of a DOM round-trip so this
+   * stays usable in DOM-less environments; numeric entities and &nbsp; are
+   * decoded here because they fall outside utils.nameString's short list.
+   */
+  static normalizeSectionLabel(value: string): string {
+    const stripped = value
+      .replace(/<[^>]*>/g, "")
+      .replace(/&#(\d+);/g, (_match, dec: string) => String.fromCodePoint(Number(dec)))
+      .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+      .replace(/&nbsp;/gi, " ");
+    return utils.nameString(stripped)
+      .replace(/\s+/g, " ")
+      .replace(/[.:;!?]+$/g, "")
+      .trim()
+      .toLowerCase();
+  }
+
+  static #BLOCK_MARKUP_REGEX = /<(?:p|div|ul|ol|table|li|blockquote|h[1-6])\b/i;
+
+  static #INLINE_EMPHASIS_REGEX = /<(?:strong|b|em|i|u)\b/i;
+
+  // Words that may stay lowercase inside a Title Case section label.
+  static #LABEL_MINOR_WORDS = new Set([
+    "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "nor", "of", "on",
+    "or", "the", "to", "up", "with",
+  ]);
+
+  /**
+   * Does this phrase look like a DDB section label rather than an ordinary sentence?
+   * DDB writes the handful of unemphasised snippet subsections as a short Title Case
+   * phrase followed by a period, so "Bolstering Treats." is a label while
+   * "You gain proficiency with Cook's Utensils." is not.
+   */
+  static #isSectionLabel(label: string): boolean {
+    const words = label.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0 || words.length > 8) return false;
+    return words.every((word, index) => {
+      const stripped = word.replace(/^[^\p{L}\p{N}]+/u, "");
+      if (!stripped) return false;
+      if (index > 0 && DDBDescriptions.#LABEL_MINOR_WORDS.has(stripped.toLowerCase())) return true;
+      return (/^[\p{Lu}\p{N}]/u).test(stripped);
+    });
+  }
+
+  /**
+   * Rebuild the paragraph structure of a DDB snippet. Snippets are inline html - bold
+   * section labels, but no block tags - whose paragraph breaks are literal blank lines
+   * and whose line breaks are single newlines. Dropped straight into an HTMLField those
+   * collapse and the whole snippet renders as one run-on block. The ~1% of snippets that
+   * already carry block markup are returned untouched.
+   *
+   * Blocks are joined with a newline rather than butted together so that a tag-stripped
+   * comparison (utils.stringKindaEqual, normalizeSectionLabel) still yields the same
+   * words as the raw source.
+   */
+  static snippetToHtml(text: string): string {
+    if (!text?.trim()) return text;
+    if (DDBDescriptions.#BLOCK_MARKUP_REGEX.test(text)) return text;
+
+    const blocks = text
+      .replace(/\r\n?/g, "\n")
+      .split(/\n[ \t]*\n+/)
+      .map((block) => block.trim())
+      .filter((block) => block !== "");
+    if (blocks.length === 0) return text;
+
+    return blocks
+      .map((block) => {
+        const lines = block.split(/\n[ \t]*/).map((line) => DDBDescriptions.#emphasizeSectionLabel(line));
+        return `<p>${lines.join("<br>")}</p>`;
+      })
+      .join("\n");
+  }
+
+  /**
+   * Emphasise a bare section label so it reads like the emphasised ones DDB ships on most
+   * snippets. Only applied to blocks carrying no emphasis of their own
+   */
+  static #emphasizeSectionLabel(block: string): string {
+    if (DDBDescriptions.#INLINE_EMPHASIS_REGEX.test(block)) return block;
+    const match = (/^([A-Z][^.!?<>]{2,60})\.\s+(?=\S)/).exec(block);
+    if (!match || !DDBDescriptions.#isSectionLabel(match[1])) return block;
+    return `<strong>${match[1]}.</strong> ${block.slice(match[0].length)}`;
+  }
+
+  static #SECTION_BLOCK_TAG_REGEX = /<(\/?)(ul|ol|table|tbody|thead|tr|li|p|div|blockquote|td|th)\b[^>]*>/gi;
+
+  /**
+   * Remove block tags that are unbalanced within an extracted fragment:
+   * closing tags whose opener sits outside the slice (the marker's containing
+   * list/paragraph/table) and bare trailing container openers that belong to
+   * the following section. Content-bearing unclosed blocks are kept - a
+   * browser auto-closes those.
+   */
+  static #balanceSectionFragment(fragment: string): string {
+    const removals: { index: number; length: number }[] = [];
+    const stack: string[] = [];
+    for (const match of fragment.matchAll(DDBDescriptions.#SECTION_BLOCK_TAG_REGEX)) {
+      if (match.index === undefined) continue;
+      const tag = match[2].toLowerCase();
+      if (!match[1]) {
+        stack.push(tag);
+        continue;
+      }
+      const openIndex = stack.lastIndexOf(tag);
+      if (openIndex === -1) {
+        removals.push({ index: match.index, length: match[0].length });
+      } else {
+        // Anything the close skips over is treated as auto-closed.
+        stack.splice(openIndex);
+      }
+    }
+    for (const removal of removals.sort((a, b) => b.index - a.index)) {
+      fragment = fragment.slice(0, removal.index) + fragment.slice(removal.index + removal.length);
+    }
+    return fragment.replace(/(?:<(?:ul|ol|table|tbody|thead|tr)\b[^>]*>\s*)+$/i, "").trim();
+  }
+
+  /**
+   * Collect the section markers in a piece of DDB HTML. DDB commonly represents feature
+   * subsections as a bold or italic label at the start of a paragraph/list item, or - in
+   * snippets, which carry inline markup only - at the start of a blank-line-separated
+   * block. A section ends at the next label of equal or stronger emphasis
+   * (heading > strong/b > em/i/u); a weaker label - e.g. an italicised spell name opening
+   * a paragraph inside a bold-labelled section - and inline emphasis such as a bold
+   * damage die are not boundaries.
+   */
+  static #htmlSectionMarkers(html: string): ISectionMarker[] {
+    const markerRegex = /<(h[1-6]|strong|b|em|i|u)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi;
+    // A snippet has no block tags at all: its paragraph breaks are blank lines
+    const blockStartRegex
+      = /(?:^|(?<open><(?<block>p|li|div|blockquote|td|th)\b[^>]*>)|<br\b[^>]*>|\r?\n[ \t]*\r?\n)\s*$/i;
+    const rankOf = (tag: string): number => {
+      if (tag.startsWith("h")) return 3;
+      return tag === "strong" || tag === "b" ? 2 : 1;
+    };
+    const markers: ISectionMarker[] = [];
+
+    for (const match of html.matchAll(markerRegex)) {
+      if (match.index === undefined) continue;
+      const tag = match[1].toLowerCase();
+      const isHeading = tag.startsWith("h");
+      // A block boundary sits adjacent to its marker, so a bounded window
+      // keeps the scan linear over long descriptions.
+      const windowStart = Math.max(0, match.index - 256);
+      const prefix = html.slice(windowStart, match.index);
+      const blockStart = blockStartRegex.exec(prefix);
+
+      // Strong/emphasized prose inside a section is not a new section.
+      if (!isHeading && !blockStart) continue;
+
+      markers.push({
+        end: match.index + match[0].length,
+        boundaryStart: isHeading ? match.index : windowStart + blockStart!.index,
+        blockOpen: isHeading ? null : blockStart?.groups?.open ?? null,
+        blockTag: isHeading ? null : blockStart?.groups?.block?.toLowerCase() ?? null,
+        rank: rankOf(tag),
+        name: DDBDescriptions.normalizeSectionLabel(match[2]),
+        rawLabel: DDBDescriptions.#rawSectionLabel(match[2]),
+      });
+    }
+
+    return markers;
+  }
+
+  /** The HTML named entities DDB puts in section labels, decoded to their characters. */
+  static #NAMED_ENTITIES: Record<string, string> = {
+    amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " ",
+    ldquo: "\u201c", rdquo: "\u201d", lsquo: "\u2018", rsquo: "\u2019",
+    hellip: "\u2026", ndash: "\u2013", mdash: "\u2014",
+  };
+
+  /**
+   * The label as DDB wrote it, minus markup and the punctuation that terminates it.
+   * DDB labels sections "Frost Shot." or "Splashing Mucous (1 Charge):", and a generated
+   * activity wants the words without either terminator; the case is kept so the activity
+   * reads "Frost Shot" rather than the lowercased form used for matching.
+   */
+  static #rawSectionLabel(value: string): string {
+    return value
+      .replace(/<[^>]*>/g, "")
+      .replace(/&#(\d+);/g, (_match, dec: string) => String.fromCodePoint(Number(dec)))
+      .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+      // named entities are decoded before the terminator strip, or "&rdquo;" loses its semicolon
+      .replace(/&([a-z]+);/gi, (match, name: string) => DDBDescriptions.#NAMED_ENTITIES[name.toLowerCase()] ?? match)
+      .replace(/\s+/g, " ")
+      .trim()
+      // DDB quotes a spoken command word as its own label: <strong>"Cower."</strong>
+      .replace(/^["'\u201c\u2018]+/, "")
+      .replace(/["'\u201d\u2019]+$/, "")
+      .replace(/[.:;!?]+$/g, "")
+      .trim();
+  }
+
+  /**
+   * Collect the section markers in a snippet whose labels carry no markup at all - a small
+   * tail of DDB's features. In these a label is a short Title Case phrase ending in a period at
+   * the start of the text or of a line. Candidates inside a line are not considered: ordinary
+   * prose produces too many of them to use as section boundaries.
+   */
+  static #plainSectionMarkers(text: string): ISectionMarker[] {
+    const markerRegex = /(?:^|\r?\n)[ \t]*([^\s.!?<>][^.!?<>]{1,59})\.(?=\s|$)\s*/g;
+    const markers: ISectionMarker[] = [];
+
+    for (const match of text.matchAll(markerRegex)) {
+      if (match.index === undefined) continue;
+      const label = match[1];
+      if (!DDBDescriptions.#isSectionLabel(label)) continue;
+      const leading = match[0].length - match[0].trimStart().length;
+      markers.push({
+        end: match.index + match[0].length,
+        boundaryStart: match.index + leading,
+        blockOpen: null,
+        blockTag: null,
+        rank: 2,
+        name: DDBDescriptions.normalizeSectionLabel(label),
+        rawLabel: DDBDescriptions.#rawSectionLabel(label),
+      });
+    }
+
+    return markers;
+  }
+
+  static #sectionMarkers(source: string): ISectionMarker[] {
+    const htmlMarkers = DDBDescriptions.#htmlSectionMarkers(source);
+    if (htmlMarkers.length > 0) return htmlMarkers;
+    return DDBDescriptions.#plainSectionMarkers(source);
+  }
+
+  /**
+   * How many section labels does this text carry?
+   * Used to spot a multi-section block of rules text that describes a whole feature rather than one of its activities.
+   */
+  static sectionLabelCount(source: string): number {
+    if (!source?.trim()) return 0;
+    return new Set(DDBDescriptions.#sectionMarkers(source).map((marker) => marker.name)).size;
+  }
+
+  /**
+   * Locate the marker for an activity.
+   * An exact label match wins; failing that a label wholly contained in the activity name does
+   * e.g. DDB labels the Chef feat's rules "Bolstering Treats" while the activity that creates them is "Create Bolstering Treats".
+   * Single-word labels are too weak to match.
+   */
+  static #findSectionMarker(markers: ISectionMarker[], normalizedName: string, exactOnly: boolean): number {
+    const exact = markers.findIndex((marker) => marker.name === normalizedName);
+    if (exact !== -1 || exactOnly) return exact;
+
+    let best = -1;
+    let bestLength = 0;
+    let tied = false;
+    markers.forEach((marker, index) => {
+      if (marker.name.split(" ").filter(Boolean).length < 2) return;
+      if (!` ${normalizedName} `.includes(` ${marker.name} `)) return;
+      if (marker.name.length < bestLength) return;
+      // two labels of equal weight both fit the name: attaching either would be a guess
+      tied = marker.name.length === bestLength;
+      best = index;
+      bestLength = marker.name.length;
+    });
+    return tied ? -1 : best;
+  }
+
+  // Activity names carry a parenthesised qualifier to tell siblings apart - "Autumn (Save)",
+  // "Summer (Damage)", "Fey Step (Teleport)". DDB never labels a section that way, so the
+  // qualifier is dropped for a second lookup pass.
+  static #ACTIVITY_QUALIFIER_REGEX = /\s*\([^()]*\)\s*$/;
+
+  /**
+   * Locate the section of a DDB description or snippet that describes an activity, and
+   * return its label alongside the rules text.
+   * An exact label match wins; failing that, and unless exactOnly is set, a label wholly contained in the activity name does.
+   * Each pass is tried against the full activity name first, then against the name with its parenthesised qualifier removed.
+   */
+  static matchActivitySection(
+    source: string, activityName: string, { exactOnly = false } = {},
+  ): { label: string; section: string } | null {
+    if (!source?.trim() || !activityName?.trim()) return null;
+
+    const candidates = [activityName, activityName.replace(DDBDescriptions.#ACTIVITY_QUALIFIER_REGEX, "")]
+      .map((name) => DDBDescriptions.normalizeSectionLabel(name))
+      .filter((name, index, names) => name !== "" && names.indexOf(name) === index);
+    if (candidates.length === 0) return null;
+
+    const markers = DDBDescriptions.#sectionMarkers(source);
+    let targetIndex = -1;
+    for (const candidate of candidates) {
+      targetIndex = DDBDescriptions.#findSectionMarker(markers, candidate, exactOnly);
+      if (targetIndex !== -1) break;
+    }
+    if (targetIndex === -1) return null;
+
+    const section = DDBDescriptions.#sliceSection(source, markers, targetIndex);
+
+    return section ? { label: markers[targetIndex].name, section } : null;
+  }
+
+  /**
+   * The rules text belonging to one marker: everything up to the next marker of equal or
+   * greater emphasis, returned as a html fragment.
+   */
+  static #sliceSection(source: string, markers: ISectionMarker[], index: number): string {
+    const target = markers[index];
+    const next = markers.slice(index + 1).find((marker) => marker.rank >= target.rank);
+    let section = source.slice(target.end, next?.boundaryStart ?? source.length).trim();
+
+    // Restore the partial block containing an inline heading so the result is
+    // valid HTML; a list-item label is left for the balancer, which strips the
+    // dangling </li>
+    if (target.blockOpen && target.blockTag !== "li") {
+      section = `${target.blockOpen}${section}`;
+      const emptyBlock = new RegExp(`^<${target.blockTag}\\b[^>]*>\\s*</${target.blockTag}>\\s*`, "i");
+      section = section.replace(emptyBlock, "");
+    }
+
+    return DDBDescriptions.#balanceSectionFragment(section);
+  }
+
+  /**
+   * Every section of a DDB description, in source order.
+   *
+   * Only the markers at the strongest rank present are treated as boundaries, so a bold
+   * "Frost Shot." opens a section while an italicised spell name inside it does not. This is
+   * the enumerate-all sibling of {@link matchActivitySection}, which looks one section up by
+   * name; callers that need to act on each mode of a multi-mode item want this one.
+   */
+  static sections(source: string): ISectionSlice[] {
+    if (!source?.trim()) return [];
+    const markers = DDBDescriptions.#sectionMarkers(source);
+    if (markers.length === 0) return [];
+
+    const topRank = Math.max(...markers.map((marker) => marker.rank));
+    const slices: ISectionSlice[] = [];
+    markers.forEach((marker, index) => {
+      if (marker.rank !== topRank) return;
+      const section = DDBDescriptions.#sliceSection(source, markers, index);
+      if (!section) return;
+      slices.push({
+        label: marker.name,
+        rawLabel: marker.rawLabel,
+        section,
+        start: marker.boundaryStart,
+      });
+    });
+
+    return slices;
+  }
+
+  /** The rules text of {@link matchActivitySection}, for callers that do not need the label. */
+  static extractActivitySection(source: string, activityName: string, { exactOnly = false } = {}): string | null {
+    return DDBDescriptions.matchActivitySection(source, activityName, { exactOnly })?.section ?? null;
+  }
+
+  /** Alternation of the six ability long names, for the save-parsing regexes. */
+  static SAVE_ABILITY_NAMES = DICTIONARY.actor.abilities.map((ability) => ability.long).join("|");
+
+  /**
+   * Map long ability names captured from a description to system keys, dropping
+   * anything that is not one of the six abilities. `save.ability` is a choice
+   * list, so "Strength or Dexterity saving throw" legitimately yields two.
+   */
+  static saveAbilityKeys(...names: (string | undefined)[]): string[] {
+    return names.reduce((keys: string[], name) => {
+      const key = DICTIONARY.actor.abilities.find((ability) => ability.long === name?.toLowerCase())?.value;
+      if (key && !keys.includes(key)) keys.push(key);
+      return keys;
+    }, []);
+  }
+
+  /**
+   * Rules text with its markup and entities resolved, for the regexes that read a whole sentence.
+   * Block tags become spaces so two paragraphs never run their last and first words together.
+   */
+  static plainText(source: string): string {
+    return (source ?? "")
+      .replace(/<(?:br|\/?p|\/?div|\/?li|\/?ul|\/?ol|\/?tr|\/?td|\/?th|\/?table|\/?h[1-6]|\/?blockquote)\b[^>]*>/gi, " ")
+      .replace(/<[^>]*>/g, "")
+      .replace(/&#(\d+);/g, (_match, dec: string) => String.fromCodePoint(Number(dec)))
+      .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+      .replace(/&([a-z]+);/gi, (match, name: string) => DDBDescriptions.#NAMED_ENTITIES[name.toLowerCase()] ?? match)
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  static #HALF_ON_SAVE_REGEX = /or half as much damage on a successful one|Success: Half damage/i;
+
+  /** Does this text say a successful save halves the damage? */
+  static halfOnSave(text: string): boolean {
+    return DDBDescriptions.#HALF_ON_SAVE_REGEX.test(text ?? "");
+  }
+
+  /** Remove `<table>` blocks, whose saves are rows of a random table rather than properties. */
+  static stripTables(text: string): string {
+    return (text ?? "").replace(/<table[\s\S]*?<\/table>/gi, " ");
+  }
+
+  /**
+   * Every saving throw named in a piece of rules text, in source order.
+   *
+   * Unlike {@link DDBDescriptions.dcParser} and `DDBItem.parseSaveFromDescription`, which stop at
+   * the first match, this collects them all so a caller can build one activity per property of a
+   * multi-mode item. Abilities are matched against the whitelist alternation rather than a `\w+`
+   * wildcard: a wildcard swallows the "DC 15 " prefix and pairs a DC with an ability from a
+   * different sentence.
+   *
+   * Both printings' word orders are read - the 2014 "DC 15 Dexterity saving throw" and the 2024
+   * "Dexterity Saving Throw: DC 15" - plus the spell-save-DC phrasing, which has a  `calculation` instead of a `formula`.
+   */
+  static parseSaves(source: string): IParsedSave[] {
+    if (!source?.trim()) return [];
+    // Tags are stripped before matching: DDB splits the 2024 wording across markup
+    // ("<em>Dexterity Saving Throw:</em> DC 18"), which no single regex can span. A regex strip
+    // rather than a DOM round-trip keeps this usable in DOM-less environments.
+    const text = DDBDescriptions.plainText(source);
+    const abilities = DDBDescriptions.SAVE_ABILITY_NAMES;
+    const half = DDBDescriptions.halfOnSave(text);
+    const saves: IParsedSave[] = [];
+    // Several patterns can describe one sentence; the first to claim a span of the text owns it,
+    // so an explicit DC is never re-read as a bare spell-save phrasing.
+    const claimed: { start: number; end: number }[] = [];
+
+    const push = (match: RegExpExecArray | RegExpMatchArray, ability: string[], calculation: string, formula: string): void => {
+      if (ability.length === 0) return;
+      const start = match.index ?? 0;
+      const end = start + match[0].length;
+      if (claimed.some((span) => start < span.end && end > span.start)) return;
+      claimed.push({ start, end });
+      saves.push({ ability, dc: { calculation, formula }, index: start, half });
+    };
+
+    const explicit = new RegExp(`DC (\\d+) (${abilities})(?: or (${abilities}))? sav(?:e|ing throw)`, "gi");
+    for (const match of text.matchAll(explicit)) {
+      push(match, DDBDescriptions.saveAbilityKeys(match[2], match[3]), "", match[1]);
+    }
+
+    const explicit2024 = new RegExp(`(${abilities})(?: or (${abilities}))? Saving Throw: DC (\\d+)`, "gi");
+    for (const match of text.matchAll(explicit2024)) {
+      push(match, DDBDescriptions.saveAbilityKeys(match[1], match[2]), "", match[3]);
+    }
+
+    const spellSave = new RegExp(
+      `(${abilities})(?: or (${abilities}))? sav(?:e|ing throw)[^.]{0,40}?against your spell save DC`, "gi",
+    );
+    for (const match of text.matchAll(spellSave)) {
+      push(match, DDBDescriptions.saveAbilityKeys(match[1], match[2]), "spellcasting", "");
+    }
+
+    return saves.sort((a, b) => a.index - b.index);
+  }
+
+  /** Two saves are the same property when they ask for the same roll against the same DC. */
+  /**
+   * The text each save's own damage is read from, keyed by `saveKey`, for rules text that names
+   * several saves without labelled sections: from the save to the next save in the same
+   * paragraph, or to the paragraph's end. A paragraph bounds it because the next paragraph is
+   * usually another action whose damage comes before its own save. The first occurrence of a
+   * key wins, matching the order `parseSaves` lists them in.
+   * @param {string} source rules text (HTML)
+   * @returns {Map<string, string>} plain text per save key
+   */
+  static saveDamageTexts(source: string): Map<string, string> {
+    const texts = new Map<string, string>();
+    const paragraphs = DDBDescriptions.stripTables(source ?? "")
+      .split(/<(?:br|\/?p|\/?div|\/?li|\/?ul|\/?ol|\/?h[1-6]|\/?blockquote)\b[^>]*>/i);
+    for (const paragraph of paragraphs) {
+      const saves = DDBDescriptions.parseSaves(paragraph);
+      if (saves.length === 0) continue;
+      const plain = DDBDescriptions.plainText(paragraph);
+      const starts = saves.map((save) => save.index).sort((a, b) => a - b);
+      for (const save of saves) {
+        const key = DDBDescriptions.saveKey(save);
+        if (texts.has(key)) continue;
+        const end = starts.find((index) => index > save.index) ?? plain.length;
+        texts.set(key, plain.slice(save.index, end));
+      }
+    }
+    return texts;
+  }
+
+  /**
+   * Where each save of a multi-save text without labelled sections sits, keyed by `saveKey`, for
+   * reading its own target: the sentence that asks for the save (from its start, or the previous
+   * save, to its full stop) and the sentences before it back to the previous save or the start of
+   * the paragraph, nearest last. A lair block puts each action's area in the sentence before its
+   * save ("A cloud fills a 20-foot-radius sphere ... Each creature in the cloud must succeed on
+   * a DC 15 Constitution saving throw"). A paragraph ending in a colon leads the first save of
+   * each save paragraph that follows it. The first occurrence of a key wins.
+   * @param {string} source rules text (HTML)
+   * @returns {Map<string, { sentence: string; lead: string[] }>} scopes per save key
+   */
+  static saveScopes(source: string): Map<string, { sentence: string; lead: string[] }> {
+    const scopes = new Map<string, { sentence: string; lead: string[] }>();
+    const paragraphs = DDBDescriptions.stripTables(source ?? "")
+      .split(/<(?:br|\/?p|\/?div|\/?li|\/?ul|\/?ol|\/?h[1-6]|\/?blockquote)\b[^>]*>/i);
+    // a paragraph ending in a colon introduces the ones after it ("All creatures within 60 feet
+    // of the grenade suffer the following effects:"), so it leads each of their first saves
+    let introduction: string[] = [];
+    for (const paragraph of paragraphs) {
+      const plain = DDBDescriptions.plainText(paragraph);
+      if (!plain) continue;
+      const saves = DDBDescriptions.parseSaves(paragraph).sort((a, b) => a.index - b.index);
+      let previousEnd = 0;
+      for (const save of saves) {
+        const stop = plain.indexOf(". ", save.index);
+        const end = stop < 0 ? plain.length : stop + 1;
+        const stopBefore = plain.lastIndexOf(". ", save.index);
+        const start = Math.max(previousEnd, stopBefore < 0 ? 0 : stopBefore + 2);
+        const key = DDBDescriptions.saveKey(save);
+        if (!scopes.has(key)) {
+          const lead = plain.slice(previousEnd, start).split(/(?<=\.)\s+/).map((part) => part.trim()).filter(Boolean);
+          scopes.set(key, { sentence: plain.slice(start, end).trim(), lead: previousEnd === 0 ? [...introduction, ...lead] : lead });
+        }
+        previousEnd = Math.max(previousEnd, end);
+      }
+      // the introduction holds for the run of save paragraphs after it; any other paragraph ends it
+      if (plain.endsWith(":")) introduction = plain.split(/(?<=\.)\s+/).map((part) => part.trim()).filter(Boolean);
+      else if (saves.length === 0) introduction = [];
+    }
+    return scopes;
+  }
+
+  /**
+   * The damage parts a save's own text names: what it deals on the failed save, or, when it
+   * deals nothing then, the damage its consequence deals at the start of a turn (a swallow's
+   * digestion) so the card still carries it.
+   * @param {string} text a save's damage text, from `saveDamageTexts`
+   * @returns {I5eDamagePart[]} the parts, possibly empty
+   */
+  static saveOwnDamageParts(text: string): I5eDamagePart[] {
+    const { parts, otherParts } = DDBDescriptions.parseDamageParts(text);
+    return parts.length > 0 ? parts : otherParts;
+  }
+
+  /** A sentence that ties damage it names before the save to that save's outcome. */
+  static SAVE_DAMAGE_TIE = /\bhalf as much\b|\bif (?:it|they|the target|a creature) fails?\b|\bon a failed save\b|\bon a failure\b/i;
+
+  /** A sentence that continues a save with its outcome ("On a failed save, ..."). */
+  static #RIDER_OUTCOME_START = /^(?:On a (?:failed save|failure|successful save|success)|If (?:it|the target|the creature|a creature|they|that creature) (?:fails|succeeds|failed|succeeded)|(?:A|Any|Each) (?:creature|target) that (?:fails|succeeds)|Failure|Success|Fail|(?:It|The target|The creature|That creature|(?:A|Each|Any) (?:creatures?|targets?)) (?:also )?(?:takes|is|has|falls|becomes|can't))\b/i;
+
+  /** Success, as opposed to failure, outcomes: what a creature that makes the save suffers. */
+  static #RIDER_SUCCESS = /^(?:On a (?:successful save|success)|If (?:it|the target|the creature|a creature|they|that creature) succeed|(?:A|Any|Each) (?:creature|target) that succeeds|Success)/i;
+
+  /** Where a save sentence turns to what a success does: ", or half as much damage on a successful one". */
+  static #RIDER_SUCCESS_CLAUSE = /,?\s*(?:or|and) (?:takes? )?half as much|[,;]\s*on a success(?:ful save)?\b|\bor half (?:as much )?damage\b/i;
+
+  /** A sentence about damage each turn afterwards is the effect's, not the save's. */
+  static #RIDER_ONGOING = /\bat the (?:start|end) of each\b|\beach (?:of its|of their) turns\b/i;
+
+  /**
+   * A weapon rider save read from its own words: the paragraph that asks for it, the sentences
+   * before it in that paragraph, and its outcome - the rest of its sentence plus the outcome
+   * sentences straight after it ("On a failed save, ..."), split into what a failure and what a
+   * success does. A sentence about damage at the start of each later turn, or anything else,
+   * ends the outcome. The save is found by its ability rather than its key so a prose DC ("DC 10
+   * plus your Proficiency Bonus") still finds its sentence; a numeric DC prefers the paragraph
+   * that names it.
+   * @param {string} source rules text (HTML)
+   * @param {object} save the save, as `saveKey` takes it
+   * @returns {object | null} null when no sentence asks for the save
+   */
+  static saveRiderOutcome(
+    source: string,
+    save: { ability?: string[] | null; dc?: { calculation?: string; formula?: string } | null },
+  ): { paragraph: string; lead: string; sentence: string; failure: string; success: string; half: boolean } | null {
+    const names = (save.ability ?? [])
+      .map((key) => DICTIONARY.actor.abilities.find((ability) => ability.value === key)?.long)
+      .filter((name): name is T5eAbilityLongNames => Boolean(name));
+    if (names.length === 0) return null;
+    const saveRegex = new RegExp(`\\b(?:${names.join("|")})\\b(?: or \\w+)? sav(?:e|ing throw)|\\b(?:${names.join("|")}) Saving Throw\\b`, "i");
+    const paragraphs = DDBDescriptions.stripTables(source ?? "")
+      .split(/<(?:br|\/?p|\/?div|\/?li|\/?ul|\/?ol|\/?h[1-6]|\/?blockquote)\b[^>]*>/i)
+      .map((paragraph) => DDBDescriptions.plainText(paragraph))
+      .filter((paragraph) => saveRegex.test(paragraph));
+    if (paragraphs.length === 0) return null;
+    const dc = save.dc?.formula && (/^\d+$/).test(save.dc.formula) ? save.dc.formula : null;
+    const paragraph = (dc ? paragraphs.find((text) => text.includes(`DC ${dc}`) || text.includes(`DC: ${dc}`)) : null) ?? paragraphs[0];
+    const match = saveRegex.exec(paragraph);
+    if (!match) return null;
+    const stopBefore = paragraph.lastIndexOf(". ", match.index);
+    const sentenceStart = stopBefore < 0 ? 0 : stopBefore + 2;
+    const lead = paragraph.slice(0, sentenceStart).trim();
+    const rest = paragraph.slice(match.index);
+    const [first, ...following] = rest.split(DDBDescriptions.#SENTENCE_SPLIT_REGEX);
+    const sentence = paragraph.slice(sentenceStart, match.index) + first;
+
+    const clause = DDBDescriptions.#RIDER_SUCCESS_CLAUSE.exec(first);
+    const failure: string[] = [clause ? first.slice(0, clause.index) : first];
+    const success: string[] = clause ? [first.slice(clause.index)] : [];
+    for (const next of following) {
+      if (!DDBDescriptions.#RIDER_OUTCOME_START.test(next) || DDBDescriptions.#RIDER_ONGOING.test(next)) break;
+      if (DDBDescriptions.#RIDER_SUCCESS.test(next)) success.push(next);
+      else failure.push(next);
+    }
+    const outcome = [...failure, ...success].join(" ");
+    return {
+      paragraph,
+      lead,
+      sentence,
+      failure: failure.join(" "),
+      success: success.join(" "),
+      half: (/\bhalf as much\b|\bhalf (?:the )?damage\b/i).test(outcome),
+    };
+  }
+
+  /**
+   * The damage a rider save deals, read from its own words (`saveRiderOutcome`): what its failure
+   * deals, plus damage earlier in the save's own sentence only when that sentence ties it to the
+   * save ("dealing 9d8 cold damage ... if they fail a DC 18 Constitution saving throw, or half as
+   * much on a success"). Damage the hit deals before the save ("takes an extra 2d6 damage and
+   * must succeed on a DC 15 Strength saving throw") is the attack's, and damage at the start of
+   * each later turn belongs to the effect the failure imposes, not the save.
+   * @param {string} source rules text (HTML)
+   * @param {object} save the save to read, as `saveKey` takes it
+   * @returns {I5eDamagePart[] | null} the parts, possibly empty; null when the save is not in the text
+   */
+  static saveRiderDamageParts(
+    source: string,
+    save: { ability?: string[] | null; dc?: { calculation?: string; formula?: string } | null },
+  ): I5eDamagePart[] | null {
+    const outcome = DDBDescriptions.saveRiderOutcome(source, save);
+    if (!outcome) return null;
+    const ownText = outcome.failure.replace(/\bat the (?:start|end) of each\b.*$/i, "");
+    const parts = DDBDescriptions.parseDamageParts(ownText).parts;
+    const savePhrase = outcome.sentence.search(/saving throw|\bsave\b/i);
+    const before = savePhrase > 0 ? outcome.sentence.slice(0, savePhrase) : "";
+    if (before && DDBDescriptions.SAVE_DAMAGE_TIE.test(outcome.sentence)) {
+      parts.unshift(...DDBDescriptions.parseDamageParts(before).parts);
+    }
+    return parts;
+  }
+
+  static saveKey(save: { ability?: string[] | null; dc?: { calculation?: string; formula?: string } | null }): string {
+    const ability = [...(save.ability ?? [])].sort().join("+");
+    return `${save.dc?.calculation ?? ""}|${save.dc?.formula ?? ""}|${ability}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ability checks
+  // ---------------------------------------------------------------------------
+
+  /**
+   * "DC 15 Strength (Athletics) check", with an optional "or Dexterity (Acrobatics)" alternative
+   * and an optional "using thieves' tools" suffix. Only the prose order is read: the 2024
+   * stat-block "Check: DC 15" order does not occur in the item corpus.
+   */
+  static #CHECK_REGEX = new RegExp(
+    `DC (\\d+) (${DDBDescriptions.SAVE_ABILITY_NAMES})(?: \\(([^)]+)\\))?`
+    + `(?: or (${DDBDescriptions.SAVE_ABILITY_NAMES})(?: \\(([^)]+)\\))?)?`
+    + ` (?:ability )?check(?: using (?:the )?([A-Za-z\\u2019' ]+?(?:tools|supplies|kit)))?`,
+    "gi",
+  );
+
+  /** A sentence boundary: terminal punctuation followed by whitespace and a capital, digit or quote. */
+  static #SENTENCE_SPLIT_REGEX = /(?<=[.!?])\s+(?=[A-Z0-9“"(])/g;
+
+  /** The sentence after a check names its outcome, so it belongs to the check. */
+  static #CHECK_OUTCOME_REGEX = /^(?:On a success|If (?:the check|you|it) succeeds?|If you succeed|Success:)/i;
+
+  /**
+   * A check RELEASES something the item did: frees, escapes, breaks or bursts a restraint, ends an
+   * effect or condition, pulls something off, extinguishes.
+   * Deliberately absent: move/push/knock (contests against a fixed object such as the Immovable Rod), and a general "remove".
+   * The Silver ammunition family says a penalty "can be removed by" a tool check at a rest.
+   */
+  static #RELEASE_CHECK_REGEX = new RegExp([
+    String.raw`\bescap(?:e|es|ed|ing)\b`,
+    String.raw`\bfree(?:s|d|ing)?\b(?!\s+(?:hand|action|use))`,
+    String.raw`\bburst(?:s|ing)?\b`,
+    String.raw`\bbreak(?:s|ing)? (?:free|the|them|it|out)\b`,
+    String.raw`\bno longer (?:restrained|grappled|affected|bound)\b`,
+    String.raw`\bend(?:s|ing)? (?:the|this) (?:\w+ )?(?:effect|condition|damage|grapple)\b`,
+    String.raw`\b(?:condition|effect) ends\b`,
+    String.raw`\bceases to be affected\b`,
+    String.raw`\bextinguish`,
+    String.raw`\bpull(?:s|ing)? [^.]{0,30}\b(?:off|out|free)\b`,
+    String.raw`\bdislodg|\bliberat|\breleas(?:e|es|ing)\b`,
+    String.raw`\bremov(?:e|es|ing) the (?:dagger|arm ring)\b`,
+    String.raw`\bforces its way out\b`,
+  ].join("|"), "i");
+
+  /**
+   * Wording that vetoes a release reading of the check sentence itself: an Ioun Stone's
+   * "attack roll against AC 24 or a successful DC 24 Dexterity (Acrobatics) check", a Hideaway
+   * Vase lid held shut "preventing you from leaving", lock-picking, and repair checks at a rest.
+   */
+  static #NOT_RELEASE_CHECK_REGEX = /\bagainst AC \d+|\bpreventing\b|\bpick (?:the|this)\b|\b(?:Short|Long) Rest\b/i;
+
+  /** A release check worded as getting out of something, which names the activity "Escape Check". */
+  static #ESCAPE_CHECK_REGEX = /escap|free|burst|break|restrain|grappl|bound|way out/i;
+
+  static #CHECK_ACTIVATION_REGEX = /(bonus action)|(\breaction\b)|(\b(?:an?|its|their|your|the) action\b|\b(?:Utilize|Magic|Study|Influence|Search) action\b)/i;
+
+  /** Skill labels DDB writes that are not the dnd5e label. */
+  static #SKILL_LABEL_ALIASES: Record<string, string> = {
+    "handle animal": "ani",
+  };
+
+  /**
+   * Map the parenthesised qualifier of a check ("Athletics", "Arcana or History",
+   * "smith's or tinker's tools") to skill and tool keys. Unknown labels - "its choice" - are dropped.
+   */
+  static checkAssociatedKeys(...qualifiers: (string | undefined)[]): string[] {
+    const keys: string[] = [];
+    for (const qualifier of qualifiers) {
+      if (!qualifier) continue;
+      for (const rawLabel of qualifier.split(/\s+or\s+|,\s*/)) {
+        const label = rawLabel.replace(/’/g, "'").trim().toLowerCase();
+        if (!label) continue;
+        const skill = DICTIONARY.actor.skills.find((entry) => entry.label.toLowerCase() === label)?.name
+          ?? DDBDescriptions.#SKILL_LABEL_ALIASES[label];
+        const tool = skill ? undefined : DICTIONARY.actor.proficiencies.find((entry) =>
+          entry.type === "Tool" && entry.baseTool && entry.name.replace(/’/g, "'").toLowerCase().startsWith(label),
+        )?.baseTool;
+        const key = skill ?? tool;
+        if (key && !keys.includes(key)) keys.push(key);
+      }
+    }
+    return keys;
+  }
+
+  /** The sentences of a plain-text passage with their offsets, so a match can be located in one. */
+  static #sentences(text: string): { start: number; end: number; text: string }[] {
+    const sentences: { start: number; end: number; text: string }[] = [];
+    let start = 0;
+    for (const match of text.matchAll(DDBDescriptions.#SENTENCE_SPLIT_REGEX)) {
+      const end = match.index ?? 0;
+      sentences.push({ start, end, text: text.slice(start, end) });
+      start = end + match[0].length;
+    }
+    sentences.push({ start, end: text.length, text: text.slice(start) });
+    return sentences;
+  }
+
+  /**
+   * Every explicit-DC ability check named in a piece of rules text, in source order, each
+   * classified by whether it releases something the item did.
+   *
+   * The unit of classification is the sentence: the check's own sentence, plus the next one when
+   * it opens with the outcome ("The restrained target can use its action to make a DC 15 Strength
+   * check. On a success, ..."). The veto wording is tested on the check sentence alone.
+   * Callers strip `<table>` blocks first, as for {@link DDBDescriptions.parseSaves}.
+   */
+  static parseChecks(source: string): IParsedCheck[] {
+    if (!source?.trim()) return [];
+    const text = DDBDescriptions.plainText(source);
+    const sentences = DDBDescriptions.#sentences(text);
+    const checks: IParsedCheck[] = [];
+
+    for (const match of text.matchAll(DDBDescriptions.#CHECK_REGEX)) {
+      const index = match.index ?? 0;
+      const abilities = DDBDescriptions.saveAbilityKeys(match[2], match[4]);
+      if (abilities.length === 0) continue;
+      const position = sentences.findIndex((sentence) => index >= sentence.start && index < sentence.end);
+      const checkSentence = sentences[position]?.text ?? text;
+      const next = sentences[position + 1];
+      const sentence = next && DDBDescriptions.#CHECK_OUTCOME_REGEX.test(next.text)
+        ? `${checkSentence} ${next.text}`
+        : checkSentence;
+      const release = DDBDescriptions.#RELEASE_CHECK_REGEX.test(sentence)
+        && !DDBDescriptions.#NOT_RELEASE_CHECK_REGEX.test(checkSentence);
+      const escape = release && DDBDescriptions.#ESCAPE_CHECK_REGEX.test(sentence);
+      const activationMatch = checkSentence.match(DDBDescriptions.#CHECK_ACTIVATION_REGEX);
+      // escaping is an action in both rulesets even when the sentence does not say so
+      const activation = activationMatch?.[1]
+        ? "bonus"
+        : activationMatch?.[2]
+          ? "reaction"
+          : activationMatch?.[3] || escape
+            ? "action"
+            : "special";
+      checks.push({
+        abilities,
+        associated: DDBDescriptions.checkAssociatedKeys(match[3], match[5], match[6]),
+        dc: { calculation: "", formula: match[1] },
+        index,
+        sentence: sentence.trim(),
+        release,
+        escape,
+        activation,
+      });
+    }
+
+    return checks.sort((a, b) => a.index - b.index);
+  }
+
+  /** Two checks are the same property when they ask for the same roll against the same DC. */
+  static checkKey(check: { abilities?: string[] | null; associated?: string[] | null; dc?: { formula?: string } | null }): string {
+    const abilities = [...(check.abilities ?? [])].sort().join("+");
+    const associated = [...(check.associated ?? [])].sort().join("+");
+    return `${check.dc?.formula ?? ""}|${abilities}|${associated}`;
+  }
+
+  /**
+   * Whichever of these matches sits earliest in the text, or null if none did.
+   *
+   * The saving throw a feature is ABOUT is the one its text states first. The two word orders
+   * the parsers look for - "DC 15 Dexterity saving throw" (2014) and "Dexterity Saving Throw:
+   * DC 15" (2024) - are printing conventions, not a precedence, so neither is preferred: a
+   * trailing clause must not supply the primary save. A Behir's Swallow states the DC 18
+   * Dexterity throw its victim makes to avoid being swallowed before the DC 14 Constitution throw
+   * the behir makes to regurgitate, and the first is its save. A tie keeps the earlier argument.
+   */
+  static firstMatch(...matches: (RegExpMatchArray | null)[]): RegExpMatchArray | null {
+    return matches.reduce((first: RegExpMatchArray | null, match) => {
+      if (!match) return first;
+      if (!first) return match;
+      return (match.index ?? 0) < (first.index ?? 0) ? match : first;
+    }, null);
+  }
+
+  // The damage expression the item parser uses.
+  //
+  // eslint-disable-next-line no-useless-escape
+  static DAMAGE_EXPRESSION = /(?<prefix>(?:takes|taking|saving throw (?:\([\w ]*\) )?or take\s+)|(?:[\w]*\s+))(?:(?<flat>[0-9]+))?(?:\s*\(?(?<damageDice>[0-9]+d[0-9]+(?:\s*[-+]\s*(?:[0-9]+))*(?:\s+plus [^\)]+)?)\)?)\s*(?<type>[\w ]*?)\s*damage(?<start>\sat the start of|\son a failed save)?/gi;
+
+  /**
+   * Read damage out of rules text.
+   *
+   * `parts` is the damage the roll deals;
+   * `otherParts` is everything the text describes as a separate calculation - an ongoing tick, or a second damage entry
+   *    on a save-based effect once the first has been claimed.
+   * `parseDice` decides whether dice strings are normalised through `utils.parseDiceString`, which the item parser
+   *    only does when it has action data.
+   */
+  /**
+   * Whether a damage match is dealt to objects rather than creatures: "The shock wave deals 100
+   * thunder damage to all structures in contact with the ground". Such damage is scenery for the
+   * table, and read as a creature's damage it lands on whichever save or attack sits nearest.
+   * @param {RegExpMatchArray} match a damage expression match, with its input and index
+   * @returns {boolean} true when the words right after the match aim it at objects or structures
+   */
+  static damagesObjectsOnly(match: RegExpMatchArray): boolean {
+    if (match.input === undefined || match.index === undefined) return false;
+    const after = match.input.slice(match.index + match[0].length, match.index + match[0].length + 60);
+    return (/^\s*to (?:all |any |each |every |the |nonmagical |unattended |other )*(?:objects?|structures?|buildings?)\b/i).test(after);
+  }
+
+  static parseDamageParts(text: string, { parseDice = true } = {}): {
+    parts: I5eDamagePart[];
+    otherParts: I5eDamagePart[];
+  } {
+    const parts: I5eDamagePart[] = [];
+    const otherParts: I5eDamagePart[] = [];
+    if (!text?.trim()) return { parts, otherParts };
+
+    const description = utils.stripHtml(text).replace(/[–-–−]/g, "-");
+    const matches = [...description.matchAll(DDBDescriptions.DAMAGE_EXPRESSION)];
+
+    for (const dmg of matches) {
+      if (!dmg.groups) continue; // the regex defines named groups, so this always exists
+      let other = false;
+      if (dmg.groups.prefix == "DC " || dmg.groups.type == "hit points by this") {
+        continue;
+      }
+      if (DDBDescriptions.damagesObjectsOnly(dmg)) continue;
+      // check for other
+      if (dmg.groups.start && dmg.groups.start.trim() == "at the start of") other = true;
+      const damage = dmg.groups.damageDice ?? dmg.groups.flat;
+
+      // Make sure we did match a damage
+      if (damage) {
+        const includesDiceRegExp = /[0-9]*d[0-9]+/;
+        const includesDice = includesDiceRegExp.test(damage);
+        const finalDamage = (parseDice && includesDice)
+          ? utils.parseDiceString(damage.replace("plus", "+"), "").diceString
+          : damage.replace("plus", "+");
+
+        const part = SystemHelpers.buildDamagePart({ damageString: finalDamage, type: dmg.groups.type, stripMod: false });
+
+        // if this is a save based attack, and multiple damage entries, we assume any entry beyond the first is going into a second damage calculation
+        // ignore if dmg[1] is and as it likely indicates the whole thing is a save
+        if ((((dmg.groups.start ?? "").trim() == "on a failed save" && (dmg.groups.prefix ?? "").trim() !== "and")
+            || (dmg.groups.prefix && dmg.groups.prefix.includes("saving throw")))
+          && parts.length >= 1
+        ) {
+          other = true;
+        }
+        // assumption here is that there is just one field added to versatile. this is going to be rare.
+        if (other) {
+          otherParts.push(part);
+        } else {
+          parts.push(part);
+        }
+      }
+    }
+
+    return { parts, otherParts };
+  }
 
   static startOrEnd(text: string) {
     const re = /at the (start|end) of each/i;
@@ -14,6 +925,60 @@ export default class DDBDescriptions {
     } else {
       return undefined;
     }
+  }
+
+  /**
+   * References that name the creature the effect is ON. "until the end of the
+   * creature's next turn" anchors on the target.
+   */
+  static NEXT_TURN_TARGET_REFERENTS = [
+    "it", "its", "the target", "the target's", "that target", "that target's",
+    "the creature", "the creature's", "that creature", "that creature's",
+    "their", "them", "the attacker", "the attacker's", "the victim", "the victim's",
+  ];
+
+  /**
+   * References that name the creature the effect came FROM. DDB rules
+   * text names the ACTING creature specifically ("the demilich's next turn",
+   * "the ranger's", "the aberration's") while referring to the thing affected
+   * generically ("the creature", "the target"). So any unrecognised POSSESSIVE
+   * noun phrase is treated as the source; a reference that is neither generic nor
+   * possessive yields no expiry
+   */
+  static NEXT_TURN_SOURCE_REFERENTS = ["your", "the caster", "the summoner"];
+
+  /** "the demilich's", "stokkvari's", "the boss' " - a possessive noun phrase. */
+  static POSSESSIVE_REFERENT = /(?:'s|s')$/;
+
+  /**
+   * Parse a "until the start/end of X's next turn" clause into native `duration.expiry`.
+   * Adjective-qualified generic referents ("the chosen creature's", "the hit creature's")
+   * reduce to their first noun before lookup. Returns null when the referent is not recognised
+   */
+  static nextTurnExpiry(text: string): { expiry: T5eEffectExpiry; dae: string; special: string } | null {
+    // real newlines and non-breaking spaces can break a clause that spans a line
+    const cleaned = utils.nameString(text).replace(/[\s\u00a0]+/g, " ");
+    const re = /until the (?<point>end|start|beginning) of (?<whos>[^.,;:]{1,40}?) next turn/i;
+    const match = re.exec(cleaned);
+    if (!match?.groups) return null;
+
+    const point = match.groups.point === "end" ? "End" : "Start";
+    const referent = match.groups.whos.toLowerCase().trim();
+    // "the chosen/hit/frightened creature's" -> "the creature's"
+    const generic = referent.replace(
+      /^(the|that) \w+ (creature'?s?|target'?s?)$/,
+      (_m, article, noun) => `${article} ${noun}`,
+    );
+
+    let source: boolean;
+    if (DDBDescriptions.NEXT_TURN_TARGET_REFERENTS.includes(generic)) source = false;
+    else if (DDBDescriptions.NEXT_TURN_SOURCE_REFERENTS.includes(referent.replace(DDBDescriptions.POSSESSIVE_REFERENT, ""))) source = true;
+    else if (DDBDescriptions.POSSESSIVE_REFERENT.test(referent)) source = true;
+    else return null;
+
+    const dae = `turn${point}${source ? "Source" : ""}`;
+    const expiry = (source ? `source${point}` : `target${point}`) as T5eEffectExpiry;
+    return { expiry, dae, special: match[0] };
   }
 
   static getDuration(text: string, returnDefault = true, generateSpecial = true) {
@@ -32,6 +997,7 @@ export default class DDBDescriptions {
       value: string | null;
       units: string;
       dae: string[];
+      expiry: T5eEffectExpiry | null;
     } = {
       type: returnDefault ? "second" : null,
       seconds: returnDefault ? defaultDurationSeconds : null,
@@ -46,8 +1012,9 @@ export default class DDBDescriptions {
       value: null,
       units: "inst",
       dae: [],
+      expiry: null,
     };
-    const re = /for (\d+) (minute|hour|round|day|month|year)/; // turn|day|month|year
+    const re = /for (\d+) (minute|hour|round|turn|day|month|year)/;
     const match = text.match(re);
     if (match) {
       let seconds = parseInt(match[1]);
@@ -71,6 +1038,8 @@ export default class DDBDescriptions {
           break;
         }
         case "turn": {
+          // a turn ends no later than its round, so it counts as six seconds of elapsed time
+          seconds *= 6;
           result.turns = parseInt(match[1]);
           break;
         }
@@ -99,59 +1068,72 @@ export default class DDBDescriptions {
 
     if (!generateSpecial) return result;
 
-    const smallMatchRe = /until the (?<point>end|start) of (?<whos>its|the target's|your) next turn/ig;
-    const smallMatch = smallMatchRe.exec(utils.nameString(text));
-    if (smallMatch) {
+    const nextTurn = DDBDescriptions.nextTurnExpiry(text);
+    if (nextTurn) {
       result.type = "special";
       result.units = "spec";
       result.seconds = 6;
       result.rounds = 1;
-      result.special = smallMatch[0];
-      // "turnStart" - expires at the start of the targets next turn
-      // "turnEnd" - expires at the end of the targets next turn
-      // "turnStartSource" - expires at the start of the source actors next turn
-      // "turnEndSource" - expires at the end of the source actors next turn
-      // "combatEnd" - expires at the end of combat
-      // "joinCombat" - expires at the start of combat
-      result.dae = [];
-      const smallGroups = smallMatch.groups;
-      if (smallGroups) {
-        if (["its", "the target's"].includes(smallGroups.whos)) {
-          result.dae.push(`turn${utils.capitalize(smallGroups.point)}`);
-        } else if (["your"].includes(smallGroups.whos)) {
-          result.dae.push(`turn${utils.capitalize(smallGroups.point)}Source`);
-        }
-      }
+      result.special = nextTurn.special;
+      result.expiry = nextTurn.expiry;
+      result.dae = [nextTurn.dae];
 
       return result;
     }
     return result;
   }
 
+  /**
+   * Merge a DAE special duration parsed from a dcParser match tail into an effect.
+   *
+   * Serves the public `DDBEffectHelper.getSpecialDuration` API; the parser does not call it.
+   *
+   * Note that `dcParser`'s trailing capture is lazy-optional (`(.*)??`),
+   * so `match[7]` is always undefined for matches produced by that regex;
+   * only an external caller supplying its own match can reach the classification
+   * below, which follows `nextTurnExpiry`'s rules for whose turn a duration counts
+   * ("the target's next turn" is not the caster's).
+   */
   static addSpecialDurationFlagsToEffect(effect: I5eEffectData, match: any) {
-    const durations = [];
-    // minutes
-    if (match[7]
-      && (match[7].includes("until the end of its next turn")
-        || match[7].includes("until the end of the target's next turn"))
-    ) {
-      durations.push("turnEnd");
-    } else if (match[7] && match[7].includes("until the start of the")) {
-      durations.push("turnStartSource");
+    const durations: string[] = [];
+    const tail = match?.[7];
+    if (typeof tail === "string" && tail !== "") {
+      const parsed = DDBDescriptions.nextTurnExpiry(tail);
+      if (parsed) durations.push(parsed.dae);
     }
 
     const currentSpecialDurations: TDAESpecialDuration[] = foundry.utils.getProperty(effect, "flags.dae.specialDuration") as TDAESpecialDuration[] ?? [];
-    const specialDurations = utils.addArrayToProperties(currentSpecialDurations, durations ?? []);
+    const specialDurations = utils.addArrayToProperties(currentSpecialDurations, durations);
     foundry.utils.setProperty(effect, "flags.dae.specialDuration", specialDurations);
     return effect;
   }
 
+  /**
+   * A condition a grapple carries with it, in the 2024 ("has the Restrained condition until the
+   * grapple ends", "Until the grapple ends, the target has the Restrained condition") and 2014
+   * ("Until this grapple ends, the target is restrained") phrasings; "is suffocating" reads the
+   * same way. DDB's own condition markup arrives as "id;label" ("suffocation;suffocating").
+   */
+  static GRAPPLE_RIDERS = [
+    /(?:has the (?<a>\w+) condition|is (?:\w+;)?(?<b>\w+))(?: and [^.]*)? until (?:the|this) grapple ends/i,
+    /Until (?:the|this) grapple ends, the (?:target|creature) (?:has the (?<a>\w+) condition|is (?:\w+;)?(?<b>\w+))/i,
+  ];
+
   static getRiderStatusEffects({ text, condition }: { text: string; condition: string }) {
-    const checkReg = new RegExp(`While ${condition}, the target has the (.*) condition`, "i");
+    // "While Restrained, the target is suffocating" beside "While Grappled, the target has the Restrained condition"
+    const checkReg = new RegExp(`While ${condition}, the target (?:has the (?<a>\\w+) condition|is (?:\\w+;)?(?<b>\\w+))`, "i");
     const match = checkReg.exec(text);
-    if (match) {
-      const processedCondition = DDBDescriptions.getConditionInfo(match[1]);
+    if (match?.groups) {
+      const processedCondition = DDBDescriptions.getConditionInfo(match.groups.a ?? match.groups.b);
       return processedCondition.condition ? [processedCondition.condition] : [];
+    }
+    if (condition.toLowerCase() === "grappled") {
+      for (const regex of DDBDescriptions.GRAPPLE_RIDERS) {
+        const rider = regex.exec(text);
+        if (!rider?.groups) continue;
+        const processedCondition = DDBDescriptions.getConditionInfo(rider.groups.a ?? rider.groups.b);
+        return processedCondition.condition ? [processedCondition.condition] : [];
+      }
     }
     return [];
   }
@@ -247,7 +1229,8 @@ export default class DDBDescriptions {
     }
 
     if (!match) {
-      const monsterAndCondition = /(the target has the|subject that creature to the|it has the) (?<condition>\w+) condition/ig;
+      // "and has the" covers a rider on a hit ("takes an extra 3 (1d6) Piercing damage and has the Prone condition")
+      const monsterAndCondition = /(the target has the|subject that creature to the|it has the|and has the) (?<condition>\w+) condition/ig;
       match = monsterAndCondition.exec(parserText);
     }
 
@@ -362,6 +1345,7 @@ export default class DDBDescriptions {
   // "possessed", which is mechanically the Incapacitated condition.
   static CONDITION_ALIASES: Record<string, string> = {
     possessed: "incapacitated",
+    suffocating: "suffocation",
   };
 
   static getConditionInfo(condition: string, hint?: string): {
@@ -438,6 +1422,7 @@ export default class DDBDescriptions {
         units: null,
       },
       specialDurations: [],
+      expiry: null,
       match: null,
       riderStatuses: [],
     };
@@ -445,6 +1430,7 @@ export default class DDBDescriptions {
     const parserText = utils.nameString(text);
     const matchResults = DDBDescriptions.dcParser({ text: parserText });
 
+    // console.warn("condition status", match);
     if (matchResults.match) {
       const match = matchResults.match;
       result.match = match;
@@ -462,6 +1448,7 @@ export default class DDBDescriptions {
       }
 
       const parsedCondition = DDBDescriptions.getConditionInfo(condition, match.groups?.hint);
+      // console.warn({parsedCondition, matchResults});
       if (parsedCondition.success) {
         result.condition = parsedCondition.condition;
         result.conditionName = parsedCondition.conditionName;
@@ -479,10 +1466,12 @@ export default class DDBDescriptions {
       const duration = DDBDescriptions.getDuration(parserText);
 
       if (duration.type && duration.value !== null) {
-        result.duration.value = parseInt(duration.value);
-        result.duration.units = AutoEffects.adjustDurationUnits(duration.units);
+        const normalised = AutoEffects.toEffectDuration(duration.value, duration.units);
+        result.duration.value = normalised.value;
+        result.duration.units = normalised.units;
       }
       result.specialDurations = duration.dae ?? [];
+      result.expiry = duration.expiry;
     }
 
     result.riderStatuses = matchResults.riderStatuses;
@@ -550,7 +1539,8 @@ export default class DDBDescriptions {
     const saveSearchNew = /(?<ability>\w+) (?<type>saving throw|check): DC (?<dc>\d+)/i;
     const saveSearchNewMatch = text.match(saveSearchNew);
 
-    const savingThrow = saveSearchMatch ?? saveSearchNewMatch;
+    // earliest wins, NOT 2014-first: see firstMatch
+    const savingThrow = DDBDescriptions.firstMatch(saveSearchMatch, saveSearchNewMatch);
     const halfSaveSearch = /or half as much damage on a successful one|Success: Half damage/i;
     const halfMatch = halfSaveSearch.test(text);
     if (halfMatch) save.half = true;
@@ -617,53 +1607,60 @@ export default class DDBDescriptions {
     return result.map((item) => item.replaceAll("*", "").trim().replace(/\.$/, ""));
   }
 
-  static parseOutMonsterSpells(text: string): IDDBParsedMonsterSpell[] {
-    const results: IDDBParsedMonsterSpell[] = [];
+  /**
+   * Parse a single spell entry from monster text, e.g. "charm person (level 5 version)" or
+   * "invisibility (self only, 1-hour duration)", splitting the parenthetical qualifiers into
+   * level / self-target / duration data and keeping any unrecognised qualifier as the `extra` label.
+   */
+  static parseMonsterSpellEntry(spellName: string): IDDBParsedMonsterSpell {
+    const extraCheckRegex = /(.*)\((.*)\)/i;
+    const extraMatch = extraCheckRegex.exec(spellName.trim());
 
-    const processSpell = (spellName: string) => {
-      const extraCheckRegex = /(.*)\((.*)\)/i;
-      const extraMatch = extraCheckRegex.exec(spellName.trim());
+    let level = null;
+    let targetSelf = null;
+    let duration = null;
+    const extras = [];
 
-      let level = null;
-      let targetSelf = null;
-      let duration = null;
-      const extras = [];
-
-      if (extraMatch) {
-        for (const extra of extraMatch[2].split(",")) {
-          const levelRegex = /level (\d) version/i;
-          const levelMatch = levelRegex.exec(extra);
-          if (levelMatch) level = levelMatch[1];
-          const targetSelfRegex = /(self only|on itself)/i;
-          const targetSelfMatch = targetSelfRegex.exec(extra);
-          if (targetSelfMatch) targetSelf = true;
-          const durationRegex = /(\d+)-(\w+) duration/i;
-          const durationMatch = durationRegex.exec(extra);
-          if (durationMatch) {
-            duration = {
-              override: true,
-              value: durationMatch[1],
-              units: durationMatch[2],
-            };
-          }
-          if (!levelMatch) {
-            extras.push(extra.trim());
-          }
+    if (extraMatch) {
+      for (const extra of extraMatch[2].split(",")) {
+        const levelRegex = /level (\d) version/i;
+        const levelMatch = levelRegex.exec(extra);
+        if (levelMatch) level = levelMatch[1];
+        const targetSelfRegex = /(self only|on itself)/i;
+        const targetSelfMatch = targetSelfRegex.exec(extra);
+        if (targetSelfMatch) targetSelf = true;
+        const durationRegex = /(\d+)-(\w+) duration/i;
+        const durationMatch = durationRegex.exec(extra);
+        if (durationMatch) {
+          duration = {
+            override: true,
+            value: durationMatch[1],
+            units: durationMatch[2],
+          };
+        }
+        if (!levelMatch) {
+          extras.push(extra.trim());
         }
       }
-      return {
-        name: extraMatch ? extraMatch[1].trim() : spellName.trim(),
-        level,
-        extra: extras.length > 0 ? extras.join(", ") : null,
-        targetSelf,
-        duration,
-      };
+    }
+    return {
+      name: extraMatch ? extraMatch[1].trim() : spellName.trim(),
+      level,
+      extra: extras.length > 0 ? extras.join(", ") : null,
+      targetSelf,
+      duration,
     };
+  }
+
+  static parseOutMonsterSpells(text: string): IDDBParsedMonsterSpell[] {
+    const results: IDDBParsedMonsterSpell[] = [];
+    const processSpell = DDBDescriptions.parseMonsterSpellEntry;
 
     // 3/day each: charm person (level 5 version), color spray, detect thoughts, hold person (level 3 version)
     const innateSearch = /^(\d+)\/(\w+)(?:\s+each)?:\s+(.*$)/i;
     const innateMatch = text.match(innateSearch);
 
+    // console.warn(innateMatch);
     if (innateMatch) {
       DDBDescriptions.splitStringByComma(innateMatch[3]).forEach((spell: string) => {
         const data = processSpell(spell);
@@ -677,6 +1674,7 @@ export default class DDBDescriptions {
     // At will: dancing lights
     const atWillSearch = /^at will:\s+(.*$)/i;
     const atWillMatch = text.match(atWillSearch);
+    // console.warn(atWillMatch);
     if (atWillMatch) {
       DDBDescriptions.splitStringByComma(atWillMatch[1]).forEach((spell: string) => {
         results.push(processSpell(spell));

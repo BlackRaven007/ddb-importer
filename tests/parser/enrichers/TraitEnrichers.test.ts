@@ -1,0 +1,195 @@
+import FeyStep from "../../../src/parser/enrichers/trait/eladrin/FeyStep";
+import BlessingOfTheRavenQueen from "../../../src/parser/enrichers/trait/shadar-kai/BlessingOfTheRavenQueen";
+import GhostlyFlesh from "../../../src/parser/enrichers/trait/stygian-shade/GhostlyFlesh";
+import HornedRepose from "../../../src/parser/enrichers/trait/the-manyhorn/HornedRepose";
+import HungryJaws from "../../../src/parser/enrichers/trait/lizardfolk/HungryJaws";
+import EerieToken from "../../../src/parser/enrichers/trait/hexblood/EerieToken";
+import FelineAgility from "../../../src/parser/enrichers/trait/tabaxi/FelineAgility";
+import BurstOfSpeed from "../../../src/parser/enrichers/trait/generic/BurstOfSpeed";
+import HoldBreath from "../../../src/parser/enrichers/trait/generic/HoldBreath";
+import ChangelingShapeShift from "../../../src/parser/enrichers/trait/changeling/ShapeShift";
+import { makeEnricherData } from "../../_fixtures/ddb/factories";
+import { installActivityConfigStubs } from "../../_fixtures/ddb/stubs";
+
+beforeAll(() => {
+  installActivityConfigStubs();
+});
+
+type TEnricher = new (options: any) => any;
+
+function build(Enricher: TEnricher): any {
+  return makeEnricherData(Enricher);
+}
+
+describe("native teleport trait activities", () => {
+  it("converts Fey Step while preserving every seasonal rider", () => {
+    const e = build(FeyStep);
+    expect(e.type).toBe("teleport");
+    expect(e.activity).toMatchObject({
+      name: "Fey Step (Teleport)",
+      activationType: "bonus",
+      data: {
+        range: { override: true, value: "30", units: "ft" },
+        target: { override: true, prompt: false, affects: { count: "1", type: "self" } },
+      },
+    });
+    expect(e.additionalActivities.map((a: any) => a.init.name)).toEqual([
+      "Autumn (Save)",
+      "Winter (Save)",
+      "Spring (Teleport)",
+      "Summer (Damage)",
+    ]);
+    // Spring teleports the touched creature, not the eladrin. Range and teleport distance are
+    // different things here: the eladrin must touch a creature within 5 ft, and that creature
+    // then travels 30 ft, so the distance needs teleport.override rather than the range the
+    // system would otherwise derive it from.
+    const spring = e.additionalActivities[2];
+    expect(spring.init.type).toBe("teleport");
+    expect(spring.overrides).toMatchObject({
+      noConsumeTargets: true,
+      activationType: "special",
+      data: {
+        teleport: { override: true, value: "30" },
+        range: { override: true, value: "5", units: "ft" },
+        target: { affects: { count: "1", type: "creature" } },
+      },
+    });
+    expect(e.effects.map((effect: any) => effect.activityMatch)).toEqual(["Autumn (Save)", "Winter (Save)"]);
+  });
+
+  it("deals Summer's fire damage with a floor of 1, or the proficiency bonus for the reprint", () => {
+    const summerFormula = (enricher: any) =>
+      enricher.additionalActivities[3].overrides.data.damage.parts[0].custom.formula;
+
+    // the original eladrin: Charisma modifier (minimum of 1 damage)
+    expect(summerFormula(build(FeyStep))).toBe("max(1, @abilities.cha.mod)");
+
+    const reprint = makeEnricherData(FeyStep, {
+      ddbParser: {
+        ddbDefinition: {
+          name: "Fey Step",
+          description: "<p><strong>Summer.</strong> Each creature takes fire damage equal to your proficiency bonus.</p>",
+        },
+      },
+    });
+    expect(summerFormula(reprint)).toBe("@prof");
+  });
+
+  it("uses Blessing of the Raven Queen's 30 ft range and keeps resistance on the teleport", () => {
+    const e = build(BlessingOfTheRavenQueen);
+    expect(e.type).toBe("teleport");
+    expect(e.activity).toMatchObject({
+      name: "Teleport",
+      activationType: "bonus",
+      data: {
+        range: { override: true, value: "30", units: "ft" },
+        target: { override: true, prompt: false, affects: { count: "1", type: "self" } },
+      },
+    });
+    expect(e.effects[0]).toMatchObject({
+      name: "Blessing of the Raven Queen: Resistance",
+      activityMatch: "Teleport",
+      // "The resistance lasts until the start of your next turn" - the pseudo expiry nulls
+      // duration.value, so no counted duration is carried alongside it
+      options: { expiry: "sourceStart" },
+    });
+  });
+});
+
+describe("action-specific trait snippets", () => {
+  it("loads the deactivation action snippet onto Ghostly Flesh's synthesized helper", () => {
+    const [deactivate] = build(GhostlyFlesh).additionalActivities;
+
+    // `true` derives the lookup from the activity name and the parser's
+    // "race" type.
+    expect(deactivate.overrides.useActivitySnippet).toBe(true);
+    expect(deactivate.init.name).toBe("Ghostly Flesh (Deactivate)");
+  });
+
+  it("selects the ability-specific action snippet for each Horned Repose attack", () => {
+    const e = build(HornedRepose);
+
+    expect(e.activity.useActivitySnippet).toBe(true);
+    expect(e.activity.name).toBe("Horned Repose (Str.)");
+    expect(e.additionalActivities[0].overrides.useActivitySnippet).toBe(true);
+    expect(e.additionalActivities[0].overrides.name).toBe("Horned Repose (Dex.)");
+  });
+
+  it("keeps Hungry Jaws' complete parent snippet instead of the generic Bite action snippet", () => {
+    expect(build(HungryJaws).activity.useActivitySnippet).toBeUndefined();
+  });
+});
+
+describe("hexblood Eerie Token uses", () => {
+  it("reads the 2024 action from the race bucket", () => {
+    const e: any = makeEnricherData(EerieToken, {
+      actions: { race: [{ name: "Eerie Token", limitedUse: { maxUses: 1, numberUsed: 1, resetType: 2 } }] },
+    });
+    expect(e.override.uses).toMatchObject({ max: "1", spent: 1 });
+  });
+
+  it("states one use per long rest on 2014, where DDB ships no limited use", () => {
+    const e: any = makeEnricherData(EerieToken, {
+      is2014: true,
+      actions: { race: [{ name: "Eerie Token - Create", limitedUse: null }] },
+    });
+    expect(e.override.uses).toEqual({ max: "1", recovery: [{ period: "lr", type: "recoverAll", formula: undefined }] });
+  });
+});
+
+describe("seconds-canonical effect durations (dnd5e #7434)", () => {
+  // "until the end of the turn" is core's turnEnd: the turn the effect was applied in, with
+  // no counted duration (dnd5e's sourceEnd would skip the creation turn and last a turn longer)
+  it("Feline Agility and Burst of Speed end with the turn they are used on", () => {
+    for (const Enricher of [FelineAgility, BurstOfSpeed]) {
+      const [effect] = build(Enricher).effects;
+      expect(effect.options.expiry).toBe("turnEnd");
+      expect(effect.options.durationSeconds).toBeUndefined();
+    }
+  });
+});
+
+/** Hold Breath is shared by species with different limits, so the span comes from the trait text. */
+describe("HoldBreath", () => {
+  const withText = (description: string): any => makeEnricherData(HoldBreath, { ddbParser: { ddbDefinition: { description } } } as any);
+
+  it("reads a 15 minute limit", () => {
+    const e = withText("<p>You can hold your breath for up to 15 minutes at a time.</p>");
+    expect(e.activity.data.duration).toEqual({ value: "15", units: "minute" });
+    expect(e.effects[0].options.durationSeconds).toBe(900);
+  });
+
+  it("reads a 1 hour limit", () => {
+    const e = withText("<p>You can hold your breath for up to 1 hour.</p>");
+    expect(e.activity.data.duration).toEqual({ value: "1", units: "hour" });
+    expect(e.effects[0].options.durationSeconds).toBe(3600);
+  });
+
+  it("falls back to 15 minutes when the text names no span", () => {
+    expect(withText("").effects[0].options.durationSeconds).toBe(900);
+  });
+});
+
+describe("changeling Shape-Shift", () => {
+  it("is a single-form transform whose No Form choice reverts the changeling", () => {
+    const e = build(ChangelingShapeShift);
+    expect(e.type).toBe("transform");
+    expect(e.activity).toMatchObject({
+      name: "Change Form",
+      targetType: "self",
+      activationType: "action",
+      data: {
+        duration: { units: "inst" },
+        profiles: [],
+        settings: null,
+        transform: { mode: "form", formless: true, customize: false, preset: "" },
+      },
+    });
+    expect(e.effects).toHaveLength(1);
+    expect(e.effects[0]).toMatchObject({
+      name: "Shape Shifted",
+      activityMatch: "Change Form",
+      options: { transfer: false, durationSeconds: null },
+    });
+  });
+});

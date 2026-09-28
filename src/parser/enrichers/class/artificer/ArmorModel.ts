@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ArmorModel extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get _guardianActivities() {
+  get _guardianActivities(): IDDBAdditionalActivity[] {
     const defensiveFieldUses = this._getUsesWithSpent({
       type: "class",
       name: "Defensive Field",
@@ -24,6 +24,13 @@ export default class ArmorModel extends DDBEnricherData {
           generateActivation: true,
           activationOverride: {
             type: "special",
+          },
+          // the model lasts until it is swapped at a rest; without this the description parser's
+          // 1-minute reading would be stamped onto the applied enchantment by dnd5e 6.0
+          durationOverride: {
+            value: "",
+            units: "spec",
+            special: "Until the model is changed",
           },
           targetOverride: {
             affects: {
@@ -163,7 +170,7 @@ export default class ArmorModel extends DDBEnricherData {
             },
             uses: {
               spent: 0,
-              max: "min(1, @abilities.int.mod)",
+              max: "max(1, @abilities.int.mod)",
               recovery: [{ period: "lr", type: "recoverAll", formula: undefined }],
             },
           },
@@ -174,7 +181,7 @@ export default class ArmorModel extends DDBEnricherData {
     return results;
   }
 
-  get _infiltratorActivities() {
+  get _infiltratorActivities(): IDDBAdditionalActivity[] {
     const results: IDDBAdditionalActivity[] = [
       {
         init: {
@@ -186,6 +193,13 @@ export default class ArmorModel extends DDBEnricherData {
           generateActivation: true,
           activationOverride: {
             type: "special",
+          },
+          // the model lasts until it is swapped at a rest; without this the description parser's
+          // 1-minute reading would be stamped onto the applied enchantment by dnd5e 6.0
+          durationOverride: {
+            value: "",
+            units: "spec",
+            special: "Until the model is changed",
           },
           targetOverride: {
             affects: {
@@ -336,7 +350,7 @@ export default class ArmorModel extends DDBEnricherData {
             },
             uses: {
               spent: 0,
-              max: "min(1, @abilities.int.mod)",
+              max: "max(1, @abilities.int.mod)",
               recovery: [{ period: "lr", type: "recoverAll", formula: undefined }],
             },
           },
@@ -359,6 +373,13 @@ export default class ArmorModel extends DDBEnricherData {
           generateActivation: true,
           activationOverride: {
             type: "special",
+          },
+          // the model lasts until it is swapped at a rest; without this the description parser's
+          // 1-minute reading would be stamped onto the applied enchantment by dnd5e 6.0
+          durationOverride: {
+            value: "",
+            units: "spec",
+            special: "Until the model is changed",
           },
           targetOverride: {
             affects: {
@@ -537,7 +558,7 @@ export default class ArmorModel extends DDBEnricherData {
     return results;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
 
     const results = [
       ...this._guardianActivities,
@@ -581,20 +602,14 @@ export default class ArmorModel extends DDBEnricherData {
         name: "Thunder Struck",
         activityMatch: "Guardian: Thunder Gauntlet",
         options: {
-          durationSeconds: 6,
+          expiry: "sourceStart",
           description: `Disadvantage on attack rolls against targets other than you until the start of your next turn`,
         },
         midiChanges: [
           DDBEnricherData.ChangeHelper.unsignedAddChange("!workflow.target.getName('@token.name')", 20, "flags.midi-qol.disadvantage.attack.all"),
         ],
-        daeSpecialDurations: ["turnStartSource"],
         data: {
           img: "icons/skills/melee/unarmed-punch-fist-white.webp",
-          duration: {
-            value: 6,
-            units: "seconds",
-            expiry: "turnStart",
-          },
         },
       },
     ];
@@ -610,8 +625,8 @@ export default class ArmorModel extends DDBEnricherData {
           transfer: true,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.addChange("5", 20, "system.attributes.movement.walk"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.ste.roll.mode"),
+          DDBEnricherData.ChangeHelper.addChange("5", 20, "system.attributes.movement.speeds.walk"),
+          DDBEnricherData.ChangeHelper.advantageSkillChange("ste"),
         ],
         midiOptionalChanges: [
           {
@@ -623,6 +638,13 @@ export default class ArmorModel extends DDBEnricherData {
               activation: `"@workflow.activity.name" == "Infiltrator: Lightning Launcher"`,
             },
           },
+        ],
+        ac5eChanges: [
+          DDBEnricherData.ChangeHelper.ac5eChange(
+            `bonus=${this.is2014 ? "1d6[lightning]" : "@scale.armorer.lightning-launcher[lightning]"}; oncePerTurn; optin; activity.name.includes('Lightning Launcher')`,
+            20,
+            "flags.automated-conditions-5e.damage.bonus",
+          ),
         ],
         data: {
           _id: "ddbInfiltratorEf",
@@ -662,20 +684,15 @@ export default class ArmorModel extends DDBEnricherData {
         name: "Infiltrator: Flight",
         activityMatch: "Infiltrator: Fly",
         options: {
-          durationSeconds: 6,
+          // "until the end of your turn"; the feature text also parses a one-minute clause,
+          // which must not become a counted ceiling beside the turn edge
+          expiry: "turnEnd",
+          durationSeconds: null,
           description: `You gain flight equal to twice your speed until the end of your turn`,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("(2 * @attributes.movement.walk)", 20, "system.attributes.movement.fly"),
+          DDBEnricherData.ChangeHelper.upgradeChange("(2 * @attributes.movement.speeds.walk)", 20, "system.attributes.movement.speeds.fly"),
         ],
-        daeSpecialDurations: ["turnEndSource" as const, "turnEnd" as const],
-        data: {
-          duration: {
-            value: 6,
-            units: "seconds",
-            expiry: "turnEnd",
-          },
-        },
       },
     ];
   }
@@ -712,10 +729,6 @@ export default class ArmorModel extends DDBEnricherData {
           DDBEnricherData.ChangeHelper.overrideChange("lg", 20, "system.traits.size"),
           // DDBEnricherData.ChangeHelper.addChange("", 20, "system.range"),
         ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.upgradeChange(2, 10, "ATL.width"),
-          DDBEnricherData.ChangeHelper.upgradeChange(2, 10, "ATL.height"),
-        ],
         data: {
           _id: "ddbGiantStatue03",
           duration: {
@@ -731,10 +744,6 @@ export default class ArmorModel extends DDBEnricherData {
           DDBEnricherData.ChangeHelper.overrideChange("hg", 20, "system.traits.size"),
           // DDBEnricherData.ChangeHelper.addChange("", 20, "system.range"),
         ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.upgradeChange(3, 15, "ATL.width"),
-          DDBEnricherData.ChangeHelper.upgradeChange(3, 15, "ATL.height"),
-        ],
         data: {
           _id: "ddbGiantStatue04",
           duration: {
@@ -746,7 +755,7 @@ export default class ArmorModel extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const results: IDDBEffectHint[] = [
       ...this._guardianEffects,
       ...this._infiltratorEffects,
@@ -760,7 +769,7 @@ export default class ArmorModel extends DDBEnricherData {
 
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       descriptionSuffix: this.is2014
         ? `

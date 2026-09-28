@@ -2,23 +2,23 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class EnchantmentsExtras extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.isAction ? null : DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get addToDefaultAdditionalActivities() {
+  override get addToDefaultAdditionalActivities(): boolean {
     return false;
   }
 
-  get addAutoAdditionalActivities() {
+  override get addAutoAdditionalActivities(): boolean {
     return true;
   }
 
-  get builtFeaturesFromActionFilters() {
+  override get builtFeaturesFromActionFilters(): any[] {
     return [this.name.replace("Enchantments:", "").trim()];
   }
 

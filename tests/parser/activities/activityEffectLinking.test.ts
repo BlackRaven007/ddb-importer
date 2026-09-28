@@ -1,0 +1,183 @@
+// CharacterFeatureFactory must load first, it initialises the activity/feature class chain.
+import "../../../src/parser/features/CharacterFeatureFactory";
+import DDBActivityFactoryMixin from "../../../src/parser/activities/mixins/DDBActivityFactoryMixin";
+
+function link({ activities, effects }: { activities: Record<string, any>; effects: any[] }) {
+  const parser = Object.create(DDBActivityFactoryMixin.prototype);
+  Object.assign(parser, {
+    name: "Test Feature",
+    data: { system: { activities }, effects, flags: {} },
+  });
+  parser._activityEffectLinking();
+  return parser.data;
+}
+
+function effect(_id: string, { activityMatch, transfer = false }: { activityMatch?: string; transfer?: boolean } = {}) {
+  return {
+    _id,
+    name: _id,
+    transfer,
+    flags: { ddbimporter: activityMatch ? { activityMatch } : {} },
+  };
+}
+
+const ids = (activity: any) => activity.effects.map((e: any) => e._id);
+
+describe("DDBActivityFactoryMixin._activityEffectLinking form-mode transforms", () => {
+  it("offers only the effects that name the transform, in document order", () => {
+    const data = link({
+      activities: {
+        form: { name: "Change Form", type: "transform", transform: { mode: "form" }, effects: [] },
+        other: { name: "Howl", type: "utility", effects: [] },
+      },
+      effects: [
+        effect("unmatchedEffect0"),
+        effect("formEffectAlpha0", { activityMatch: "Change Form" }),
+        effect("formEffectBeta00", { activityMatch: "Change Form" }),
+      ],
+    });
+
+    expect(ids(data.system.activities.form)).toEqual(["formEffectAlpha0", "formEffectBeta00"]);
+    expect(ids(data.system.activities.other)).toEqual(["unmatchedEffect0"]);
+  });
+
+  it("still links unmatched effects to a transform that replaces the actor", () => {
+    const data = link({
+      activities: {
+        shape: { name: "Wild Shape", type: "transform", transform: { mode: "cr" }, effects: [] },
+      },
+      effects: [effect("unmatchedEffect0")],
+    });
+
+    expect(ids(data.system.activities.shape)).toEqual(["unmatchedEffect0"]);
+  });
+
+  it("never offers a transferred effect as a form, even one that names the transform", () => {
+    const data = link({
+      activities: {
+        form: { name: "Change Form", type: "transform", transform: { mode: "form" }, effects: [] },
+      },
+      effects: [
+        effect("trueFormEffect00", { activityMatch: "Change Form", transfer: true }),
+        effect("formEffectAlpha0", { activityMatch: "Change Form" }),
+      ],
+    });
+
+    expect(ids(data.system.activities.form)).toEqual(["formEffectAlpha0"]);
+  });
+});
+
+describe("DDBActivityFactoryMixin._activityEffectLinking with two enchant activities", () => {
+  it("keeps each activity's named profiles apart and rolls up the riders", () => {
+    const profile = (_id: string, activityMatch: string, activityRiders: string[] = []) => ({
+      ...effect(_id, { activityMatch }),
+      type: "enchantment",
+      flags: { ddbimporter: { activityMatch, activityRiders } },
+    });
+    const data = link({
+      activities: {
+        self: { name: "Alter", type: "enchant", enchant: { self: true }, effects: [] },
+        strike: { name: "Grown Weapon", type: "enchant", effects: [] },
+      },
+      effects: [
+        profile("optionProfileOne", "Alter"),
+        profile("optionProfileTwo", "Alter", ["strike"]),
+        profile("strikeEnchantmnt", "Grown Weapon"),
+      ],
+    });
+
+    expect(ids(data.system.activities.self)).toEqual(["optionProfileOne", "optionProfileTwo"]);
+    expect(ids(data.system.activities.strike)).toEqual(["strikeEnchantmnt"]);
+    expect(data.system.activities.self.effects[1].riders.activity).toEqual(["strike"]);
+    expect(data.flags.dnd5e.riders.activity).toEqual(["strike"]);
+  });
+});
+
+
+describe("DDBActivityFactoryMixin._activityEffectLinking by activity type", () => {
+  const typed = (_id: string, ddbimporter: Record<string, unknown>) => ({ _id, name: _id, transfer: false, flags: { ddbimporter } });
+
+  it("links every activity of the first preferred type present", () => {
+    const data = link({
+      activities: {
+        hit: { name: "Attack", type: "attack", effects: [] },
+        save: { name: "Save", type: "save", effects: [] },
+        save2: { name: "Other Save", type: "save", effects: [] },
+      },
+      effects: [typed("woundTracker0000", { activityTypesMatch: ["save", "attack"] })],
+    });
+
+    expect(ids(data.system.activities.hit)).toEqual([]);
+    expect(ids(data.system.activities.save)).toEqual(["woundTracker0000"]);
+    expect(ids(data.system.activities.save2)).toEqual(["woundTracker0000"]);
+  });
+
+  it("falls back to the next type when the first is absent", () => {
+    const data = link({
+      activities: { hit: { name: "Attack", type: "attack", effects: [] } },
+      effects: [typed("woundTracker0000", { activityTypesMatch: ["save", "attack"] })],
+    });
+
+    expect(ids(data.system.activities.hit)).toEqual(["woundTracker0000"]);
+  });
+
+  it("does not resolve a type from noeffect, excluded or already-linked activities", () => {
+    const data = link({
+      activities: {
+        extra: { name: "Tick", type: "save", effects: [], flags: { ddbimporter: { noeffect: true } } },
+        second: { _id: "ddbSecondSave001", name: "Second Save", type: "save", effects: [] },
+        linked: { name: "Linked", type: "save", effects: [{ _id: "other" }] },
+        hit: { name: "Attack", type: "attack", effects: [] },
+      },
+      effects: [typed("firstFailure0000", { activityTypesMatch: ["save", "attack"], activityIdsExclude: ["ddbSecondSave001"] })],
+    });
+
+    expect(ids(data.system.activities.extra)).toEqual([]);
+    expect(ids(data.system.activities.second)).toEqual([]);
+    expect(ids(data.system.activities.linked)).toEqual(["other"]);
+    expect(ids(data.system.activities.hit)).toEqual(["firstFailure0000"]);
+  });
+
+  it("links nothing when no listed type is present", () => {
+    const data = link({
+      activities: { util: { name: "Use", type: "utility", effects: [] } },
+      effects: [typed("woundTracker0000", { activityTypesMatch: ["save"] })],
+    });
+
+    expect(ids(data.system.activities.util)).toEqual([]);
+  });
+
+  it("requires a name match too when both are set", () => {
+    const data = link({
+      activities: {
+        a: { name: "Bite", type: "attack", effects: [] },
+        b: { name: "Claw", type: "attack", effects: [] },
+        s: { name: "Claw", type: "save", effects: [] },
+      },
+      effects: [typed("clawEffect000000", { activityMatch: "Claw", activityTypesMatch: ["attack"] })],
+    });
+
+    expect(ids(data.system.activities.a)).toEqual([]);
+    expect(ids(data.system.activities.b)).toEqual(["clawEffect000000"]);
+    expect(ids(data.system.activities.s)).toEqual([]);
+  });
+
+  it("assigns a missing effect id and keeps onSave and level", () => {
+    const tracker: any = typed("", { activityTypesMatch: ["save"], effectOnSave: true, effectIdLevel: { min: 5, max: null } });
+    delete tracker._id;
+    const data = link({ activities: { save: { name: "Save", type: "save", effects: [] } }, effects: [tracker] });
+
+    const [linked] = data.system.activities.save.effects;
+    expect(tracker._id).toEqual(expect.any(String));
+    expect(linked).toMatchObject({ _id: tracker._id, onSave: true, level: { min: 5, max: null } });
+  });
+
+  it("offers a type-matched effect to a form-mode transform", () => {
+    const data = link({
+      activities: { form: { name: "Change Form", type: "transform", transform: { mode: "form" }, effects: [] } },
+      effects: [typed("formByType000000", { activityTypesMatch: ["transform"] })],
+    });
+
+    expect(ids(data.system.activities.form)).toEqual(["formByType000000"]);
+  });
+});

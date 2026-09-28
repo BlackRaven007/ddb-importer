@@ -2,12 +2,12 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class EnhanceAbility extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       { ability: "str", name2014: "Bull's Strength" },
       { ability: "con", name2014: "Bear's Endurance", type: DDBEnricherData.ACTIVITY_TYPES.HEAL },
@@ -42,7 +42,7 @@ export default class EnhanceAbility extends DDBEnricherData {
       });
   }
 
-  get _effects2014() {
+  get _effects2014(): IDDBEffectHint[] {
     return [
       {
         ability: "str",
@@ -83,14 +83,14 @@ export default class EnhanceAbility extends DDBEnricherData {
         },
         changes: (data.changes ?? []).concat(
           [
-            DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, `system.abilities.${data.ability}.check.roll.mode`),
+            DDBEnricherData.ChangeHelper.advantageAbilityCheckChange(data.ability),
           ],
         ),
       };
     });
   }
 
-  get _effects2024() {
+  get _effects2024(): IDDBEffectHint[] {
     return [
       { ability: "str" },
       // { ability: "con" },
@@ -107,13 +107,13 @@ export default class EnhanceAbility extends DDBEnricherData {
           durationSeconds: 3600,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, `system.abilities.${data.ability}.check.roll.mode`),
+          DDBEnricherData.ChangeHelper.advantageAbilityCheckChange(data.ability),
         ],
       };
     });
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return this.is2014 ? this._effects2014 : this._effects2024;
   }
 

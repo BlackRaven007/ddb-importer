@@ -1,16 +1,20 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class WrathOfTheSea extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Activate Emanation/Aura",
-      targetType: "self",
+      targetType: "enemy",
       activationType: "bonus",
       data: {
+        // relevantLevel for the Stormborn effect gate counts druid levels, not character level
+        visibility: {
+          identifier: "druid",
+        },
         target: {
           template: {
             type: "radius",
@@ -18,11 +22,17 @@ export default class WrathOfTheSea extends DDBEnricherData {
             units: "ft",
           },
         },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.applyEffect({
+            effects: "Ocean Spray",
+            auraeffectsNever: true,
+          }),
+        ],
       },
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -61,27 +71,50 @@ export default class WrathOfTheSea extends DDBEnricherData {
     ];
   }
 
-  get effects():  IDDBEffectHint[] {
+  override get effects():  IDDBEffectHint[] {
     return [
+      // Stormborn (level 10): flight and cold/lightning/thunder resistance while the aura is active.
+      // The druid applies it to themselves from the activation card; dnd5e hides it below level 10.
+      {
+        name: "Stormborn",
+        activityMatch: "Activate Emanation/Aura",
+        changes: [
+          DDBEnricherData.ChangeHelper.upgradeChange("@attributes.movement.speeds.walk", 20, "system.attributes.movement.speeds.fly"),
+          DDBEnricherData.ChangeHelper.damageResistanceChange("cold"),
+          DDBEnricherData.ChangeHelper.damageResistanceChange("lightning"),
+          DDBEnricherData.ChangeHelper.damageResistanceChange("thunder"),
+        ],
+        options: {
+          durationSeconds: 600,
+          description: "While Wrath of the Sea is active you have a Fly Speed equal to your Speed and Resistance to Cold, Lightning and Thunder damage.",
+        },
+        data: {
+          flags: {
+            ddbimporter: {
+              effectIdLevel: {
+                min: 10,
+                max: null,
+              },
+            },
+          },
+        },
+      },
+      {
+        name: "Ocean Spray",
+        standalone: true,
+        auraeffectsNever: true,
+        options: {
+          durationSeconds: 600,
+          description: "Within the Wrath of the Sea emanation; the druid can target this creature with the aura's cold damage.",
+        },
+      },
       {
         name: "Ocean Spray",
         options: {
           durationSeconds: 600,
         },
         activityMatch: "Activate Emanation/Aura",
-        data: {
-          flags: {
-            ActiveAuras: {
-              aura: "Enemy",
-              radius: "@scale.sea.wrath-range",
-              isAura: true,
-              ignoreSelf: true,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-            },
-          },
-        },
+        auraeffectsOnly: true,
         auraeffects: {
           applyToSelf: false,
           bestFormula: "",

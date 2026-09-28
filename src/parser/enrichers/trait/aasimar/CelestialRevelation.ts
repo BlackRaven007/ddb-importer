@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class CelestialRevelation extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Unleash Celestial Energy",
       addItemConsume: true,
@@ -19,7 +19,7 @@ export default class CelestialRevelation extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -125,7 +125,7 @@ export default class CelestialRevelation extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Celestial Revelation: Tracker",
@@ -157,7 +157,7 @@ export default class CelestialRevelation extends DDBEnricherData {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("@attributes.movement.walk", 20, "system.attributes.movement.fly"),
+          DDBEnricherData.ChangeHelper.upgradeChange("@attributes.movement.speeds.walk", 20, "system.attributes.movement.speeds.fly"),
         ],
       },
       {
@@ -165,9 +165,8 @@ export default class CelestialRevelation extends DDBEnricherData {
         activityMatch: "Necrotic Shroud Save",
         statuses: ["Frightened"],
         options: {
-          durationSeconds: 6,
+          expiry: "sourceEnd",
         },
-        daeSpecialDurations: ["turnEndSource" as const],
       },
     ];
   }

@@ -2,17 +2,17 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Wardaway extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Disoriented",
         changes: [
-          DDBEnricherData.ChangeHelper.customChange("/2", 20, "system.attributes.movement.all"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0.5", 20),
         ],
         options: {
+          expiry: "sourceStart",
           description: "Target's Speed is halved until the start of your next turn, and on its next turn, it can take only an Action or a Bonus Action.",
         },
-        daeSpecialDurations: ["turnStartSource"],
       },
     ];
   }

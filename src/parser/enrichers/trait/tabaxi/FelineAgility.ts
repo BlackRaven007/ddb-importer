@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class FelineAgility extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "special",
@@ -14,16 +14,16 @@ export default class FelineAgility extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Feline Agility",
         options: {
-          durationTurns: 1,
+          expiry: "turnEnd",
           description: "Your Speed is doubled until the end of the turn.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.multiplyChange("2", 30, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("2", 30),
         ],
       },
     ];

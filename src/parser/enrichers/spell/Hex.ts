@@ -4,11 +4,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Hex extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Mark Target",
       id: "ddbHexMarkTarget",
@@ -18,7 +18,7 @@ export default class Hex extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -26,6 +26,8 @@ export default class Hex extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
         },
         build: {
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
           allowCritical: true,
           generateDamage: true,
           generateConsumption: false,
@@ -43,6 +45,7 @@ export default class Hex extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.FORWARD,
         },
         build: {
+          noSpellslot: true,
         },
         overrides: {
           noConsumeTargets: true,
@@ -51,24 +54,28 @@ export default class Hex extends DDBEnricherData {
             activity: {
               id: "ddbHexMarkTarget",
             },
+            // the forwarded Mark Target joins the running concentration instead of restarting it
+            // (ConcentrationFollowUp)
+            flags: { ddbimporter: { joinConcentration: true } },
           },
         },
       },
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return DICTIONARY.actor.abilities.map((ability) => {
       return {
         name: `Hexed - ${utils.capitalize(ability.long)}`,
+        statuses: ["Cursed"],
         changes: [
-          DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE}`, 20, `system.abilities.${ability.value}.check.roll.mode`),
+          DDBEnricherData.ChangeHelper.disadvantageAbilityCheckChange(ability.value),
         ],
       };
     });
   }
 
-  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
+  override get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
     return {
       name: "hex.js",
       type: "spell",
@@ -76,7 +83,7 @@ export default class Hex extends DDBEnricherData {
     };
   }
 
-  get itemMacro(): IDDBItemMacro {
+  override get itemMacro(): IDDBItemMacro {
     return {
       name: "hex.js",
       type: "spell",

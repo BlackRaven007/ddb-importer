@@ -2,23 +2,22 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ContextSwitch extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (!this.isAction) return [];
     return [
       {
         name: "Context Switch: Switched",
         options: {
-          durationSeconds: 6,
+          expiry: "sourceStart",
           description: "An enemy swapped into the attack has Disadvantage on attack rolls until the start of the warlock's next turn.",
         },
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.disadvantage.attack.all"),
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleDisadvantageChange("attack"),
         ],
-        daeSpecialDurations: ["turnStartSource"],
       },
     ];
   }

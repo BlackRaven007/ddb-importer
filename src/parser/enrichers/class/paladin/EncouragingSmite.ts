@@ -3,7 +3,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class EncouragingSmite extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Encouraging Smite",
       type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
@@ -21,19 +21,18 @@ export default class EncouragingSmite extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       name: "Encouraged",
       options: {
-        durationTurns: 1,
+        expiry: "sourceStart",
         description: "Until the start of the paladin's next turn, this creature has Advantage on attack rolls and saving throws against the target of the Divine Smite, and its attacks against that target deal an extra 1d4 Thunder damage.",
       },
-      daeSpecialDurations: ["turnStartSource"],
-      changes: DICTIONARY.actor.abilities.map((ability) =>
-        DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, `system.abilities.${ability.value}.save.roll.mode`),
-      ),
-      midiChanges: [
-        DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.all"),
+      changes: [
+        ...DICTIONARY.actor.abilities.map((ability) =>
+          DDBEnricherData.ChangeHelper.advantageAbilitySaveChange(ability.value),
+        ),
+        DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
       ],
     }];
   }

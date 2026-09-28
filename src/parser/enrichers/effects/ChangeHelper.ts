@@ -1,4 +1,4 @@
-import { utils } from "../../../lib/_module";
+import utils from "../../../lib/Utils";
 import AutoEffects from "./AutoEffects";
 
 interface ChangeParams {
@@ -25,6 +25,17 @@ interface OverTimeDamageParams {
   saveRemove: boolean;
   saveDamage?: string;
   dc?: number | string;
+}
+
+interface RuleChangeOptions {
+  priority?: number;
+  conditions?: IEffectChangeFilter | IEffectChangeFilter[];
+}
+
+interface RuleChangeParams extends RuleChangeOptions {
+  category: TRuleChangeCategory;
+  type: TActiveEffectChangeType;
+  value: string | number;
 }
 
 interface OverTimeSaveParams {
@@ -143,6 +154,16 @@ export default class ChangeHelper {
     };
   }
 
+  static ac5eChange(value: string | number, priority: number, key: string, phase: TActiveEffectChangePhase = "initial"): IAC5eActiveEffectChangeData {
+    return {
+      key,
+      value: String(value).trim(),
+      type: "ac5e",
+      priority,
+      phase,
+    };
+  }
+
   static tokenMagicFXChange(macroValue: string, priority = 20): IActiveEffectChangeData {
     return {
       key: "macro.tokenMagic",
@@ -150,6 +171,253 @@ export default class ChangeHelper {
       value: macroValue,
       priority: priority,
     };
+  }
+
+  /** Add a named calc (`CONFIG.DND5E.armorClasses` key) to `ac.calcs`; the system takes the max of all applicable calcs. */
+  static acCalcsAddChange(calc: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.addChange(calc, priority, "system.attributes.ac.calcs");
+  }
+
+  /** Add an AC formula; the system coerces the string to `{formula, label: effect.name}` and takes the max. */
+  static acFormulaAddChange(formula: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.addChange(formula, priority, "system.attributes.ac.formulas");
+  }
+
+  /** Hard override of the final AC value - bypasses shield/bonus/cover stacking, so prefer calcs/formulas. */
+  static acOverrideChange(value: string | number, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.overrideChange(value, priority, "system.attributes.ac.override");
+  }
+
+  /** Flat bonus/penalty to all speeds, e.g. "10" or "-10"; applied as max(0, speed + bonus) * multiplier. */
+  static movementBonusChange(value: string | number, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.addChange(String(value), priority, "system.attributes.movement.bonus");
+  }
+
+  /** Multiply all speeds, e.g. "2", "0.5", or "0" for no movement (movement.multiplier starts at 1). */
+  static movementMultiplierChange(value: string | number, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.multiplyChange(value, priority, "system.attributes.movement.multiplier");
+  }
+
+  /** The movement modes a speed cap limits. */
+  static SPEED_MODES = ["walk", "burrow", "climb", "fly", "swim"] as const;
+
+  /**
+   * Cap every speed a creature HAS at `limit` ("any speed it has can be no higher than 10 feet").
+   * A plain downgrade would grant the others: dnd5e's `FormulaField` downgrade returns the cap when
+   * the current value is blank, so a creature with no fly speed would gain one. Each mode therefore
+   * first gets an `add` of 0, which turns a blank speed into "0" (and leaves "40" as "40 + 0"), so
+   * the downgrade that follows sees a value and keeps a missing speed at 0.
+   *
+   * A condition on the downgrade cannot do this: change conditions are checked against the
+   * actor's data from before any effect applies, so a speed granted by another effect (the Fly
+   * spell) would look absent and escape the cap. The priority sits above the usual speed grants
+   * (20), so those are capped too. dnd5e adds `movement.bonus` after the speeds resolve, so a flat
+   * speed bonus still lifts a capped speed.
+   */
+  static speedCapChanges(limit: string | number, priority = 50, modes: readonly string[] = ChangeHelper.SPEED_MODES): IActiveEffectChangeData[] {
+    return modes.flatMap((mode) => {
+      const key = `system.attributes.movement.speeds.${mode}`;
+      return [
+        ChangeHelper.addChange("0", priority - 1, key),
+        ChangeHelper.downgradeChange(limit, priority, key),
+      ];
+    });
+  }
+
+  /**
+   * An `add` to a number field that stops at a ceiling, e.g. "2<=20" adds 2 but never takes the
+   * value past 20. dnd5e 6 resolves both halves as deterministic formulas and never lowers a value
+   * that is already over the limit. A data reference in the limit must resolve when effects apply,
+   * which rules out derived values such as a defaulted `@abilities.str.max`.
+   */
+  static clampedAddChange(value: string | number, limit: string | number, priority: number, key: string): IActiveEffectChangeData {
+    return ChangeHelper.addChange(`${String(value).trim().replace(/^\+\s*/, "")}<=${limit}`, priority, key);
+  }
+
+  /** The `subtract` twin of `clampedAddChange`: "2>=0" removes 2 but never takes the value below 0. */
+  static clampedSubtractChange(value: string | number, limit: string | number, priority: number, key: string): IActiveEffectChangeData {
+    return ChangeHelper.subtractChange(`${String(value).trim().replace(/^-\s*/, "")}>=${limit}`, priority, key);
+  }
+
+  /**
+   * Hide an item on the actor while the effect is active: it drops off the sheet, cannot be used
+   * and recovers no uses. `item` is an embedded item id or a dnd5e identifier, and an identifier
+   * hides every item that shares it.
+   */
+  static hiddenItemChange(item: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.addChange(item, priority, "items.hidden");
+  }
+
+  /** Reveal an item that a lower priority `hiddenItemChange` hid. */
+  static revealedItemChange(item: string, priority = 30): IActiveEffectChangeData {
+    return ChangeHelper.subtractChange(item, priority, "items.hidden");
+  }
+
+  // dnd5e 6.0 rule changes. The `key` is a rule category rather than a data path, and the system
+  // collects them at roll time instead of writing them into actor data. Their `conditions` are
+  // skipped at application time (all four rule types are registered `skipConditions: true`) and
+  // evaluated against the roll data of the item actually being rolled, which is what lets a bonus
+  // apply only to some rolls. A condition belongs on the CHANGE: an effect-level `system.conditions`
+  // is evaluated during data prep and would suppress the whole effect.
+  // Values may use `@` references in every category: `attack`, `check` and `save` values are
+  // resolved by `constructParts` before the roll is built, and `damage` / `healing` values ride in
+  // as the `@ruleBonus` part, which dnd5e's `BasicRoll.replaceFormulaData` expands recursively
+  // (#7354, depth 3) against the rolled item's data - so `@item.level` or `@abilities.wis.mod`
+  // work there too.
+
+  /** Serialise one filter, or an implicitly ANDed array of them, for a change's `conditions`. */
+  static conditions(filter: IEffectChangeFilter | IEffectChangeFilter[]): string {
+    return JSON.stringify(filter);
+  }
+
+  /** Matches only when the roller does NOT have the status; absent statuses are missing, not null. */
+  static notStatusFilter(status: string): IEffectChangeFilter {
+    return { o: "NOT", v: { k: `statuses.${status}`, o: "gte", v: 1 } };
+  }
+
+  /**
+   * Matches while the ROLLER has the status. Roll data only carries the rolling actor's statuses
+   * (`statuses.bloodied`, `statuses.concentrating` as a count, exhaustion as its level), so this
+   * can never express "against a Bloodied creature"; that needs AC5e's `opponentActor`.
+   */
+  static statusFilter(status: string): IEffectChangeFilter {
+    return { k: `statuses.${status}`, o: "gte", v: 1 };
+  }
+
+  /**
+   * Matches an Unarmed Strike or a Monk weapon. The importer stamps DDB's `isMonkWeapon` on
+   * imported weapons; the simple-melee / light-martial-melee clauses are the 2024 definition for
+   * weapons that arrived without the flag.
+   */
+  static get MONK_WEAPON_FILTER(): IEffectChangeFilter {
+    return {
+      o: "OR",
+      v: [
+        ChangeHelper.UNARMED_FILTER,
+        { k: "item.flags.ddbimporter.dndbeyond.isMonkWeapon", o: "exact", v: true },
+        { k: "item.type.value", o: "exact", v: "simpleM" },
+        {
+          o: "AND",
+          v: [
+            { k: "item.type.value", o: "exact", v: "martialM" },
+            { k: "item.properties", o: "has", v: "lgt" },
+          ],
+        },
+      ],
+    };
+  }
+
+  /**
+   * Matches only a spell, cantrips included. There is no "is a spell" key, so this tests a
+   * spell-only field: `level` is absent on features, weapons and potions, and a consumable
+   * carrying a `dnd5e.spellLevel` flag (a scroll) reports one, which is correct. Facility items
+   * also carry a level, but no facility rolls healing or damage.
+   *
+   * `item` is the ROLLED item, not the effect's host: dnd5e 6.0.2 (#7450) checks rule conditions
+   * against `ActiveEffect5e#getRuleConditionData`, which leaves the roll's `item` alone and exposes
+   * the host under `sourceItem`. On 6.0.0 and 6.0.1 a transfer effect saw its host feature under
+   * `item` instead, which is why the module minimum is 6.0.2. `item` is only present on rolls made
+   * through an item (attack, damage and heal rolls). A save rolled by a target carries the target's
+   * roll data with no item at all, so these filters cannot gate save rules on the incoming spell.
+   */
+  static get SPELL_FILTER(): IEffectChangeFilter {
+    return { k: "item.level", o: "gte", v: 0 };
+  }
+
+  /** Matches a spell cast at 1st level or higher; a cantrip reports level 0. */
+  static get LEVELLED_SPELL_FILTER(): IEffectChangeFilter {
+    return { k: "item.level", o: "gte", v: 1 };
+  }
+
+  /** Matches a cantrip: only spells carry `item.level`, and a cantrip reports exactly 0. */
+  static get CANTRIP_FILTER(): IEffectChangeFilter {
+    return { k: "item.level", o: "exact", v: 0 };
+  }
+
+  /**
+   * Matches a spell granted by the class with this dnd5e identifier. dnd5e derives
+   * `classIdentifier` in the spell's roll data from `system.sourceItem` (`class:cleric`), so a wizard
+   * cantrip on a cleric/wizard does not match a cleric-only bonus.
+   */
+  static classSpellFilter(identifier: string): IEffectChangeFilter {
+    return { k: "item.classIdentifier", o: "exact", v: identifier };
+  }
+
+  /**
+   * Matches an unarmed strike. "natural" is our own classification value - DDB's attackSubtype 2
+   * (claws, bites, talons, horns) maps to the natural WEAPON type and the activity builder reuses
+   * it - so both are matched; dnd5e itself only defines weapon, spell and unarmed.
+   */
+  static get UNARMED_FILTER(): IEffectChangeFilter {
+    return { k: "roll.attack.classification", o: "in", v: ["unarmed", "natural"] };
+  }
+
+  // Attack-shape filters. `roll.attack.type` is melee/ranged for the attack as rolled (a thrown
+  // melee weapon counts as ranged) and `roll.attack.classification` separates weapon, spell and
+  // unarmed attacks. `RestrictionRules.ATTACK_SUBTYPE_CONDITIONS` composes these for the DDB
+  // subtypes; enrichers use them directly for the midi `attack.mwak` / `attack.rwak` scopes.
+
+  static get MELEE_ATTACK_FILTER(): IEffectChangeFilter {
+    return { k: "roll.attack.type", o: "exact", v: "melee" };
+  }
+
+  static get RANGED_ATTACK_FILTER(): IEffectChangeFilter {
+    return { k: "roll.attack.type", o: "exact", v: "ranged" };
+  }
+
+  static get WEAPON_ATTACK_FILTER(): IEffectChangeFilter {
+    return { k: "roll.attack.classification", o: "exact", v: "weapon" };
+  }
+
+  static get SPELL_ATTACK_FILTER(): IEffectChangeFilter {
+    return { k: "roll.attack.classification", o: "exact", v: "spell" };
+  }
+
+  /** The midi `attack.mwak` scope: a weapon attack rolled as melee. */
+  static get MELEE_WEAPON_ATTACK_FILTER(): IEffectChangeFilter[] {
+    return [ChangeHelper.WEAPON_ATTACK_FILTER, ChangeHelper.MELEE_ATTACK_FILTER];
+  }
+
+  /** The midi `attack.rwak` scope: a weapon attack rolled as ranged. */
+  static get RANGED_WEAPON_ATTACK_FILTER(): IEffectChangeFilter[] {
+    return [ChangeHelper.WEAPON_ATTACK_FILTER, ChangeHelper.RANGED_ATTACK_FILTER];
+  }
+
+  /**
+   * Matches a weapon attack made with a magic weapon: the importer stamps `mgc` on magic and
+   * infused weapons, and dnd5e exposes the rolled item's property set as `item.properties`.
+   */
+  static get MAGIC_WEAPON_ATTACK_FILTER(): IEffectChangeFilter[] {
+    return [ChangeHelper.WEAPON_ATTACK_FILTER, { k: "item.properties", o: "has", v: "mgc" }];
+  }
+
+  static ruleChange({ category, type, value, priority = 20, conditions }: RuleChangeParams): IActiveEffectChangeData {
+    const change: IActiveEffectChangeData = {
+      key: category,
+      value: String(value).trim().replace(/^\+\s*/, ""),
+      type,
+      priority,
+    };
+    if (conditions) change.conditions = ChangeHelper.conditions(conditions);
+    return change;
+  }
+
+  /** Rule-type bonus added to every roll in the category that passes `conditions`. */
+  static ruleBonusChange(category: TRuleChangeCategory, value: string | number, { priority = 20, conditions }: RuleChangeOptions = {}): IActiveEffectChangeData {
+    return ChangeHelper.ruleChange({ category, type: "dnd5e.bonus", value, priority, conditions });
+  }
+
+  static ruleAdvantageChange(category: TRuleChangeCategory, { priority = 20, conditions }: RuleChangeOptions = {}): IActiveEffectChangeData {
+    return ChangeHelper.ruleChange({ category, type: "dnd5e.advantage", value: "1", priority, conditions });
+  }
+
+  static ruleDisadvantageChange(category: TRuleChangeCategory, { priority = 20, conditions }: RuleChangeOptions = {}): IActiveEffectChangeData {
+    return ChangeHelper.ruleChange({ category, type: "dnd5e.advantage", value: "-1", priority, conditions });
+  }
+
+  /** Rule-type change adding a bonus to healing rolls; the key is the rule category, not a data path. */
+  static healingBonusChange(value: string | number, priority = 20, conditions?: IEffectChangeFilter | IEffectChangeFilter[]): IActiveEffectChangeData {
+    return ChangeHelper.ruleBonusChange("healing", value, { priority, conditions });
   }
 
   static damageResistanceChange(damageType: string, priority = 20): IActiveEffectChangeData {
@@ -161,30 +429,182 @@ export default class ChangeHelper {
     };
   }
 
-  static atlChange(atlKey: string, type: TActiveEffectChangeType, value: string | number, priority = 20): IActiveEffectChangeData {
-    let key = atlKey;
+  static damageVulnerabilityChange(damageType: string, priority = 20): IActiveEffectChangeData {
+    return {
+      key: "system.traits.dv.value",
+      type: "add",
+      value: damageType.toLowerCase(),
+      priority,
+    };
+  }
 
-    switch (atlKey) {
-      case "ATL.dimLight":
-        key = "ATL.light.dim";
-        break;
-      case "ATL.brightLight":
-        key = "ATL.light.bright";
-        break;
-      case "ATL.lightAnimation":
-        key = "ATL.light.animation";
-        break;
-      case "ATL.lightColor":
-        key = "ATL.light.color";
-        break;
-      case "ATL.lightAlpha":
-        key = "ATL.light.alpha";
-        break;
-      case "ATL.lightAngle":
-        key = "ATL.light.angle";
-        break;
-      // no default
-    }
+  static damageImmunityChange(damageType: string, priority = 20): IActiveEffectChangeData {
+    return {
+      key: "system.traits.di.value",
+      type: "add",
+      value: damageType.toLowerCase(),
+      priority,
+    };
+  }
+
+  static conditionImmunityChange(condition: string, priority = 20): IActiveEffectChangeData {
+    return {
+      key: "system.traits.ci.value",
+      type: "add",
+      value: condition.toLowerCase(),
+      priority,
+    };
+  }
+
+
+  // Advantage/disadvantage ("roll mode") change helpers.
+  //
+  // dnd5e counts the sources pushed at a roll mode key and resolves them at the end, so these
+  // stack safely with any other source of advantage or disadvantage. Prefer them over the midi
+  // and ac5e flags: the core keys work with no modules installed.
+
+  /** CONFIG is not populated when this module is imported, so these must be getters. */
+  static get ADVANTAGE(): number {
+    return CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE;
+  }
+
+  static get DISADVANTAGE(): number {
+    return CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE;
+  }
+
+  static get NORMAL(): number {
+    return CONFIG.Dice.D20Roll.ADV_MODE.NORMAL;
+  }
+
+  /** For a key this class has no named helper for, or a mode decided at runtime. */
+  static rollModeChange(key: string, mode: number | string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.addChange(`${mode}`, priority, key);
+  }
+
+  static abilityCheckRollModeChange(ability: string, mode: number | string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange(`system.abilities.${ability}.check.roll.mode`, mode, priority);
+  }
+
+  static abilitySaveRollModeChange(ability: string, mode: number | string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange(`system.abilities.${ability}.save.roll.mode`, mode, priority);
+  }
+
+  static skillRollModeChange(skill: string, mode: number | string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange(`system.skills.${skill}.roll.mode`, mode, priority);
+  }
+
+  /**
+   * dnd5e 6.0 per-ability attack roll mode: every attack rolled with this ability, the native
+   * home for the midi `attack.<abl>` scope.
+   */
+  static abilityAttackRollModeChange(ability: string, mode: number | string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange(`system.abilities.${ability}.attack.roll.mode`, mode, priority);
+  }
+
+  static advantageAbilityAttackChange(ability: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.abilityAttackRollModeChange(ability, ChangeHelper.ADVANTAGE, priority);
+  }
+
+  static disadvantageAbilityAttackChange(ability: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.abilityAttackRollModeChange(ability, ChangeHelper.DISADVANTAGE, priority);
+  }
+
+  /**
+   * dnd5e 6.0 actor-level attack roll mode: `system.rolls.attack.mode` for every attack, or the
+   * `system.rolls.attack.<mwak|rwak|msak|rsak>.mode` child for one action type. dnd5e combines
+   * these with the per-ability key and any `attack` rule at roll time, so this is the plain form
+   * for an effect that gives advantage or disadvantage on attacks for its whole life. Anything
+   * gated on the target or the situation still needs an `attack` rule with conditions, or a midi
+   * or AC5e flag when the attack roll data cannot see the condition at all (it carries only the
+   * single target's AC, never the target's statuses).
+   */
+  static attackRollModeChange(mode: number | string, attackType?: "mwak" | "rwak" | "msak" | "rsak", priority = 20): IActiveEffectChangeData {
+    const key = attackType ? `system.rolls.attack.${attackType}.mode` : "system.rolls.attack.mode";
+    return ChangeHelper.rollModeChange(key, mode, priority);
+  }
+
+  static advantageAttackChange(attackType?: "mwak" | "rwak" | "msak" | "rsak", priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.attackRollModeChange(ChangeHelper.ADVANTAGE, attackType, priority);
+  }
+
+  static disadvantageAttackChange(attackType?: "mwak" | "rwak" | "msak" | "rsak", priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.attackRollModeChange(ChangeHelper.DISADVANTAGE, attackType, priority);
+  }
+
+  /**
+   * dnd5e 6.0 actor-level check roll mode (`system.rolls.ability.check.mode`). The actor folds
+   * this key into every ability check, skill check, tool check and initiative roll, so it is the
+   * native form of the AC5e `check` scope. Concentration and death saves have their own keys.
+   */
+  static allChecksRollModeChange(mode: number | string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange("system.rolls.ability.check.mode", mode, priority);
+  }
+
+  /** dnd5e 6.0 actor-level saving throw mode (`system.rolls.ability.save.mode`), every ability save. */
+  static allSavesRollModeChange(mode: number | string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange("system.rolls.ability.save.mode", mode, priority);
+  }
+
+  static advantageAbilityCheckChange(ability: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.abilityCheckRollModeChange(ability, ChangeHelper.ADVANTAGE, priority);
+  }
+
+  static disadvantageAbilityCheckChange(ability: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.abilityCheckRollModeChange(ability, ChangeHelper.DISADVANTAGE, priority);
+  }
+
+  static advantageAbilitySaveChange(ability: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.abilitySaveRollModeChange(ability, ChangeHelper.ADVANTAGE, priority);
+  }
+
+  static disadvantageAbilitySaveChange(ability: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.abilitySaveRollModeChange(ability, ChangeHelper.DISADVANTAGE, priority);
+  }
+
+  static advantageSkillChange(skill: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.skillRollModeChange(skill, ChangeHelper.ADVANTAGE, priority);
+  }
+
+  static disadvantageSkillChange(skill: string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.skillRollModeChange(skill, ChangeHelper.DISADVANTAGE, priority);
+  }
+
+  static advantageInitiativeChange(priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange("system.attributes.init.roll.mode", ChangeHelper.ADVANTAGE, priority);
+  }
+
+  static disadvantageInitiativeChange(priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange("system.attributes.init.roll.mode", ChangeHelper.DISADVANTAGE, priority);
+  }
+
+  static advantageDeathSaveChange(priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange("system.attributes.death.roll.mode", ChangeHelper.ADVANTAGE, priority);
+  }
+
+  static disadvantageDeathSaveChange(priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange("system.attributes.death.roll.mode", ChangeHelper.DISADVANTAGE, priority);
+  }
+
+  /** Saves to maintain concentration, which dnd5e rolls apart from the Constitution save. */
+  static concentrationRollModeChange(mode: number | string, priority = 20): IActiveEffectChangeData {
+    return ChangeHelper.rollModeChange("system.attributes.concentration.roll.mode", mode, priority);
+  }
+
+  /**
+   * Build a change targeting the token document (`token.light.dim`, `token.sight.range`,
+   * `token.detectionModes.<id>.range`, `token.texture.src`...), which Foundry applies
+   * natively. Legacy `ATL.*` keys from older enrichers and macros are translated.
+   */
+  static tokenChange(tokenKey: string, type: TActiveEffectChangeType, value: string | number, priority = 20): IActiveEffectChangeData {
+    const legacyAliases: Record<string, string> = {
+      "ATL.dimLight": "ATL.light.dim",
+      "ATL.brightLight": "ATL.light.bright",
+      "ATL.lightAnimation": "ATL.light.animation",
+      "ATL.lightColor": "ATL.light.color",
+      "ATL.lightAlpha": "ATL.light.alpha",
+      "ATL.lightAngle": "ATL.light.angle",
+    };
+    const key = (legacyAliases[tokenKey] ?? tokenKey).replace(/^ATL\./, "token.");
 
     return {
       key,
@@ -192,6 +612,21 @@ export default class ChangeHelper {
       value: String(value).trim(),
       priority,
     };
+  }
+
+  /**
+   * Grant a token detection mode (`seeInvisibility`, `seeAll`, `blindsight`...) through native token changes.
+   *
+   * Both keys must be overrides. Token changes apply after `TokenDocument#_prepareDetectionModes` has filled
+   * defaults, so a change that creates the entry would otherwise leave `enabled` undefined (and the mode is
+   * skipped), and an upgrade against a missing entry compares `delta > undefined` and changes nothing.
+   * Range must be finite: the field rejects Infinity, so pass a large distance for "unlimited" senses.
+   */
+  static detectionModeChanges(modeId: string, range: number, priority = 20): IActiveEffectChangeData[] {
+    return [
+      ChangeHelper.tokenChange(`token.detectionModes.${modeId}.enabled`, "override", "true", priority),
+      ChangeHelper.tokenChange(`token.detectionModes.${modeId}.range`, "override", range, priority),
+    ];
   }
 
   static daeStatusEffectChange(statusName: string, priority = 20): IActiveEffectChangeData {

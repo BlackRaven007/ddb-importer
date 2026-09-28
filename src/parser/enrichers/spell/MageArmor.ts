@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class MageArmor extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         changes: [
-          DDBEnricherData.ChangeHelper.overrideChange("mage", 5, "system.attributes.ac.calc"),
+          DDBEnricherData.ChangeHelper.acCalcsAddChange("mage", 5),
         ],
         data: {
           img: "icons/equipment/chest/breastplate-helmet-metal.webp",

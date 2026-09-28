@@ -1,0 +1,798 @@
+import { DDBSimpleMacro, logger, resolveFoundryMacro } from "../../lib/_module";
+import DDBEffectHelper from "../DDBEffectHelper";
+import RegionBehaviorSettings from "../../lib/RegionBehaviorSettings";
+import { regionLabel, resolveRegionActivity } from "./regionBehaviorUtils";
+
+export interface IRegionEventContext {
+  scene: Scene;
+  region: RegionDocument;
+  behavior: RegionBehavior;
+  event: {
+    name: string;
+    data: Record<string, any>;
+    region: RegionDocument;
+    user: User;
+  };
+  handler: string;
+  args: Record<string, unknown>;
+}
+
+/** Recorded against an actor by `checkOncePerTurn`; `key` is the trigger it collapses on. */
+interface ITurnFlag {
+  id: string | null;
+  round: number | null;
+  turn: number | null;
+  key: string;
+}
+
+export type TRegionHandler = (context: IRegionEventContext, helpers: typeof RegionAutomations) => Promise<void> | void;
+
+/**
+ * Details of the region trigger, injected into the activity usage config as
+ * `ddbRegionContext` and surfaced to macros on run by a ddbmacro activity
+ * (`scope.regionContext` for DDB macros, `regionContext` for Foundry macros).
+ */
+export interface IDDBRegionContext {
+  regionUuid: string;
+  regionName: string | null;
+  sceneUuid: string | null;
+  behaviorUuid: string | null;
+  eventName: string;
+  tokenUuid: string | null;
+  args: Record<string, unknown>;
+}
+
+interface ITokenFilterArgs {
+  /** Only trigger for these token dispositions; empty = all. */
+  dispositions?: number[];
+  /** Only trigger for actors of these sizes (CONFIG.DND5E.actorSizes keys); empty = all. */
+  sizes?: string[];
+  /** Only trigger for these creature types (CONFIG.DND5E.creatureTypes keys); empty = all. */
+  types?: string[];
+  /** Never trigger for these creature types - "any creature other than an ooze" wording. */
+  excludeTypes?: string[];
+}
+
+interface IExecuteMacroArgs extends ITokenFilterArgs {
+  /** `ddb.<type>.<file>` for a DDB Importer macro, or a Foundry macro name or a world / compendium macro uuid. */
+  macroFunction?: string;
+  macroParameters?: string | Record<string, unknown>;
+  oncePerTurn?: boolean;
+  excludeSelf?: boolean;
+}
+
+interface INotifyArgs extends ITokenFilterArgs {
+  /**
+   * Chat text; `{token}`, `{region}` and `{event}` are substituted. Defaults to the
+   * localized "<token> triggered <region>" line.
+   */
+  message?: string;
+  oncePerTurn?: boolean;
+  excludeSelf?: boolean;
+}
+
+/** One region event waiting in a `useActivity` batch: the token, and the event context it arrived with. */
+interface IUseActivityEntry {
+  context: IRegionEventContext;
+  token: TokenDocument;
+}
+
+interface IUseActivityBatch {
+  entries: IUseActivityEntry[];
+  /** Settles when the batch has been flushed; shared by every handler call that joined it. */
+  promise: Promise<void>;
+}
+
+/**
+ * Dispatch target for the "executeScript" RegionBehaviors placed by the
+ * ddbMacro activity behavior. The script runs on every connected client, so
+ * handlers are executed by the active GM only.
+ */
+export default class RegionAutomations {
+
+  static handlerLabels: Record<string, string> = {};
+
+  static register(name: string, handler: TRegionHandler, { label }: { label?: string } = {}) {
+    RegionAutomations.handlers[name] = handler;
+    if (label) RegionAutomations.handlerLabels[name] = label;
+  }
+
+  static handlerLabel(name: string): string {
+    if (RegionAutomations.handlerLabels[name]) return RegionAutomations.handlerLabels[name];
+    const key = `ddb-importer.behaviors.macro.handlers.${name}`;
+    return game.i18n.has(key, false) ? game.i18n.localize(key) : name;
+  }
+
+  /** The activity that placed the region, from the flag dnd5e stamps at placement. */
+  static async getActivity(region: RegionDocument): Promise<Record<string, any> | null> {
+    const uuid = region.getFlag("dnd5e", "activity");
+    if (!uuid) return null;
+    return (await fromUuid(uuid)) as unknown as Record<string, any> | null;
+  }
+
+  /** The token that placed the region (e.g. the caster), if any. */
+  static getOriginToken(region: RegionDocument): TokenDocument | null {
+    const uuid = region.getFlag("dnd5e", "origin");
+    if (!uuid) return null;
+    return fromUuidSync(uuid) as unknown as TokenDocument | null;
+  }
+
+  /** The token the event was triggered for, if the event carries one. */
+  static getEventToken(context: IRegionEventContext): TokenDocument | null {
+    return (context.event.data?.token as TokenDocument | undefined) ?? null;
+  }
+
+  /**
+   * Whether the event fired for the token the region originates from. dnd5e's
+   * native disposition filter cannot express "everyone but the caster": an
+   * emanation that affects allies or every creature includes its own origin, so
+   * a self-emanation the caster is immune to (Cacophonic Shield, a monster's
+   * Stench) has to be filtered here.
+   */
+  static isOriginToken(context: IRegionEventContext, token: TokenDocument): boolean {
+    // an aura placed from its owner's sheet onto a companion or mount rides that token, which
+    // is as much the area's source as the creature that used the activity
+    const attached = (context.region as { attachment?: { token?: TokenDocument | string | null } }).attachment?.token;
+    const attachedId = typeof attached === "string" ? attached : attached?.id;
+    if (attachedId && attachedId === token.id) return true;
+    const origin = RegionAutomations.getOriginToken(context.region);
+    if (!origin) return false;
+    return (origin.uuid && origin.uuid === token.uuid) || (!!origin.id && origin.id === token.id);
+  }
+
+  /**
+   * The disposition / size / creature-type filters the 5e area-of-effect
+   * behaviors support (apply-active-effect.mjs), plus an exclusion set for
+   * "any creature other than an ooze" wording. Empty sets match everything; a
+   * token without an actor can still be filtered by disposition but otherwise
+   * passes, as it would with no filters set.
+   */
+  static matchesTokenFilters(token: TokenDocument, args: ITokenFilterArgs): boolean {
+    const dispositions = args.dispositions ?? [];
+    if (dispositions.length > 0 && !dispositions.includes(token.disposition)) return false;
+    const actor = token.actor as { system?: { traits?: { size?: string }; details?: { type?: { value?: string } } } } | null;
+    if (!actor) return true;
+    const sizes = args.sizes ?? [];
+    if (sizes.length > 0 && !sizes.includes(actor.system?.traits?.size ?? "")) return false;
+    const creatureType = actor.system?.details?.type?.value ?? "";
+    const types = args.types ?? [];
+    if (types.length > 0 && !types.includes(creatureType)) return false;
+    const excludeTypes = args.excludeTypes ?? [];
+    if (excludeTypes.length > 0 && excludeTypes.includes(creatureType)) return false;
+    return true;
+  }
+
+  static buildRegionContext(context: IRegionEventContext, token?: TokenDocument): IDDBRegionContext {
+    return {
+      regionUuid: context.region.uuid ?? "",
+      regionName: context.region.name ?? null,
+      sceneUuid: (context.scene as { uuid?: string } | null)?.uuid ?? null,
+      behaviorUuid: (context.behavior as { uuid?: string } | null)?.uuid ?? null,
+      eventName: context.event.name,
+      tokenUuid: token?.uuid ?? null,
+      args: context.args ?? {},
+    };
+  }
+
+  /**
+   * Name of the flag recording that a token triggered a behavior this turn. The
+   * region id leads so `pruneTurnFlags` can tell which region a flag belongs to.
+   */
+  static turnFlagName(regionId: string, behaviorId: string, tokenId: string): string {
+    return `region${regionId}${behaviorId}${tokenId}Turn`;
+  }
+
+  /** `region<regionId><behaviorId><tokenId>Turn`, with Foundry's alphanumeric 16 character ids. */
+  static TURN_FLAG_PATTERN = /^region[a-zA-Z0-9]{16,}Turn$/;
+
+  static isTurnFlag(flagName: string): boolean {
+    return RegionAutomations.TURN_FLAG_PATTERN.test(flagName);
+  }
+
+  /** The still-placed region a once-per-turn flag belongs to, or null when that region is gone. */
+  static turnFlagRegionId(flagName: string, regionIds: Iterable<string>): string | null {
+    if (!RegionAutomations.isTurnFlag(flagName)) return null;
+    const body = flagName.slice("region".length, -"Turn".length);
+    for (const id of regionIds) {
+      if (id && body.startsWith(id)) return id;
+    }
+    return null;
+  }
+
+  /**
+   * Drop once-per-turn flags that can never match again, so an actor does not
+   * accumulate one per region/behavior/token it has ever triggered. A flag is
+   * dead when its region is gone (the usual case: the region goes with the
+   * spell) or when the combat it recorded no longer exists. Only world actors
+   * are swept - an unlinked token's flags live in its actor delta and are
+   * deleted with the token.
+   */
+  static async pruneTurnFlags({ dryRun = false }: { dryRun?: boolean } = {}): Promise<number> {
+    const regionIds = new Set<string>();
+    for (const scene of game.scenes ?? []) {
+      for (const region of scene.regions ?? []) {
+        if (region.id) regionIds.add(region.id);
+      }
+    }
+
+    const updates: { _id: string; [key: string]: unknown }[] = [];
+    let pruned = 0;
+    for (const actor of game.actors ?? []) {
+      const flags = foundry.utils.getProperty(actor, `flags.${DDBEffectHelper.FLAG_NAME}`) as Record<string, unknown> | undefined;
+      if (!flags) continue;
+      const update: Record<string, unknown> = {};
+      for (const [flagName, value] of Object.entries(flags)) {
+        if (!RegionAutomations.isTurnFlag(flagName)) continue;
+        // keep it only while both the region and the combat it recorded survive
+        const regionId = RegionAutomations.turnFlagRegionId(flagName, regionIds);
+        const combatId = (value as { id?: string | null } | null)?.id;
+        if (regionId !== null && combatId && game.combats?.get(combatId)) continue;
+        // v14 replaced the legacy "-=key" deletion syntax with the ForcedDeletion operator
+        update[`flags.${DDBEffectHelper.FLAG_NAME}.${flagName}`] = _del;
+        pruned += 1;
+      }
+      if (!foundry.utils.isEmpty(update) && actor.id) updates.push({ _id: actor.id, ...update });
+    }
+
+    if (pruned === 0) return 0;
+    logger.debug(`Pruning ${pruned} dead region once-per-turn flags from ${updates.length} actors`, { dryRun, updates });
+    if (!dryRun) await Actor.updateDocuments(updates as unknown as Actor.UpdateInput[]);
+    return pruned;
+  }
+
+  /**
+   * The combat turn a region event belongs to. Turn and round events are
+   * dispatched AFTER the combat document has advanced, so by the time a
+   * `tokenTurnEnd` handler runs `game.combat.turn` is already the NEXT
+   * combatant - only the event data carries the turn that actually ended.
+   * Movement events (`tokenEnter` and friends) carry no turn data and happen
+   * during the live turn. Null when there is no started combat to key on.
+   */
+  static getEventTurn(context: IRegionEventContext): { id: string | null; round: number | null; turn: number | null } | null {
+    const data = (context.event?.data ?? {}) as {
+      combat?: { id?: string | null; started?: boolean } | null;
+      round?: number;
+      turn?: number;
+    };
+    const combat = data.combat ?? game.combat;
+    if (!combat?.started) return null;
+    // a round event carries a round but no turn, so it keys on the round alone
+    const fromEvent = data.round !== undefined;
+    return {
+      id: combat.id ?? null,
+      round: (fromEvent ? data.round : game.combat?.round) ?? null,
+      turn: (fromEvent ? data.turn : game.combat?.turn) ?? null,
+    };
+  }
+
+  /**
+   * Core dispatches the region events of ONE movement without awaiting any of
+   * them (`Token##onUpdateHandleEnterExitMoveInOutRegionEvents` fires
+   * `tokenEnter` and then `tokenMoveIn` back to back), so the read-modify-write
+   * of the once-per-turn flag would interleave and let both handlers through -
+   * `setFlag` is a socket round trip, and `getFlag` only sees it once the actor
+   * update lands. Queueing the check on one slot serialises it. Only the CHECK
+   * is queued, never the activity use, so a midi workflow waiting on a player
+   * cannot hold up another region's events.
+   */
+  static #turnQueue = new foundry.utils.Semaphore(1);
+
+  /**
+   * Identity of the trigger a once-per-turn limit collapses on.
+   * In combat that is the combat turn.
+   * Out of combat there is no turn, so it is the movement.
+   * Movement still collapses the several events one move raises on a behavior
+   * listening to `tokenEnter`, `tokenMoveIn` and `tokenMoveWithin` together,
+   * while a later, deliberate move back in triggers again.
+   * Null when the event is neither, e.g. a token created inside a region out of combat.
+   */
+  static triggerKey(context: IRegionEventContext, turn = RegionAutomations.getEventTurn(context)): string | null {
+    if (turn) return `combat${turn.id}r${turn.round}t${turn.turn}`;
+    const movement = (context.event?.data as { movement?: { id?: string } | null } | undefined)?.movement;
+    return movement?.id ? `movement${movement.id}` : null;
+  }
+
+  /**
+   * Whether this token already triggered this behavior for the turn (or, out of
+   * combat, the movement) the event belongs to; records the trigger when it has
+   * not.
+   *
+   * The limit is per BEHAVIOR, so every event listed on one behavior shares it
+   * (a behavior on `tokenEnter` + `tokenMoveIn` + `tokenTurnEnd` fires once a
+   * turn, whichever came first), while sibling behaviors on the same region are
+   * independent (Hunger of Hadar's turn-start cold damage and turn-end acid save
+   * must both land). Per token as well as per actor, so two tokens sharing one
+   * linked actor are tracked apart.
+   */
+  static checkOncePerTurn(context: IRegionEventContext, token: TokenDocument): Promise<boolean> {
+    return RegionAutomations.#turnQueue.add(() => RegionAutomations.#recordTrigger(context, token)) as Promise<boolean>;
+  }
+
+  static async #recordTrigger(context: IRegionEventContext, token: TokenDocument): Promise<boolean> {
+    if (!token.actor) return true;
+    const turn = RegionAutomations.getEventTurn(context);
+    const key = RegionAutomations.triggerKey(context, turn);
+    if (!key) return true;
+
+    const region = context.region;
+    const flagName = RegionAutomations.turnFlagName(region.id ?? "", context.behavior?.id ?? "", token.id ?? "");
+    const previous = DDBEffectHelper.getFlag(token.actor, flagName) as ITurnFlag | undefined;
+    if (previous?.key === key) {
+      logger.debug(`Region ${region.name} behavior already triggered for ${token.name} (${key})`, { context });
+      return false;
+    }
+    // out-of-combat movement keys carry a null combat id, so pruneTurnFlags
+    // sweeps them at the next world load - they could never match again
+    await DDBEffectHelper.setFlag(token.actor, flagName, { ...(turn ?? { id: null, round: null, turn: null }), key });
+    return true;
+  }
+
+  /**
+   * Chat-card target descriptors for the tokens a region event burst fired for,
+   * so the usage message records them rather than whatever the user happens to
+   * have targeted. Falls back to an empty list if the system helper moves.
+   */
+  static targetDescriptors(tokens: TokenDocument[]): IRegionTargetDescriptor[] {
+    const field = foundry.utils.getProperty(
+      globalThis as unknown as Record<string, unknown>,
+      "dnd5e.dataModels.chatMessage.fields.TargetsField",
+    ) as { getDescriptors?: (tokens: unknown[]) => IRegionTargetDescriptor[] } | undefined;
+    if (!field?.getDescriptors) {
+      logger.warn("No dnd5e TargetsField available, region card targets fall back to user targeting");
+      return [];
+    }
+    return field.getDescriptors(tokens);
+  }
+
+  /**
+   * How long a `useActivity` batch stays open, in milliseconds. It only has to
+   * outlast the synchronous dispatch loop described on `#useBatches`, so it is
+   * short; a lone trigger (one token walking in, a turn start) is delayed by
+   * this much and otherwise behaves as a batch of one.
+   */
+  static GROUP_WINDOW_MS = 50;
+
+  /**
+   * Open `useActivity` batches, keyed by region, behavior and event name.
+   *
+   * When a behavior becomes active (a template is placed, a region is unhidden
+   * or re-enabled) core raises one `tokenEnter` per token already inside, from
+   * a plain `for` loop that awaits nothing
+   * (`RegionDocument#_onCreateDescendantDocuments`). Region moves and round
+   * events fan out the same way. Each of those events is a separate handler
+   * call, so without collecting them every token gets its own usage card.
+   * A token therefore has to join its batch BEFORE the handler's first await:
+   * the whole loop then lands in the batch ahead of the timer's macrotask, no
+   * matter how slow the socket round trips that follow are.
+   *
+   * The event name is part of the key so a behavior listening to `tokenEnter`
+   * and `tokenMoveIn` keeps raising both when it opts out of once-per-turn.
+   */
+  static #useBatches = new Map<string, IUseActivityBatch>();
+
+  /**
+   * Use an activity of the item that placed the region against the triggering
+   * tokens: posts the usage (attack/save/damage card) with no consumption, no
+   * dialog and no new template. Rolls through midi-qol when it is active so the
+   * save/damage automation runs; otherwise the GM works the chat card.
+   *
+   * Tokens triggered by the same burst of region events share one usage unless
+   * the behavior sets `groupTargets: false`. The returned promise settles once
+   * the batch the token joined has been used.
+   */
+  static async useActivityHandler(context: IRegionEventContext): Promise<void> {
+    const token = RegionAutomations.getEventToken(context);
+    if (!token?.actor) return undefined;
+
+    const entry: IUseActivityEntry = { context, token };
+    const args = (context.args ?? {}) as IUseActivityArgs;
+    if (args.groupTargets === false) return RegionAutomations.#processUseBatch([entry]);
+
+    const key = `${context.region.id}|${context.behavior?.id}|${context.event.name}`;
+    const open = RegionAutomations.#useBatches.get(key);
+    if (open) {
+      open.entries.push(entry);
+      return open.promise;
+    }
+
+    const entries = [entry];
+    const promise = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        // closed before it is processed, so an event arriving mid-use opens a new batch
+        RegionAutomations.#useBatches.delete(key);
+        RegionAutomations.#processUseBatch(entries).then(resolve, reject);
+      }, RegionAutomations.GROUP_WINDOW_MS);
+    });
+    RegionAutomations.#useBatches.set(key, { entries, promise });
+    return promise;
+  }
+
+  /**
+   * Resolve the activity a batch triggers, drop the tokens the behavior does not
+   * apply to, and use the activity on the rest. Every entry of a batch comes
+   * from one behavior, so they share their arguments; the once-per-turn check
+   * still takes each token's own context, because the movement it keys on
+   * differs per token.
+   */
+  static async #processUseBatch(entries: IUseActivityEntry[]): Promise<void> {
+    if (!RegionBehaviorSettings.enabled) return;
+    const context = entries[0].context;
+
+    const placingActivity = await RegionAutomations.getActivity(context.region);
+    if (!placingActivity) {
+      logger.warn(`No placing activity found for region ${context.region.name}`, { context });
+      return;
+    }
+
+    const args = (context.args ?? {}) as IUseActivityArgs;
+    const item = placingActivity.item;
+    const activity = resolveRegionActivity(placingActivity, args);
+    if (!activity) {
+      logger.warn(`No activity matching ${args.activityId ?? args.activityName} on ${item?.name} for region ${context.region.name}`, { context });
+      return;
+    }
+
+    const triggered: IUseActivityEntry[] = [];
+    const seen = new Set<string>();
+    for (const entry of entries) {
+      const token = entry.token;
+      const tokenKey = token.id ?? token.uuid ?? "";
+      if (seen.has(tokenKey)) continue;
+      seen.add(tokenKey);
+
+      if (!RegionAutomations.matchesTokenFilters(token, args)) {
+        logger.debug(`Region ${context.region.name}: ${token.name} filtered by disposition/size/creature type`, { context: entry.context });
+        continue;
+      }
+      if (args.excludeSelf && RegionAutomations.isOriginToken(entry.context, token)) {
+        logger.debug(`Region ${context.region.name}: skipping its own origin token ${token.name}`, { context: entry.context });
+        continue;
+      }
+      if ((args.oncePerTurn ?? true) && !(await RegionAutomations.checkOncePerTurn(entry.context, token))) continue;
+      triggered.push(entry);
+    }
+    if (triggered.length === 0) return;
+
+    // a ddbmacro activity hands its macro ONE triggering token (`ddbRegionContext.tokenUuid`),
+    // so it is used once per token rather than once for the group
+    if (activity.type === "ddbmacro") {
+      for (const entry of triggered) {
+        await RegionAutomations.useActivityOnTokens(entry.context, activity, args, [entry.token]);
+      }
+      return;
+    }
+    await RegionAutomations.useActivityOnTokens(triggered[0].context, activity, args, triggered.map((entry) => entry.token));
+  }
+
+  /** One usage of `activity` against `tokens`, which all passed the behavior's filters. */
+  static async useActivityOnTokens(
+    context: IRegionEventContext,
+    activity: Record<string, any>,
+    args: IUseActivityArgs,
+    tokens: TokenDocument[],
+  ): Promise<unknown> {
+    if (!RegionBehaviorSettings.enabled) return;
+    const item = activity.item;
+    const spellLevel = context.region.getFlag("dnd5e", "spellLevel") as number | undefined;
+    const baseLevel = item?.system?.level as number | undefined;
+    const scaling = (args.scale ?? true) && spellLevel !== undefined && baseLevel !== undefined
+      ? Math.max(0, spellLevel - baseLevel)
+      : 0;
+
+    const macroParameters = args.macroParameters === undefined
+      ? undefined
+      : typeof args.macroParameters === "string" ? args.macroParameters : JSON.stringify(args.macroParameters);
+    const regionContext = RegionAutomations.buildRegionContext(context, tokens[0]);
+    const autoRoll = args.autoRoll === true;
+    const extraActivityConfig: Record<string, unknown> = {
+      ddbRegionContext: regionContext,
+      // The spell is already up and being concentrated on. dnd5e defaults
+      // `concentration.begin` to true for any activity whose duration is
+      // concentration (`_prepareUsageConfig`), and `beginConcentrating` mints a
+      // NEW effect while `concentration.end` deletes the old one once the actor
+      // is at their limit - so an ongoing region tick would otherwise drop and
+      // recreate the caster's concentration on every single trigger.
+      concentration: { begin: false },
+    };
+    if (macroParameters !== undefined) extraActivityConfig.ddbMacroParameters = macroParameters;
+    // dnd5e's _prepareUsageScaling recomputes a leveled spell's scaling from the slot key in
+    // `spell.slot` - which _prepareUsageConfig defaults to the BASE level slot - clobbering a
+    // caller-passed `scaling`. So the cast level has to travel as the slot key too. The explicit
+    // `scaling` value stays as the fallback for actors without prepared leveled-slot data (pure
+    // pact casters, some NPCs), where the slot lookup is falsy and the passed value survives.
+    // `consume.spellSlot` is false on both paths, so naming a slot never spends one.
+    if ((args.scale ?? true) && item?.type === "spell" && spellLevel !== undefined
+      && baseLevel !== undefined && baseLevel > 0) {
+      extraActivityConfig.spell = { slot: `spell${spellLevel}` };
+    }
+    // A ddbmacro activity runs its macro from dnd5e's subsequent actions, which read the user's
+    // canvas targets; naming the recipients keeps the GM's targeting out of it and reaches tokens
+    // on a scene the GM is not viewing.
+    if (activity.type === "ddbmacro") extraActivityConfig.ddbTargetUuids = tokens.map((t) => t.uuid);
+    // Core rolls an attack, damage or healing activity from _triggerSubsequentActions, reading the
+    // user's canvas targets for the target AC and the damage card. Those are suppressed here: the
+    // card keeps its roll buttons, and autoRoll rolls them below against these tokens instead.
+    // ddbmacro activities execute their macro through the same hook, so they are never suppressed.
+    const midi = game.modules.get("midi-qol")?.active === true;
+    // midi rolls these itself from forceAutoRolls
+    const autoRolled = !midi && autoRoll && RegionAutomations.#AUTO_ROLLED_TYPES.has(activity.type);
+    if (activity.type !== "ddbmacro" && (!autoRoll || autoRolled)) extraActivityConfig.subsequentActions = false;
+
+    logger.debug(
+      `Region ${context.region.name}: ${context.event.name} using ${activity.name} on ${tokens.map((t) => t.name).join(", ")}`,
+      { context, scaling, macroParameters },
+    );
+
+    // Uses can belong to a scene the GM is not viewing, and batches for different regions run
+    // concurrently, so neither execution path touches the GM's canvas targets: both are handed the
+    // recipients explicitly.
+    const origin = args.ownerTurn ? RegionAutomations.getOriginToken(context.region) : null;
+    const targets = RegionAutomations.targetDescriptors(tokens);
+    const messageData = {
+      ...(args.ownerTurn ? { flavor: foundry.utils.escapeHTML(regionLabel(context.region)) } : {}),
+      ...(origin ? { speaker: { scene: context.scene.id, token: origin.id, actor: origin.actor?.id, alias: origin.name } } : {}),
+      system: { targets },
+    };
+    if (midi) {
+      const workflowOptions = {
+        targets: tokens.map((t) => t.uuid),
+        scaling,
+        extraActivityConfig,
+        forceAutoRolls: autoRoll,
+      };
+      return args.ownerTurn
+        ? DDBEffectHelper.rollMidiActivityUse(activity, workflowOptions, { message: { data: messageData } })
+        : DDBEffectHelper.rollMidiActivityUse(activity, workflowOptions);
+    }
+    const results = await activity.use(
+      {
+        create: false,
+        // dnd5e's key is `resources`, plural: anything else leaves it unset, and it then
+        // defaults to every consumption target, so an action whose Recharge or daily use is
+        // already spent could not be re-fired by its own area, and an item that re-fires
+        // itself spent a charge on every trigger
+        consume: { action: false, resources: false, spellSlot: false },
+        scaling,
+        ...extraActivityConfig,
+      },
+      { configure: false },
+      // Record the triggering tokens on the card explicitly. dnd5e otherwise
+      // fills `system.targets` from `game.user.targets` at use time
+      // (`TargetsField.getDescriptors()`), so the card's Apply buttons would
+      // depend on canvas targeting state - and fall back to the selected
+      // token, usually the caster, whenever that lookup came up empty.
+      // The save button uses these recorded targets, and dnd5e's damage/healing
+      // buttons forward them to the roll card. Its Apply tray defaults to this
+      // captured group even if the user's scene selection or targets change
+      // before rolling. `autoRoll` opts into rolling immediately instead.
+      { data: messageData },
+    );
+    if (autoRolled && results) await RegionAutomations.#autoRoll(activity, targets, results);
+    return results;
+  }
+
+  /** Activity types whose subsequent actions roll against the user's targets, auto-rolled explicitly. */
+  static #AUTO_ROLLED_TYPES = new Set(["attack", "damage", "heal"]);
+
+  /**
+   * The roll dnd5e's subsequent actions would make after an auto-rolled use, made against the
+   * region's tokens rather than the GM's canvas targets: an attack takes a single target's AC, and
+   * the roll card records the tokens for its Apply tray.
+   */
+  static async #autoRoll(
+    activity: Record<string, any>,
+    targets: IRegionTargetDescriptor[],
+    results: { message?: { id?: string; system?: { scaling?: number } } | null },
+  ) {
+    // `use` scales a clone of the item and leaves this activity at its base level, so the roll
+    // is made from a clone carrying the card's recorded scaling, as dnd5e's chat buttons do
+    const scaling = results.message?.system?.scaling ?? 0;
+    const rolling = scaling
+      ? activity.item.clone({ "flags.dnd5e.scaling": scaling }, { keepId: true }).system.activities.get(activity.id) ?? activity
+      : activity;
+    const message = { data: { system: { origin: results.message?.id, targets } } };
+    if (rolling.type === "attack") {
+      const target = targets.length === 1 ? (targets[0].ac ?? undefined) : undefined;
+      await rolling.rollAttack({ target }, {}, message);
+    } else {
+      await rolling.rollDamage({}, {}, message);
+    }
+  }
+
+  /**
+   * Run a macro directly, the way a ddbmacro activity would: `ddb.<type>.<file>`
+   * functions go through DDBSimpleMacro, anything else is a Foundry macro
+   * looked up by name or world / compendium uuid. The placing activity (when the
+   * region came from one) supplies the actor/item context.
+   */
+  static async executeMacroHandler(context: IRegionEventContext): Promise<void> {
+    const token = RegionAutomations.getEventToken(context);
+    if (!token) return;
+
+    const args = (context.args ?? {}) as IExecuteMacroArgs;
+    const macroFunction = args.macroFunction;
+    if (!macroFunction) {
+      logger.warn(`executeMacro behavior on region ${context.region.name} has no macroFunction argument`, { context });
+      return;
+    }
+
+    if (!RegionAutomations.matchesTokenFilters(token, args)) {
+      logger.debug(`Region ${context.region.name}: ${token.name} filtered by disposition/size/creature type`, { context });
+      return;
+    }
+    if (args.excludeSelf && RegionAutomations.isOriginToken(context, token)) {
+      logger.debug(`Region ${context.region.name}: skipping its own origin token ${token.name}`, { context });
+      return;
+    }
+    if ((args.oncePerTurn ?? true) && !(await RegionAutomations.checkOncePerTurn(context, token))) return;
+
+    const placingActivity = await RegionAutomations.getActivity(context.region);
+    const item = placingActivity?.item;
+    const actor = item?.actor ?? token.actor;
+    const parameters = args.macroParameters === undefined || args.macroParameters === null
+      ? undefined
+      : typeof args.macroParameters === "string" ? args.macroParameters : JSON.stringify(args.macroParameters);
+    const regionContext = RegionAutomations.buildRegionContext(context, token);
+
+    logger.debug(`Region ${context.region.name}: executing macro ${macroFunction} for ${token.name}`, { context, parameters });
+
+    if (macroFunction.startsWith("ddb.")) {
+      const macroParts = macroFunction.split(".");
+      await DDBSimpleMacro.execute(macroParts[1] as TDDBMacroType, macroParts[2], {}, {
+        actor: actor?.uuid ?? undefined,
+        token: token.uuid ?? undefined,
+        item: item?.uuid ?? undefined,
+        origin: placingActivity?.uuid ?? (context.behavior as { uuid?: string } | null)?.uuid ?? undefined,
+      }, {
+        macroLabel: macroFunction,
+        targetUuids: token.uuid ? [token.uuid] : [],
+        parameters,
+        regionContext,
+      });
+    } else {
+      const macro = await resolveFoundryMacro(macroFunction);
+      if (!macro) {
+        logger.warn(`executeMacro behavior on region ${context.region.name}: no macro found for "${macroFunction}"`, { context });
+        return;
+      }
+      await macro.execute({
+        macroLabel: macroFunction,
+        targets: [token],
+        token: token.uuid,
+        actor,
+        item,
+        origin: placingActivity?.uuid ?? (context.behavior as { uuid?: string } | null)?.uuid,
+        parameters,
+        regionContext,
+      } as unknown as Parameters<typeof macro.execute>[0]);
+    }
+  }
+
+  /**
+   * Users a region notification is whispered to: every GM plus the owners of the
+   * actor whose activity placed the region (the Alarm caster, the Faithful
+   * Hound's summoner). With no placing actor it is GM-only.
+   */
+  static notifyRecipients(actor: { testUserPermission?: (user: unknown, permission: string) => boolean } | null): string[] {
+    const ids = new Set<string>();
+    for (const user of (game.users ?? []) as Iterable<{ id: string | null; isGM?: boolean }>) {
+      if (!user.id) continue;
+      if (user.isGM || actor?.testUserPermission?.(user, "OWNER")) ids.add(user.id);
+    }
+    return [...ids];
+  }
+
+  /**
+   * Whisper a chat message to the placing actor's owners and the GM naming the
+   * token that triggered the region: the alert of an Alarm spell or a Faithful
+   * Hound's bark, where the rules effect is "you are told", not a roll.
+   */
+  static async notifyHandler(context: IRegionEventContext): Promise<void> {
+    const token = RegionAutomations.getEventToken(context);
+    if (!token) return;
+
+    const args = (context.args ?? {}) as INotifyArgs;
+    if (!RegionAutomations.matchesTokenFilters(token, args)) {
+      logger.debug(`Region ${context.region.name}: ${token.name} filtered by disposition/size/creature type`, { context });
+      return;
+    }
+    if (args.excludeSelf && RegionAutomations.isOriginToken(context, token)) {
+      logger.debug(`Region ${context.region.name}: skipping its own origin token ${token.name}`, { context });
+      return;
+    }
+    if ((args.oncePerTurn ?? true) && !(await RegionAutomations.checkOncePerTurn(context, token))) return;
+
+    const placingActivity = await RegionAutomations.getActivity(context.region);
+    const actor = (placingActivity?.item?.actor ?? placingActivity?.actor ?? null) as
+      { name?: string; testUserPermission?: (user: unknown, permission: string) => boolean } | null;
+    const eventKey = `ddb-importer.behaviors.macro.events.${context.event.name}`;
+    const eventLabel = game.i18n?.has?.(eventKey, false) ? game.i18n.localize(eventKey) : context.event.name;
+    const replacements = {
+      token: token.name ?? "",
+      region: context.region.name ?? "",
+      event: eventLabel,
+    };
+    const messageKey = "ddb-importer.behaviors.macro.notifyMessage";
+    const template = args.message
+      ?? (game.i18n?.has?.(messageKey, false) ? game.i18n.localize(messageKey) : "{token} triggered {region} ({event}).");
+    const content = template.replace(/\{(token|region|event)\}/g, (_match, key: keyof typeof replacements) => replacements[key]);
+
+    logger.debug(`Region ${context.region.name}: notifying for ${token.name}`, { context, content });
+    await ChatMessage.create({
+      content: `<p>${content}</p>`,
+      whisper: RegionAutomations.notifyRecipients(actor),
+      speaker: { alias: actor?.name ?? context.region.name ?? "" },
+    } as unknown as ChatMessage.CreateInput);
+  }
+
+  static handlers: Record<string, TRegionHandler> = {
+    log: (context) => {
+      logger.debug(`Region event ${context.event.name} for ${context.region.name}`, context);
+    },
+    useActivity: (context) => RegionAutomations.useActivityHandler(context),
+    executeMacro: (context) => RegionAutomations.executeMacroHandler(context),
+    notify: (context) => RegionAutomations.notifyHandler(context),
+  };
+
+  /** How long after a region moves its enters count as the area moving onto a token, in ms. */
+  static MOVE_WINDOW_MS = 2000;
+
+  /** Region uuid -> the time until which a null-movement enter counts as the region having moved. */
+  static #moved = new Map<string, number>();
+
+  /**
+   * Record that a region's area moved: its shapes, elevation or levels changed, which is also how
+   * an emanation follows its token. Core recomputes which tokens are inside afterwards, through a
+   * separate token update, so the enters it raises arrive a database round trip later; the window
+   * only has to cover that. If it ever closes early the enter is skipped, a missed trigger rather
+   * than a second roll for a creature the cast already covered.
+   */
+  static markMoved(region: RegionDocument, changed: Record<string, unknown>): void {
+    const uuid = region.uuid;
+    if (!uuid || !("shapes" in changed || "elevation" in changed || "levels" in changed)) return;
+    const now = Date.now();
+    for (const [key, until] of RegionAutomations.#moved) {
+      if (until <= now) RegionAutomations.#moved.delete(key);
+    }
+    RegionAutomations.#moved.set(uuid, now + RegionAutomations.MOVE_WINDOW_MS);
+  }
+
+  /**
+   * Whether a `tokenEnter` is one the behavior's `enterOn` rule does not count as entering (see
+   * TRegionEnterOn). Core gives a token's own movement a `movement` payload; every other enter
+   * (the region created, activated or moved, or a token created inside it) has none, and only a
+   * recent move (markMoved) tells the area moving onto a token apart from the rest.
+   */
+  static skipsEnter(context: IRegionEventContext): boolean {
+    if (context.event.name !== "tokenEnter") return false;
+    const enterOn = (context.args?.enterOn as TRegionEnterOn | undefined) ?? "any";
+    if (enterOn === "any" || enterOn === "auto" || context.event.data?.movement) return false;
+    if (enterOn === "movement") return true;
+    const uuid = context.region.uuid;
+    return !uuid || (RegionAutomations.#moved.get(uuid) ?? 0) <= Date.now();
+  }
+
+  /** Track region moves for the "movementOrArea" enter rule. */
+  static registerHooks(): void {
+    Hooks.on<"updateRegion">("updateRegion", (region, changed) => {
+      RegionAutomations.markMoved(region, changed as Record<string, unknown>);
+    });
+  }
+
+  static async handleRegionEvent(context: IRegionEventContext): Promise<void> {
+    // Already-placed executeScript behaviors still call this entry point when the master is off.
+    if (!RegionBehaviorSettings.enabled || !game.user?.isActiveGM) return;
+    if (RegionAutomations.skipsEnter(context)) return;
+    const handler = RegionAutomations.handlers[context.handler];
+    if (!handler) {
+      logger.warn(`No region automation handler registered for "${context.handler}"`, context);
+      return;
+    }
+    try {
+      await handler(context, RegionAutomations);
+    } catch (err) {
+      logger.error(`Region automation "${context.handler}" failed`, err);
+    }
+  }
+
+}

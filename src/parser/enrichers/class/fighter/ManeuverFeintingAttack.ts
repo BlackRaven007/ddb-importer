@@ -3,11 +3,11 @@ import Maneuver from "./Maneuver";
 
 
 export default class ManeuverFeintingAttack extends Maneuver {
-  get type() {
+  override get type(): IDDBActivityType {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Feint",
       activationType: "bonus",
@@ -15,20 +15,23 @@ export default class ManeuverFeintingAttack extends Maneuver {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       this.extraDamageActivity(),
     ];
   }
 
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Feinting Attack: Extra Damage",
         activityMatch: "Feint",
-        midiOnly: true,
-        daeSpecialDurations: ["1Attack" as const],
+        options: {
+          description: "Advantage on the next attack roll against the target this turn, and the superiority die is added to its damage. Without DAE or AC5e the effect lasts for every attack until the start of your next turn.",
+        },
+        // DAE and AC5e each end the effect after the one attack; the duration is the ceiling
+        daeSpecialDurations: ["1Attack"],
         data: {
           duration: {
             value: 6,
@@ -36,12 +39,13 @@ export default class ManeuverFeintingAttack extends Maneuver {
             expired: null,
           },
         },
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.all"),
-        ],
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.mwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.rwak.damage"),
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.rolls.damage.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.rolls.damage.rwak.bonus"),
+        ],
+        ac5eChanges: [
+          DDBEnricherData.ChangeHelper.ac5eChange("once; 1", 20, "flags.automated-conditions-5e.attack.advantage"),
         ],
       },
     ];

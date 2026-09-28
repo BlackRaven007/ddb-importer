@@ -2,19 +2,48 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class FeyStep extends DDBEnricherData {
 
-  get type() {
-    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  /**
+   * Summer's fire damage: the Mordenkainen's Tome of Foes eladrin deal their Charisma modifier
+   * (minimum of 1), the Monsters of the Multiverse reprint deals the proficiency bonus instead.
+   */
+  get summerDamageFormula(): string {
+    const description = this.ddbParser?.ddbDefinition?.description ?? this.ddbParser?.ddbDefinition?.snippet ?? "";
+    return (/fire damage equal to your proficiency bonus/i).test(description)
+      ? "@prof"
+      : "max(1, @abilities.cha.mod)";
   }
 
-  get activity(): IDDBActivityData {
+  override get type(): IDDBActivityType | null {
+    return DDBEnricherData.ACTIVITY_TYPES.TELEPORT;
+  }
+
+  override get activity(): IDDBActivityData {
     return {
       name: "Fey Step (Teleport)",
       targetType: "self",
       activationType: "bonus",
+      overrideActivation: true,
+      data: {
+        range: {
+          override: true,
+          value: "30",
+          units: "ft",
+          special: "",
+        },
+        target: {
+          override: true,
+          prompt: false,
+          affects: {
+            count: "1",
+            type: "self",
+          },
+          template: {},
+        },
+      },
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -54,6 +83,49 @@ export default class FeyStep extends DDBEnricherData {
       },
       {
         init: {
+          name: "Spring (Teleport)",
+          type: DDBEnricherData.ACTIVITY_TYPES.TELEPORT,
+        },
+        build: {
+          generateActivation: true,
+          generateConsumption: false,
+          generateDamage: false,
+          generateRange: true,
+          generateTarget: true,
+        },
+        overrides: {
+          noConsumeTargets: true,
+          activationType: "special",
+          data: {
+            teleport: {
+              override: true,
+              value: "30",
+            },
+            range: {
+              override: true,
+              value: "5",
+              units: "ft",
+              special: "",
+            },
+            target: {
+              override: true,
+              prompt: false,
+              affects: {
+                count: "1",
+                type: "creature",
+                special: "One willing creature you touch within 5 feet.",
+              },
+              template: {},
+            },
+            duration: {
+              override: true,
+              units: "inst",
+            },
+          },
+        },
+      },
+      {
+        init: {
           name: "Summer (Damage)",
           type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
         },
@@ -82,7 +154,7 @@ export default class FeyStep extends DDBEnricherData {
             damage: {
               parts: [
                 DDBEnricherData.basicDamagePart({
-                  customFormula: "min(1, @abilities.cha.mod)",
+                  customFormula: this.summerDamageFormula,
                   type: "fire",
                 }),
               ],
@@ -93,11 +165,11 @@ export default class FeyStep extends DDBEnricherData {
     ];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Charmed",
@@ -111,9 +183,8 @@ export default class FeyStep extends DDBEnricherData {
         name: "Frightened",
         statuses: ["frightened"],
         options: {
-          durationSeconds: 6,
+          expiry: "sourceEnd",
         },
-        daeSpecialDurations: ["turnEndSource" as const],
         activityMatch: "Winter (Save)",
       },
     ];

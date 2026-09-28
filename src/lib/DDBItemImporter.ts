@@ -1,11 +1,11 @@
 import logger from "./Logger";
 import utils from "./Utils";
 import CompendiumHelper from "./CompendiumHelper";
+import DDBEffectImporter from "./DDBEffectImporter";
 import Iconizer from "./Iconizer";
-import FileHelper from "./FileHelper";
 import { DDBCompendiumFolders } from "./DDBCompendiumFolders";
 import NameMatcher from "./NameMatcher";
-import ImportRunTracker from "./ImportRunTracker";
+import DocumentFlags from "./DocumentFlags";
 import { DICTIONARY, SETTINGS } from "../config/_module";
 
 interface IDDBItemImporterOptions {
@@ -31,6 +31,13 @@ interface IDDBItemImporterGetCompendiumItemsOptions {
   deleteCompendiumId?: boolean;
   keepDDBId?: boolean;
   linkItemFlags?: boolean;
+  /**
+   * Originals that find no candidate under the strict matchFlags/matchFields filter (e.g. a 2014
+   * monster looking for "Plate" when the shared DDB item was only munched as 2024) get a second,
+   * relaxed pass that ignores those filters. Only unmatched originals are retried, so a preferred
+   * version copy always wins and no duplicates are produced.
+   */
+  rulesFallback?: boolean;
 }
 
 type TDDBImporterTypes = "items"
@@ -57,8 +64,6 @@ type TFlagType = TDDBItemImporterDocument | TIndexEntry;
 type TImportedDocumentResult = Item.Implementation | RollTable.Implementation | null | undefined;
 
 export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TDDBItemImporterDocument> {
-
-  static RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
   static DEFAULT_INDEX_FILTER: Record<string, any> = {
     fields: [
@@ -88,21 +93,6 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
   _documents: TType[];
   type: TDDBImporterTypes;
   recursive: boolean | null;
-  currentImportRunId: string | null = null;
-  currentImportItemKeyMap: Map<string, string> = new Map<string, string>();
-  maxOperationRetries = 2;
-  retryBaseDelayMs = 300;
-  operationTimeoutMs = 60000;
-  importOptionsHash: string;
-  cancelRequested = false;
-  adaptiveBatchSize = 2;
-  minBatchSize = 1;
-  maxBatchSize = 8;
-  targetLatencyMs = 350;
-  phaseMetrics: Record<string, { count: number; failures: number; totalDurationMs: number }> = {};
-  operationLatenciesMs: number[] = [];
-  itemIndexMemo: Map<string, TIndexEntry[]> = new Map<string, TIndexEntry[]>();
-  itemDocumentMemo: Map<string, Item.Implementation[]> = new Map<string, Item.Implementation[]>();
 
   constructor(type: TDDBImporterTypes, documents: TType[], {
     matchFlags = [],
@@ -140,16 +130,6 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
     this.currentDocumentCount = 0;
 
     this.compendiumFolders = new DDBCompendiumFolders(this.type);
-    this.importOptionsHash = this.#hashString(this.#stableStringify({
-      type,
-      matchFlags,
-      matchFields,
-      deleteBeforeUpdate: this.deleteBeforeUpdate,
-      useCompendiumFolders: this.useCompendiumFolders,
-      recursive: this.recursive,
-    }));
-    this.maxBatchSize = Math.max(this.minBatchSize, this.#parallelLimitForType());
-    this.adaptiveBatchSize = Math.min(this.adaptiveBatchSize, this.maxBatchSize);
   }
 
   get documents(): TType[] {
@@ -170,7 +150,7 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       }
     }
     this.indexFilter = indexFilter;
-    this.indexFilter.fields = Array.from(flagSet) as CompendiumCollection.GetIndexOptions["fields"];
+    this.indexFilter.fields = CompendiumHelper.safeIndexFields(this.compendium, Array.from(flagSet)) as CompendiumCollection.GetIndexOptions["fields"];
     this.compendiumIndex = await this.compendium.getIndex(this.indexFilter);
   }
 
@@ -183,323 +163,9 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
     if (!this.srdImageLibrary2024) this.srdImageLibrary2024 = await Iconizer.getSRDImageLibrary("2024");
   }
 
-  #itemKey(item: TType): string {
-    return `${this.#getEntityId(item)}|${this.importOptionsHash}`;
-  }
-
-  #getItemName(item: TType): string {
-    const itemName = foundry.utils.getProperty(item, "name");
-    if (typeof itemName === "string" && itemName.trim() !== "") return itemName;
-    return String(itemName ?? this.#getEntityId(item));
-  }
-
-  #itemKeyByName(itemName: string): string | null {
-    return this.currentImportItemKeyMap.get(itemName) ?? null;
-  }
-
-  async #markImportStatus(itemName: string, status: "pending" | "processing" | "succeeded" | "failed" | "skipped", error?: unknown): Promise<void> {
-    if (!this.currentImportRunId) return;
-    const itemKey = this.#itemKeyByName(itemName);
-    if (!itemKey) return;
-    await ImportRunTracker.markItemStatus(this.currentImportRunId, itemKey, status, error);
-  }
-
-  #sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  #parallelLimitForType(): number {
-    const perType: Partial<Record<TDDBImporterTypes, number>> = {
-      monsters: 2,
-      vehicles: 2,
-      tables: 3,
-      items: 6,
-      spells: 6,
-      feats: 5,
-      class: 4,
-      subclass: 4,
-      race: 4,
-      features: 5,
-      summons: 3,
-    };
-    return perType[this.type] ?? 4;
-  }
-
-  #recordLatency(durationMs: number) {
-    this.operationLatenciesMs.push(durationMs);
-    if (this.operationLatenciesMs.length > 200) {
-      this.operationLatenciesMs.splice(0, this.operationLatenciesMs.length - 200);
-    }
-  }
-
-  #percentile(values: number[], ratio: number): number | null {
-    if (values.length === 0) return null;
-    const sorted = [...values].sort((a, b) => a - b);
-    const index = Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * ratio)));
-    return sorted[index];
-  }
-
-  #recordPhaseMetric(phase: string, durationMs: number, failed: boolean) {
-    const metric = this.phaseMetrics[phase] ?? { count: 0, failures: 0, totalDurationMs: 0 };
-    metric.count += 1;
-    metric.totalDurationMs += durationMs;
-    if (failed) metric.failures += 1;
-    this.phaseMetrics[phase] = metric;
-    this.#recordLatency(durationMs);
-  }
-
-  #logStructuredEvent(item: TType, phase: string, outcome: "success" | "failed" | "retrying" | "skipped", durationMs: number, retryCount = 0) {
-    logger.info("Import operation event", {
-      runId: this.currentImportRunId,
-      entityType: this.type,
-      entityId: this.#getEntityId(item),
-      phase,
-      durationMs,
-      retryCount,
-      outcome,
-    });
-  }
-
-  #tuneAdaptiveBatchSize(avgDurationMs: number, failureRate: number) {
-    if (failureRate > 0.2 || avgDurationMs > this.targetLatencyMs * 1.5) {
-      this.adaptiveBatchSize = Math.max(this.minBatchSize, this.adaptiveBatchSize - 1);
-      return;
-    }
-    if (failureRate === 0 && avgDurationMs < this.targetLatencyMs * 0.8) {
-      this.adaptiveBatchSize = Math.min(this.maxBatchSize, this.adaptiveBatchSize + 1);
-    }
-  }
-
-  async #processWithAdaptiveBatch(items: TType[], worker: (item: TType) => Promise<TImportedDocumentResult | null>): Promise<TImportedDocumentResult[]> {
-    const results: TImportedDocumentResult[] = [];
-    let cursor = 0;
-    let processed = 0;
-
-    while (cursor < items.length) {
-      const size = Math.max(this.minBatchSize, Math.min(this.adaptiveBatchSize, this.maxBatchSize, items.length - cursor));
-      const batch = items.slice(cursor, cursor + size);
-      const startedAt = Date.now();
-      const outcomes = await Promise.allSettled(batch.map((item) => worker(item)));
-      const durationMs = Date.now() - startedAt;
-      const failures = outcomes.filter((outcome) => outcome.status === "rejected").length;
-      const successful = outcomes.filter((outcome) => outcome.status === "fulfilled");
-
-      for (const outcome of successful) {
-        if (outcome.value) results.push(outcome.value);
-      }
-
-      const perItemDuration = batch.length > 0 ? Math.max(1, Math.round(durationMs / batch.length)) : durationMs;
-      const failureRate = batch.length > 0 ? failures / batch.length : 0;
-      this.#tuneAdaptiveBatchSize(perItemDuration, failureRate);
-      processed += batch.length;
-      this.notifierV2?.({
-        section: "note",
-        message: `Processed ${processed}/${items.length} ${this.type} entries. Adaptive batch size ${this.adaptiveBatchSize} (phase failure rate ${(failureRate * 100).toFixed(0)}%)`,
-        progress: {
-          current: processed,
-          total: items.length,
-        },
-      });
-
-      cursor += batch.length;
-    }
-
-    return results;
-  }
-
-  #hashString(value: string): string {
-    let hash = 2166136261;
-    for (let i = 0; i < value.length; i++) {
-      hash ^= value.charCodeAt(i);
-      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-    }
-    return (hash >>> 0).toString(16).padStart(8, "0");
-  }
-
-  #stableStringify(value: unknown): string {
-    const normalize = (input: any): any => {
-      if (input === null || typeof input !== "object") return input;
-      if (Array.isArray(input)) return input.map((item) => normalize(item));
-      const out: Record<string, any> = {};
-      for (const key of Object.keys(input).sort()) {
-        if (key === "_id") continue;
-        out[key] = normalize(input[key]);
-      }
-      return out;
-    };
-    return JSON.stringify(normalize(value));
-  }
-
-  #payloadHash(item: TType): string {
-    return this.#hashString(this.#stableStringify(item));
-  }
-
-  #idempotencyKey(item: TType): string {
-    return `${this.#getEntityId(item)}|${this.importOptionsHash}`;
-  }
-
-  #withTimeout<TValue>(operation: Promise<TValue>, timeoutMs: number, phase: string): Promise<TValue> {
-    let timeoutHandle: ReturnType<typeof setTimeout>;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutHandle = setTimeout(() => reject(new Error(`Timeout in phase ${phase} after ${timeoutMs}ms`)), timeoutMs);
-    });
-
-    return Promise.race([operation, timeoutPromise]).finally(() => clearTimeout(timeoutHandle));
-  }
-
-  #getErrorStatus(error: unknown): number | null {
-    if (typeof error !== "object" || !error) return null;
-    const status = foundry.utils.getProperty(error, "status");
-    return typeof status === "number" ? status : null;
-  }
-
-  #classifyError(error: unknown): "transient" | "data-quality" | "fatal" {
-    const status = this.#getErrorStatus(error);
-    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-
-    if ((status && DDBItemImporter.RETRYABLE_HTTP_STATUSES.has(status))
-      || message.includes("timeout")
-      || message.includes("network")
-      || message.includes("temporar")) {
-      return "transient";
-    }
-
-    if ((status && status >= 400 && status < 500)
-      || message.includes("validation")
-      || message.includes("schema")
-      || message.includes("invalid")) {
-      return "data-quality";
-    }
-
-    return "fatal";
-  }
-
-  #getEntityId(item: TType): string | number {
-    const importerId = foundry.utils.getProperty(item, "flags.ddbimporter.id");
-    if (typeof importerId === "string" || typeof importerId === "number") return importerId;
-    const definitionId = foundry.utils.getProperty(item, "flags.ddbimporter.definitionId");
-    if (typeof definitionId === "string" || typeof definitionId === "number") return definitionId;
-    const itemName = foundry.utils.getProperty(item, "name");
-    if (typeof itemName === "string" && itemName.trim() !== "") return itemName;
-    return String(itemName ?? "unknown-item");
-  }
-
-  #assertNotCanceled() {
-    if (this.cancelRequested) {
-      throw new Error(`Import run canceled for ${this.type}`);
-    }
-  }
-
-  async requestCancellation() {
-    this.cancelRequested = true;
-    if (this.currentImportRunId) {
-      await ImportRunTracker.cancelRun(this.currentImportRunId);
-    }
-  }
-
-  #buildErrorEnvelope(item: TType, phase: string, error: unknown, attempt: number, willRetry: boolean) {
-    const status = this.#getErrorStatus(error);
-    const classification = this.#classifyError(error);
-    return {
-      runId: this.currentImportRunId,
-      endpoint: `Compendium.${this.compendium.metadata.id}`,
-      entityType: this.type,
-      entityId: this.#getEntityId(item),
-      phase,
-      attempt,
-      willRetry,
-      classification,
-      status,
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
-
-  async #runWithRetries<TValue>(item: TType, phase: string, operation: () => Promise<TValue>): Promise<TValue> {
-    let attempt = 0;
-    while (attempt <= this.maxOperationRetries) {
-      const startedAt = Date.now();
-      try {
-        const result = await this.#withTimeout(operation(), this.operationTimeoutMs, phase);
-        const durationMs = Date.now() - startedAt;
-        this.#recordPhaseMetric(phase, durationMs, false);
-        this.#logStructuredEvent(item, phase, "success", durationMs, attempt);
-        return result;
-      } catch (error) {
-        const durationMs = Date.now() - startedAt;
-        const classification = this.#classifyError(error);
-        const willRetry = classification === "transient" && attempt < this.maxOperationRetries;
-        const envelope = this.#buildErrorEnvelope(item, phase, error, attempt + 1, willRetry);
-        this.#recordPhaseMetric(phase, durationMs, true);
-        logger.error(`Import operation failed during ${phase}`, envelope);
-        if (!willRetry) throw error;
-        if (this.currentImportRunId) {
-          await ImportRunTracker.recordRetry(this.currentImportRunId, this.#itemKey(item));
-        }
-        this.#logStructuredEvent(item, phase, "retrying", durationMs, attempt + 1);
-        const delay = this.retryBaseDelayMs * Math.pow(2, attempt) + Math.floor(Math.random() * 100);
-        await this.#sleep(delay);
-        attempt += 1;
-      }
-    }
-
-    throw new Error(`Exhausted retries for ${phase}`);
-  }
-
-  #notifyImportRunSummary(runId: string, resumedItemCount: number): void {
-    const summary = ImportRunTracker.getRunSummaryById(runId);
-    if (!summary) return;
-
-    const resumeText = resumedItemCount > 0
-      ? ` Resumed ${resumedItemCount} previously completed entries.`
-      : "";
-
-    this.notifier(
-      `Import summary for ${this.type}: ${summary.counters.succeeded} succeeded, ${summary.counters.failed} failed, ${summary.counters.skipped} skipped, ${summary.counters.retried} retried, ${summary.counters.resumable} resumable.${resumeText}`,
-      { nameField: true },
-    );
-
-    if (summary.counters.failed > 0) {
-      const sample = summary.failedItems
-        .slice(0, 5)
-        .map((item) => item.key.split("|").pop() ?? item.key)
-        .join(", ");
-      const sampleSuffix = summary.failedItems.length > 5 ? ", ..." : "";
-      this.notifier(
-        `Dead-letter report captured ${summary.counters.failed} failed ${this.type} entries. Retry the same munch to resume remaining work. Sample failures: ${sample}${sampleSuffix}`,
-        { nameField: true },
-      );
-      logger.warn(`Import dead-letter entries for ${this.type}`, {
-        runId,
-        failedItems: summary.failedItems,
-      });
-    }
-
-    const artifact = {
-      runId,
-      runType: summary.runType,
-      status: summary.status,
-      generatedAt: new Date().toISOString(),
-      resumedItemCount,
-      optionsHash: this.importOptionsHash,
-      counters: summary.counters,
-      failedItems: summary.failedItems.map((item) => ({
-        ...item,
-        retryable: item.error ? this.#classifyError(item.error) === "transient" : false,
-      })),
-    };
-    try {
-      FileHelper.download(
-        JSON.stringify(artifact, null, 2),
-        `import-summary-${summary.runType}-${summary.id}.json`,
-        "application/json",
-      );
-    } catch (error) {
-      logger.warn("Unable to download import summary artifact", { error, runId });
-    }
-  }
-
   #flagMatch(item1: TFlagType, item2: TDDBItemImporterDocument): boolean {
     if (this.matchFlags.length === 0) return true;
+    // let fs = {};
     const matched = this.matchFlags.every((flag) => {
       // assume 2014 rule if this is the flag request
       const defaultFlagValue = flag === "is2014" ? true : undefined;
@@ -507,8 +173,17 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       if (flagValue1 === undefined) return false;
       const flagValue2 = foundry.utils.getProperty(item2, `flags.ddbimporter.${flag}`) ?? defaultFlagValue;
       if (flagValue2 === undefined) return false;
+      // fs[flag] = { item1: flagValue1, item2: flagValue2, bool: flagValue1 === flagValue2 };
       return flagValue1 === flagValue2;
     });
+    // if (item1.name === "Fey Ancestry") {
+    //   console.warn("flagMatch", {
+    //     item1,
+    //     item2,
+    //     matched,
+    //     fs,
+    //   });
+    // }
     return matched;
   }
 
@@ -523,23 +198,86 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
   }
 
   static copyFlagGroup(flagGroup: string, originalItem: Item.Implementation | Actor.Implementation | TImporterActor | TSyncCharacterActor, targetItem: TDDBItemImporterDocument) {
-    if (targetItem.flags === undefined) targetItem.flags = {};
-    // if we have generated effects we dont want to copy some flag groups. mostly for AE on spells
-    const effectsProperty = foundry.utils.getProperty(targetItem, "flags.ddbimporter.effectsApplied") as boolean
-      && SETTINGS.EFFECTS_IGNORE_FLAG_GROUPS.includes(flagGroup);
-    const originalFlags = foundry.utils.getProperty(originalItem, `flags.${flagGroup}`);
-    if (originalFlags && !effectsProperty) {
-      // logger.debug(`Copying ${flagGroup} for ${originalItem.name}`);
-      foundry.utils.setProperty(targetItem, `flags.${flagGroup}`, originalFlags);
-    }
+    DocumentFlags.copyFlagGroup(flagGroup, originalItem, targetItem);
   }
 
   static copySupportedItemFlags(originalItem: Item.Implementation | Actor.Implementation | TImporterActor | TSyncCharacterActor, targetItem: TDDBItemImporterDocument) {
-    SETTINGS.SUPPORTED_FLAG_GROUPS.forEach((flagGroup) => {
-      this.copyFlagGroup(flagGroup, originalItem, targetItem);
-    });
+    DocumentFlags.copySupportedItemFlags(originalItem, targetItem);
   }
 
+
+  /**
+   * Take the source data of a document that may be live.
+   *
+   * A live Item's system.activities is an ActivityCollection (a Map subclass), so both
+   * keyed access and Object.values come back empty on it, and deep cloning one clones
+   * data models rather than data. Plain objects pass through untouched.
+   */
+  static sourceData<T>(document: T): T {
+    const toObject = (document as { toObject?: () => T } | undefined)?.toObject;
+    return typeof toObject === "function" ? toObject.call(document) : document;
+  }
+
+  /**
+   * Resolve a retain style flag for a matched item.
+   */
+  static retainFlagValue<T>(existingFlags: IDDBImporterFlags | undefined, item: TAll5eItemDocuments, flag: string): T | undefined {
+    const parsed = foundry.utils.getProperty(item, `flags.ddbimporter.${flag}`) as T | undefined;
+    if (parsed !== undefined && parsed !== null && parsed !== false) return parsed;
+    return foundry.utils.getProperty(existingFlags ?? {}, flag) as T | undefined;
+  }
+
+  static ACTOR_TYPES: readonly string[] = ["character", "npc", "vehicle"];
+
+  /**
+   * The importer also handles actor and roll table data; only item documents
+   * carry activities and the standalone effect stash.
+   */
+  static isItemDocument(document: TDDBItemImporterDocument): document is TAll5eItemDocuments {
+    return "system" in document
+      && typeof document.type === "string"
+      && !DDBItemImporter.ACTOR_TYPES.includes(document.type);
+  }
+
+  /**
+   * Copy activity level uses.spent over from the previously imported document.
+   *
+   * Independent of the item level retainUseSpent: an activity can carry its own uses
+   * pool while the item has none, and vice versa.
+   *
+   * Activity ids are generated deterministically from the activity name
+   * (utils.namedIDStub) so they normally survive a re-import, but an enricher renaming
+   * an activity changes its id, so fall back to matching on name rather than silently
+   * dropping the play state.
+   */
+  static restoreActivityUseSpent(existing: TAll5eItemDocuments, item: TAll5eItemDocuments, selection: boolean | string[]) {
+    const existingItem = DDBItemImporter.sourceData(existing);
+    if (!("activities" in item.system) || !("activities" in existingItem.system)) return;
+    const names = Array.isArray(selection) ? selection : null;
+    if (names && names.length === 0) return;
+
+    for (const activity of Object.values(item.system.activities)) {
+      if (names && !names.includes(activity.name ?? "")) continue;
+      // an activity with no max of its own has no meaningful spent value
+      const max = activity.uses?.max;
+      if (!activity.uses || max === undefined || max === null || `${max}`.trim() === "") continue;
+
+      const original = existingItem.system.activities[activity._id ?? ""]
+        ?? Object.values(existingItem.system.activities).find((existing) =>
+          Boolean(activity.name) && existing.name === activity.name,
+        );
+      const spent = original?.uses?.spent;
+      if (typeof spent !== "number") continue;
+
+      const literalMax = (/^\d+$/).test(`${max}`.trim())
+        ? Number.parseInt(`${max}`.trim())
+        : null;
+      activity.uses.spent = literalMax === null
+        ? Math.max(spent, 0)
+        : Math.min(Math.max(spent, 0), literalMax);
+      logger.debug(`Retaining activity uses for ${item.name}: ${activity.name} spent ${activity.uses.spent}`);
+    }
+  }
 
   static updateCharacterItemFlags(itemData: TAll5eDocuments, replaceData: TAll5eDocuments): TAll5eDocuments {
     if (itemData.flags?.ddbimporter?.importId) foundry.utils.setProperty(replaceData, "flags.ddbimporter.importId", itemData.flags.ddbimporter.importId);
@@ -558,10 +296,19 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
     if ("equipped" in itemData.system && "equipped" in replaceData.system) replaceData.system.equipped = itemData.system.equipped;
     if ("method" in itemData.system && "method" in replaceData.system) replaceData.system.method = itemData.system.method;
     if ("prepared" in itemData.system && "prepared" in replaceData.system) replaceData.system.prepared = itemData.system.prepared;
+    if (itemData.type === "spell" && "sourceItem" in itemData.system) {
+      foundry.utils.setProperty(replaceData, "system.sourceItem", itemData.system.sourceItem);
+    }
     if ("proficient" in itemData.system && "proficient" in replaceData.system) replaceData.system.proficient = itemData.system.proficient;
     if (!DICTIONARY.types.inventory.includes(itemData.type)) {
       if ("uses" in itemData.system && "uses" in replaceData.system) replaceData.system.uses = itemData.system.uses;
       if ("ability" in itemData.system && "ability" in replaceData.system) replaceData.system.ability = itemData.system.ability;
+    }
+    const retainActivitySpent = foundry.utils.getProperty(itemData, "flags.ddbimporter.retainActivityUseSpent") as boolean | string[] | undefined;
+    if (retainActivitySpent && "activities" in itemData.system && "activities" in replaceData.system) {
+      DDBItemImporter.restoreActivityUseSpent(
+        itemData as TAll5eItemDocuments, replaceData as TAll5eItemDocuments, retainActivitySpent,
+      );
     }
     if (foundry.utils.hasProperty(itemData, "system.levels") && foundry.utils.hasProperty(replaceData, "system.levels")){
       replaceData.system.levels = itemData.system.levels;
@@ -653,9 +400,6 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
 
   async getFilteredItemIndexes(item: TType): Promise<TIndexEntry[]> {
     if (!this.compendiumIndex) throw new Error("Compendium index has not been built, call init() first");
-    const memoKey = this.#itemKey(item);
-    const memoHit = this.itemIndexMemo.get(memoKey);
-    if (memoHit) return memoHit;
     const indexEntries: TIndexEntry[] =
       this.compendiumIndex.filter((idx) => idx.name === item.name) as unknown as TIndexEntry[];
 
@@ -671,20 +415,15 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       return fieldMatched;
     });
 
-    this.itemIndexMemo.set(memoKey, fieldFiltered);
     return fieldFiltered;
   }
 
   async getFilteredItemDocuments(item: TType): Promise<Item.Implementation[]> {
-    const memoKey = this.#itemKey(item);
-    const memoHit = this.itemDocumentMemo.get(memoKey);
-    if (memoHit) return memoHit;
     const indexEntries = await this.getFilteredItemIndexes(item);
     const mapped = await Promise.all(indexEntries.map((idx) => {
       const entry = this.compendium.getDocument(idx._id).then((doc) => doc) as Promise<Item.Implementation>;
       return entry;
     }));
-    this.itemDocumentMemo.set(memoKey, mapped);
     return mapped;
   }
 
@@ -694,11 +433,6 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
    * @returns {Promise<Item.Implementation | RollTable.Implementation ||null>} a Promise that resolves with the imported item or null if import failed
    */
   async createCompendiumItem(item: TType): Promise<Item.Implementation | RollTable.Implementation | null> {
-    this.#assertNotCanceled();
-    const itemName = this.#getItemName(item);
-    await this.#markImportStatus(itemName, "processing");
-    foundry.utils.setProperty(item, "flags.ddbimporter.importIdempotencyKey", this.#idempotencyKey(item));
-    foundry.utils.setProperty(item, "flags.ddbimporter.lastImportPayloadHash", this.#payloadHash(item));
     let newItem;
     switch (this.type) {
       case "tables": {
@@ -714,14 +448,14 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
           };
           newItem = new (Item.implementation as any)(item, options);
         } catch (err) {
-          logger.error(`Error creating ${itemName}`, { item, err });
+          logger.error(`Error creating ${item.name}`, { item, err });
           throw err;
         }
 
       }
     }
     if (!newItem) {
-      logger.error(`Item ${itemName} failed creation`, { item, newItem });
+      logger.error(`Item ${item.name} failed creation`, { item, newItem });
     }
     this.currentDocumentCount++;
 
@@ -729,25 +463,46 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       this.notifierV2?.({
         progress: { current: this.currentDocumentCount, total: this.totalDocuments },
         section: "level4",
-        message: `Creating ${itemName}`,
+        message: `Creating ${item.name}`,
         progressBar: "secondary",
       });
     } else {
-      this.notifier(`(${this.currentDocumentCount}/${this.totalDocuments}) Creating ${itemName}`);
+      this.notifier(`(${this.currentDocumentCount}/${this.totalDocuments}) Creating ${item.name}`);
     }
 
-    logger.debug(`Pushing ${itemName} to compendium (${this.currentDocumentCount}/${this.totalDocuments})`);
+    logger.debug(`Pushing ${item.name} to compendium (${this.currentDocumentCount}/${this.totalDocuments})`);
     // import document no longer retains the id
     // return this.compendium.importDocument(newItem, { keepId: true });
     const data = newItem.toCompendium(this.compendium, { keepId: true });
-    const created = await newItem.constructor.create(data, { pack: this.compendium.collection, keepId: true });
-    await this.#markImportStatus(itemName, "succeeded");
-    return created;
+    return newItem.constructor.create(data, { pack: this.compendium.collection, keepId: true });
+  }
+
+  /**
+   * Empty the embedded collections (effects, table results) of an existing compendium document
+   * before it is updated.
+   *
+   * This is a non-recursive replacement of each branch rather than a deleteAll on purpose.
+   * deleteAll builds its id list from this client's cached copy of the document, and the server
+   * rejects the whole request when any of those ids is already gone
+   * ("ActiveEffect X does not exist!"). That is exactly what happens when two munches write the
+   * same document at the same time. A replacement is applied server side against the live
+   * document, so it cannot go stale.
+   */
+  async purgeEmbeddedDocuments(existingItem: Item.Implementation): Promise<void> {
+    const purge: Record<string, never[]> = {};
+    const results = foundry.utils.getProperty(existingItem, "results") as { size?: number } | undefined;
+    if (results?.size) purge.results = [];
+    if (existingItem.effects?.size) purge.effects = [];
+    if (foundry.utils.isEmpty(purge)) return;
+    logger.debug(`Purging ${Object.keys(purge).join(", ")} on ${existingItem.name} before update`);
+    await existingItem.update(purge as unknown as Parameters<typeof existingItem.update>[0], {
+      pack: this.compendium.metadata.id,
+      render: false,
+      recursive: false,
+    } as unknown as Parameters<typeof existingItem.update>[1]);
   }
 
   async updateCompendiumItem(updateItem: TType, existingItem: Item.Implementation): Promise<TImportedDocumentResult> {
-    this.#assertNotCanceled();
-    const itemName = this.#getItemName(updateItem);
     // purge existing active effects on this item
     if (existingItem.flags) DDBItemImporter.copySupportedItemFlags(existingItem, updateItem);
     this.currentDocumentCount++;
@@ -755,54 +510,31 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
       this.notifierV2?.({
         progress: { current: this.currentDocumentCount, total: this.totalDocuments },
         section: "level4",
-        message: `Updating ${itemName}`,
+        message: `Updating ${updateItem.name}`,
         progressBar: "secondary",
       });
     } else {
-      this.notifier(`(${this.currentDocumentCount}/${this.totalDocuments}) Updating ${itemName}`);
+      this.notifier(`(${this.currentDocumentCount}/${this.totalDocuments}) Updating ${updateItem.name}`);
     }
 
-    logger.debug(`Updating ${itemName} compendium entry (${this.currentDocumentCount}/${this.totalDocuments})`, {
+    logger.debug(`Updating ${updateItem.name} compendium entry (${this.currentDocumentCount}/${this.totalDocuments})`, {
       updateItem,
       existingItem,
       packId: this.compendium.metadata.id,
     });
 
-    const payloadHash = this.#payloadHash(updateItem);
-    const existingPayloadHash = foundry.utils.getProperty(existingItem, "flags.ddbimporter.lastImportPayloadHash") as string | undefined;
-    if (existingPayloadHash && existingPayloadHash === payloadHash) {
-      await this.#markImportStatus(itemName, "skipped");
-      logger.debug(`Skipping unchanged payload for ${itemName}`, {
-        idempotencyKey: this.#idempotencyKey(updateItem),
-        payloadHash,
-      });
-      return null;
-    }
-
-    await this.#markImportStatus(itemName, "processing");
-    foundry.utils.setProperty(updateItem, "flags.ddbimporter.importIdempotencyKey", this.#idempotencyKey(updateItem));
-    foundry.utils.setProperty(updateItem, "flags.ddbimporter.lastImportPayloadHash", payloadHash);
-
-    if (foundry.utils.getProperty(existingItem, "results")) {
-      logger.debug(`Deleting existing table results on ${existingItem.name} before update`);
-      await (existingItem as unknown as RollTable.Implementation).deleteEmbeddedDocuments("TableResult", [], { deleteAll: true });
-    }
-    if (existingItem.effects?.size && existingItem.effects.size > 0) {
-      logger.debug(`Deleting existing active effects on ${existingItem.name} before update`);
-      await existingItem.deleteEmbeddedDocuments("ActiveEffect", [], { deleteAll: true });
-    }
+    await this.purgeEmbeddedDocuments(existingItem);
 
     const update = await existingItem.update(updateItem as any, {
       pack: this.compendium.metadata.id,
       render: false,
       recursive: this.recursive,
     } as unknown as Parameters<typeof existingItem.update>[1]);
-    await this.#markImportStatus(itemName, "succeeded");
+    // const update = existingItem.update(updateItem, { pack: compendium.metadata.id, recursive: false, render: false });
     return update;
   }
 
   async deleteCreateCompendiumItem(updateItem: TType, existingItem: Item.Implementation): Promise<TImportedDocumentResult> {
-    this.#assertNotCanceled();
     if (existingItem.flags) DDBItemImporter.copySupportedItemFlags(existingItem, updateItem);
     this.notifier(`Removing and Recreating ${updateItem.name} compendium entry`);
     logger.debug(`Removing and Recreating ${updateItem.name} compendium entry`);
@@ -813,72 +545,52 @@ export default class DDBItemImporter<TType extends TDDBItemImporterDocument = TD
 
 
   async updateCompendiumItems(inputItems: TType[]): Promise<TImportedDocumentResult[]> {
-    const worker = async (item: TType): Promise<TImportedDocumentResult | null> => {
-      this.#assertNotCanceled();
-      const itemName = this.#getItemName(item);
-      try {
-        const existingItems: Item.Implementation[] = await this.getFilteredItemDocuments(item);
-        // we have a match, update first match
-        if (existingItems.length >= 1) {
-          if (existingItems.length > 1) {
-            logger.warn(`Item ${item.name} has multiple matches in compendium. DDB Importer will delete and recreate this item from scratch. You can most likely ignore this message.`, {
-              item,
-              existingItems,
-            });
-          }
-          const existingItem = existingItems[0];
-          item._id = existingItem._id ?? undefined;
-
-          if (item.type !== existingItem.type || this.deleteBeforeUpdate) {
-            if (item.type !== existingItem.type) {
-              logger.warn(`Item type mismatch ${item.name} from ${existingItem.type} to ${item.type}. DDB Importer will delete and recreate this item from scratch. You can most likely ignore this message.`);
-            }
-            const newItem: TImportedDocumentResult = await this.#runWithRetries(item, "delete-create", () =>
-              this.deleteCreateCompendiumItem(item, existingItem),
-            );
-            return newItem;
-          } else {
-            const update: TImportedDocumentResult = await this.#runWithRetries(item, "update", () =>
-              this.updateCompendiumItem(item, existingItem),
-            );
-            return update;
-          }
+    const results: TImportedDocumentResult[] = [];
+    for (const item of inputItems) {
+      const existingItems: Item.Implementation[] = await this.getFilteredItemDocuments(item);
+      // we have a match, update first match
+      if (existingItems.length >= 1) {
+        if (existingItems.length > 1) {
+          logger.warn(`Item ${item.name} has multiple matches in compendium. DDB Importer will delete and recreate this item from scratch. You can most likely ignore this message.`, {
+            item,
+            existingItems,
+          });
         }
-        return null;
-      } catch (err) {
-        await this.#markImportStatus(itemName, "failed", err);
-        this.#logStructuredEvent(item, "update", "failed", 0, 0);
-        logger.error(`Error updating ${itemName}`, { item, err });
-        return null;
-      }
-    };
+        const existingItem = existingItems[0];
+        item._id = existingItem._id ?? undefined;
 
-    return this.#processWithAdaptiveBatch(inputItems, worker);
+        if (item.type !== existingItem.type || this.deleteBeforeUpdate) {
+          if (item.type !== existingItem.type) {
+            logger.warn(`Item type mismatch ${item.name} from ${existingItem.type} to ${item.type}. DDB Importer will delete and recreate this item from scratch. You can most likely ignore this message.`);
+          }
+          const newItem: TImportedDocumentResult = await this.deleteCreateCompendiumItem(item, existingItem);
+          results.push(newItem);
+        } else {
+          const update: TImportedDocumentResult = await this.updateCompendiumItem(item, existingItem);
+          results.push(update);
+        }
+      }
+    }
+
+    return results;
   }
 
   async createCompendiumItems(inputItems: TType[]): Promise<TImportedDocumentResult[]> {
-    const worker = async (item: TType): Promise<TImportedDocumentResult | null> => {
-      this.#assertNotCanceled();
-      const itemName = this.#getItemName(item);
+    const results: TImportedDocumentResult[] = [];
+    for (const item of inputItems) {
       try {
         const existingItems = await this.getFilteredItemIndexes(item);
         // we have no matching items, create new
         if (existingItems.length === 0) {
-          const newItem = await this.#runWithRetries(item, "create", () => this.createCompendiumItem(item));
-          return newItem;
-        } else {
-          await this.#markImportStatus(itemName, "skipped");
-          this.#logStructuredEvent(item, "create", "skipped", 0, 0);
-          return null;
+          const newItem = await this.createCompendiumItem(item);
+          results.push(newItem);
         }
       } catch (err) {
-        await this.#markImportStatus(itemName, "failed", err);
-        this.#logStructuredEvent(item, "create", "failed", 0, 0);
-        logger.error(`Error creating ${itemName}`, { item, err });
-        return null;
+        logger.error(`Error creating ${item.name}`, { item, err });
+        throw err;
       }
     };
-    return this.#processWithAdaptiveBatch(inputItems, worker);
+    return results;
   }
 
   async updateCompendium(updateExisting = false, filterDuplicates = true): Promise<TImportedDocumentResult[]> {
@@ -914,49 +626,21 @@ ${item.system.description.chat}
       return item;
     });
 
-    this.currentImportItemKeyMap = new Map<string, string>(inputItems.map((item) => [this.#getItemName(item), this.#itemKey(item)]));
-    const allItemKeys = inputItems.map((item) => this.#itemKey(item));
-    const sourceSnapshot = {
-      totalInputItems: inputItems.length,
-      filteredDuplicates: filterDuplicates,
-      updateExisting,
-      compendiumId: this.compendium.metadata.id,
-    };
-    const run = await ImportRunTracker.startOrResumeRun(`compendium-${this.type}`, allItemKeys, {
-      optionsHash: this.importOptionsHash,
-      sourceSnapshot,
-    });
-    this.currentImportRunId = run.id;
-    const retryableKeys = ImportRunTracker.getPendingOrFailedKeys(run.id);
-    const succeededKeys = ImportRunTracker.getSucceededKeys(run.id);
-    const hasExplicitRetrySet = retryableKeys.size > 0;
-    const resumableItems = inputItems.filter((item) => {
-      const key = this.#itemKey(item);
-      if (hasExplicitRetrySet) return retryableKeys.has(key);
-      return !succeededKeys.has(key);
-    });
-    const skippedItems = inputItems.filter((item) => {
-      const key = this.#itemKey(item);
-      return hasExplicitRetrySet ? !retryableKeys.has(key) : succeededKeys.has(key);
-    });
-    const resumedItemCount = skippedItems.length;
-    await ImportRunTracker.setResumableCount(run.id, resumedItemCount);
-
-    for (const skipped of skippedItems) {
-      await this.#markImportStatus(skipped.name ?? "", "skipped");
-    }
+    // widened from TType so the guard's predicate can narrow the array
+    const importDocuments: TDDBItemImporterDocument[] = inputItems;
+    await DDBEffectImporter.importStandaloneEffects(importDocuments.filter(DDBItemImporter.isItemDocument));
 
     let results: TImportedDocumentResult[] = [];
     // update existing items
-    this.notifier(`Creating and updating ${resumableItems.length} ${this.type} documents in compendium...`, { nameField: true });
+    this.notifier(`Creating and updating ${inputItems.length} ${this.type} documents in compendium...`, { nameField: true });
 
     if (updateExisting) {
-      results = await this.updateCompendiumItems(resumableItems);
+      results = await this.updateCompendiumItems(inputItems);
       logger.debug(`Updated ${results.length} existing ${this.type} documents in compendium`);
     }
 
     // create new items
-    const createResults = await this.createCompendiumItems(resumableItems);
+    const createResults = await this.createCompendiumItems(inputItems);
     logger.debug(`Created ${createResults.length} new ${this.type} documents in compendium`);
     this.notifier("", { nameField: true });
     this.notifierV2?.({ message: "",  clear: true, section: "level4" });
@@ -964,105 +648,96 @@ ${item.system.description.chat}
 
     this.results = createResults.concat(results);
     await Promise.all(this.results);
-    await ImportRunTracker.completeRun(run.id);
-    const latencySummary = {
-      p50: this.#percentile(this.operationLatenciesMs, 0.5),
-      p95: this.#percentile(this.operationLatenciesMs, 0.95),
-      p99: this.#percentile(this.operationLatenciesMs, 0.99),
-      samples: this.operationLatenciesMs.length,
-    };
-    logger.info("Import run metrics summary", {
-      runId: run.id,
-      entityType: this.type,
-      phaseMetrics: this.phaseMetrics,
-      latencyMs: latencySummary,
-      adaptiveBatchSize: this.adaptiveBatchSize,
-      maxBatchSize: this.maxBatchSize,
-    });
-    this.#notifyImportRunSummary(run.id, resumedItemCount);
-    this.currentImportRunId = null;
-    this.currentImportItemKeyMap = new Map();
     Hooks.callAll(`ddb-importer.${this.type}CompendiumUpdateComplete`, { results: this.results });
     return this.results;
+  }
+
+  #indexEntryMatchesOriginal(i: TIndexEntry, orig: TAll5eDocuments,
+    { looseMatch = false, monsterMatch = false, relaxed = false } = {},
+  ): boolean {
+    if (!relaxed) {
+      if (!this.#flagMatch(i, orig)) return false;
+      if (!this.#fieldMatch(i, orig)) return false;
+    }
+    const iName = foundry.utils.getProperty(i, "name") as string;
+    const extraNames = (foundry.utils.getProperty(orig, "flags.ddbimporter.dndbeyond.alternativeNames") ?? []) as string[];
+    if (looseMatch) {
+      const looseNames = NameMatcher.getLooseNames(orig.name, extraNames);
+      return looseNames.includes(iName.split("(")[0].trim().toLowerCase());
+    } else if (monsterMatch) {
+      if (iName === orig.name) return true;
+      const monsterNames = NameMatcher.getMonsterNames(orig.name);
+      return monsterNames.includes(iName.toLowerCase());
+    } else {
+      return iName === orig.name || extraNames.includes(iName);
+    }
+  }
+
+  /**
+   * Filter the loaded compendium index down to candidates for the passed originals.
+   * Also reports which originals found no candidate, so a relaxed retry can be limited to them.
+   */
+  #filterIndex(items: TAll5eDocuments[],
+    { looseMatch = false, monsterMatch = false, relaxed = false } = {},
+  ): { candidates: TIndexEntry[]; unmatched: TAll5eDocuments[] } {
+    if (!this.compendiumIndex) throw new Error("Compendium index has not been built");
+    const matchedOriginals = new Set<TAll5eDocuments>();
+    const candidates = this.compendiumIndex.filter((i) => {
+      let hit = false;
+      for (const orig of items) {
+        if (this.#indexEntryMatchesOriginal(i as TIndexEntry, orig, { looseMatch, monsterMatch, relaxed })) {
+          matchedOriginals.add(orig);
+          hit = true;
+        }
+      }
+      return hit;
+    }) as TIndexEntry[];
+    const unmatched = items.filter((orig) => !matchedOriginals.has(orig));
+    return { candidates, unmatched };
   }
 
   async loadPassedItemsFromCompendium(items: TAll5eDocuments[],
     { looseMatch = false, monsterMatch = false, keepId = false, deleteCompendiumId = true,
       indexFilter = {}, // { fields: ["name", "flags.ddbimporter.id"] }
-      keepDDBId = false, linkItemFlags = false, overrideId = false }: IDDBItemImporterLoadPassedItemsFromCompendiumOptions,
+      keepDDBId = false, linkItemFlags = false, overrideId = false,
+      rulesFallback = false }: IDDBItemImporterLoadPassedItemsFromCompendiumOptions,
   ): Promise<TAll5eDocuments[]> {
 
     await this.buildIndex(indexFilter);
-    if (!this.compendiumIndex) throw new Error("Compendium index has not been built");
 
-    const firstPassItems = await this.compendiumIndex.filter((i) => {
-      const iName = foundry.utils.getProperty(i, "name") as string;
-      return items.some((orig) => {
-        if (!this.#flagMatch(i, orig)) return false;
-        if (!this.#fieldMatch(i, orig)) return false;
-        const extraNames = (foundry.utils.getProperty(orig, "flags.ddbimporter.dndbeyond.alternativeNames") ?? []) as string[];
-        if (looseMatch) {
-          const looseNames = NameMatcher.getLooseNames(orig.name, extraNames);
-          return looseNames.includes(iName.split("(")[0].trim().toLowerCase());
-        } else if (monsterMatch) {
-          const monsterNames = NameMatcher.getMonsterNames(orig.name);
-          if (iName === orig.name) {
-            return true;
-          } else if (monsterNames.includes(iName.toLowerCase())) {
-            return true;
-          } else {
-            return false;
-          }
-        } else {
-          return iName === orig.name || extraNames.includes(iName);
-        }
-      });
-    });
+    const strictPassItems = this.#filterIndex(items, { looseMatch, monsterMatch });
+    const firstPassItems = [...strictPassItems.candidates];
 
-    this.notifier(`Matching ${firstPassItems.length} existing ${this.type} entries...`, { nameField: true });
-
-    const loadDocumentWithTimeout = async (entry: TIndexEntry, timeoutMs = 20000): Promise<TAll5eDocuments | null> => {
-      let timeoutHandle: ReturnType<typeof setTimeout>;
-      const timeoutPromise = new Promise<null>((resolve) => {
-        timeoutHandle = setTimeout(() => resolve(null), timeoutMs);
-      });
-
-      const docPromise = this.compendium.getDocument(entry._id)
-        .then((doc) => {
-          if (!doc) return null;
-          const docData = doc.toObject() as unknown as TAll5eDocuments;
-          if (deleteCompendiumId) delete docData._id;
-          delete docData.folder;
-          SETTINGS.COMPENDIUM_REMOVE_FLAGS.forEach((flag) => {
-            if (foundry.utils.hasProperty(docData, flag)) foundry.utils.setProperty(docData, flag, undefined);
-          });
-          foundry.utils.setProperty(docData, "flags.ddbimporter.pack", `${this.compendium.metadata.id}`);
-          return docData;
-        })
-        .catch((error) => {
-          logger.warn(`Failed loading compendium document ${entry._id} for ${this.type}: ${(error as Error)?.message ?? String(error)}`);
-          return null;
-        });
-
-      const result = await Promise.race([docPromise, timeoutPromise]);
-      clearTimeout(timeoutHandle!);
-      if (result === null) {
-        logger.warn(`Timed out loading compendium document ${entry._id} for ${this.type}`);
+    if (rulesFallback && strictPassItems.unmatched.length > 0) {
+      logger.debug(`compendium ${this.type} relaxed rules match for:`, strictPassItems.unmatched.map((i) => i.name));
+      const relaxedPassItems = this.#filterIndex(strictPassItems.unmatched, { looseMatch, monsterMatch, relaxed: true });
+      const seen = new Set(firstPassItems.map((i) => i._id));
+      for (const candidate of relaxedPassItems.candidates) {
+        if (seen.has(candidate._id)) continue;
+        seen.add(candidate._id);
+        firstPassItems.push(candidate);
       }
-      return result;
-    };
+    }
 
     const loadedItems = [];
-    const chunkSize = 25;
-    for (let offset = 0; offset < firstPassItems.length; offset += chunkSize) {
-      const chunk = firstPassItems.slice(offset, offset + chunkSize);
-      const chunkLoaded = await Promise.all(chunk.map((entry) => loadDocumentWithTimeout(entry)));
-      loadedItems.push(...chunkLoaded.filter((item): item is TAll5eDocuments => item !== null));
-      this.notifierV2?.({
-        section: "note",
-        message: `Matched ${Math.min(offset + chunk.length, firstPassItems.length)}/${firstPassItems.length} existing ${this.type} entries...`,
-        suppress: true,
+    for (const i of firstPassItems) {
+      const item = await this.compendium.getDocument(i._id).then((doc) => {
+        if (!doc) return null;
+        const docData = doc.toObject() as unknown as TAll5eDocuments;
+        if (deleteCompendiumId) delete docData._id;
+        delete docData.folder;
+        SETTINGS.COMPENDIUM_REMOVE_FLAGS.forEach((flag) => {
+          if (foundry.utils.hasProperty(docData, flag)) foundry.utils.setProperty(docData, flag, undefined);
+        });
+
+        return docData;
       });
+      if (!item) {
+        logger.warn(`Indexed document ${i._id} is missing from ${this.compendium.metadata.id}, skipping`);
+        continue;
+      }
+      foundry.utils.setProperty(item, "flags.ddbimporter.pack", `${this.compendium.metadata.id}`);
+      loadedItems.push(item);
     }
     logger.debug(`compendium ${this.type} loaded items:`, loadedItems);
 
@@ -1097,7 +772,8 @@ ${item.system.description.chat}
   static async getCompendiumItems<TType extends TAll5eDocuments = TAll5eDocuments>(
     items: TType[], type: TDDBImporterTypes,
     { looseMatch = false, monsterMatch = false, keepId = false,
-      deleteCompendiumId = true, keepDDBId = false, linkItemFlags = false }: IDDBItemImporterGetCompendiumItemsOptions = {},
+      deleteCompendiumId = true, keepDDBId = false, linkItemFlags = false,
+      rulesFallback = false }: IDDBItemImporterGetCompendiumItemsOptions = {},
   ): Promise<TType[]> {
 
     const itemImporter = new DDBItemImporter<TType>(type, [], {
@@ -1120,6 +796,7 @@ ${item.system.description.chat}
       keepDDBId,
       deleteCompendiumId,
       linkItemFlags,
+      rulesFallback,
       indexFilter: itemImporter.indexFilter,
     };
     const results = await itemImporter.loadPassedItemsFromCompendium(items as TType[], loadOptions) as TType[];
@@ -1182,8 +859,9 @@ ${item.system.description.chat}
         ) {
           monsterToken.texture.src = tokenSrcTexture;
           foundry.utils.setProperty(monster, "flags.monsterMunch.tokenImgSet", true);
-          if (foundry.utils.hasProperty(moduleArt, "token.texture.scaleY"))
+          if (foundry.utils.hasProperty(moduleArt, "token.texture.scaleY")) {
             monsterToken.texture.scaleY = moduleArt.token.texture.scaleY as number;
+          }
           const moduleArtScaleX = foundry.utils.getProperty(moduleArt, "token.texture.scaleX") as number | undefined;
           if (moduleArtScaleX) monsterToken.texture.scaleX = moduleArtScaleX;
           const moduleArtRing = foundry.utils.getProperty(moduleArt, "token.ring");

@@ -2,11 +2,12 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class MartialArts extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
   // get activity(): IDDBActivityData {
+  //   const empowered = this.hasClassFeature({ featureName: "Empowered Strike", className: "Monk" });
 
   //   return {
   //     name: "Martial Arts Strike",
@@ -37,11 +38,11 @@ export default class MartialArts extends DDBEnricherData {
   //   };
   // }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Martial Arts",
@@ -62,7 +63,7 @@ export default class MartialArts extends DDBEnricherData {
     ];
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -106,7 +107,7 @@ export default class MartialArts extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       descriptionSuffix: `
 <section class="secret ddbSecret" id="secret-ddbMartialArts">

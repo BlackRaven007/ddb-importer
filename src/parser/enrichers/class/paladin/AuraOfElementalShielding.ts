@@ -1,7 +1,7 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class AuraOfElementalShielding extends DDBEnricherData {
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const types = [
       "Acid",
       "Cold",
@@ -25,18 +25,6 @@ export default class AuraOfElementalShielding extends DDBEnricherData {
         options: {
           transfer: true,
           disabled: !activeType?.includes(element),
-        },
-        data: {
-          flags: {
-            ActiveAuras: {
-              aura: "Allies",
-              radius: `@scale.paladin.${this.data.name.toLowerCase().replaceAll(" ", "-")}`,
-              isAura: true,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-            },
-          },
         },
         auraeffects: {
           applyToSelf: true,

@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class RageOfTheGiants extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "special",
@@ -14,7 +14,7 @@ export default class RageOfTheGiants extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Rage of the Giants: Large",
@@ -23,10 +23,6 @@ export default class RageOfTheGiants extends DDBEnricherData {
         },
         changes: [
           DDBEnricherData.ChangeHelper.overrideChange("lg", 20, "system.traits.size"),
-        ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.upgradeChange(2, 5, "ATL.width"),
-          DDBEnricherData.ChangeHelper.upgradeChange(2, 5, "ATL.height"),
         ],
       },
     ];

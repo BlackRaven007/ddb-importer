@@ -1,4 +1,4 @@
-import { DDBSimpleMacro, logger } from "../../lib/_module";
+import { DDBSimpleMacro, logger, resolveFoundryMacro } from "../../lib/_module";
 import MacroActivityData from "./MacroActivityData";
 import MacroSheet from "./MacroSheet";
 
@@ -17,13 +17,13 @@ export default class MacroActivity extends BaseMacroActivity {
   /* -------------------------------------------- */
 
   /** @inheritDoc */
-  static LOCALIZATION_PREFIXES = [...super.LOCALIZATION_PREFIXES, "ddb-importer.activities.macro"];
+  static override LOCALIZATION_PREFIXES = [...BaseMacroActivity.LOCALIZATION_PREFIXES, "ddb-importer.activities.macro"];
 
   /* -------------------------------------------- */
 
   /** @inheritDoc */
-  static metadata = Object.freeze(
-    foundry.utils.mergeObject(super.metadata, {
+  static override metadata = Object.freeze(
+    foundry.utils.mergeObject(BaseMacroActivity.metadata, {
       type: "ddbmacro",
       img: "systems/dnd5e/icons/svg/items/tool.svg",
       title: "ddb-importer.activities.macro.Title",
@@ -41,8 +41,9 @@ export default class MacroActivity extends BaseMacroActivity {
   /* -------------------------------------------- */
 
   /** @override */
-  async _usageChatButtons(message: Record<string, any>) {
-    const superButtons = await super._usageChatButtons(message);
+  // synchronous like the base: dnd5e reads the returned array directly when it builds the usage card
+  override _usageChatButtons(message: dnd5e.types.documents.activity.ActivityMessageConfiguration) {
+    const superButtons = super._usageChatButtons(message);
     if (!this.macro.function) return superButtons;
     const macroButton = {
       label: this.macro.name || game.i18n.localize("ddb-importer.activities.macro.Button"),
@@ -55,7 +56,7 @@ export default class MacroActivity extends BaseMacroActivity {
     return [macroButton].concat(superButtons);
   }
 
-  async _executeDDBMacro(targetUuids: string[] = []) {
+  async _executeDDBMacro(targetUuids: string[] = [], parametersOverride?: string, regionContext?: unknown) {
 
     // DDBSimpleMacro.execute treats absent ids by truthiness, so undefined is equivalent to null here
     const ids = {
@@ -77,7 +78,8 @@ export default class MacroActivity extends BaseMacroActivity {
       activityActorUuid: this.actor?.uuid,
       activityItemUuid: this.item.uuid,
       targetUuids,
-      parameters: this.macro.parameters,
+      parameters: parametersOverride ?? this.macro.parameters,
+      regionContext,
     };
 
     logger.verbose("executing simple ddb macro", {
@@ -92,26 +94,25 @@ export default class MacroActivity extends BaseMacroActivity {
 
   }
 
-  async _executeFoundryMacro(targets: unknown[] = []) {
-    let macro;
-    if (this.macro.function.startsWith("Macro.")) {
-      macro = await fromUuid(this.macro.function) as Macro.Implementation;
-    } else {
-      macro = game.macros.find((m) => m.name === this.macro.function);
+  async _executeFoundryMacro(targets: unknown[] = [], parametersOverride?: string, regionContext?: unknown) {
+    const macro = await resolveFoundryMacro(this.macro.function);
+    if (!macro) {
+      logger.warn(`Macro activity ${this.item.name}: no macro found for "${this.macro.function}"`, { activity: this });
+      ui.notifications.warn(game.i18n.format("ddb-importer.activities.macro.NotFound", { macro: this.macro.function }));
+      return;
     }
 
-    if (macro) {
-      await macro.execute({
-        macroLabel: this.macro.name,
-        targets,
-        item: this.item,
-        actor: this.actor,
-        token: this.actor?.isOwner ? canvas.tokens.controlled[0]?.document?.uuid : null,
-        activity: this,
-        origin: this.uuid,
-        parameters: this.macro.parameters,
-      } as unknown as Parameters<typeof macro.execute>[0]);
-    }
+    await macro.execute({
+      macroLabel: this.macro.name,
+      targets,
+      item: this.item,
+      actor: this.actor,
+      token: this.actor?.isOwner ? canvas.tokens.controlled[0]?.document?.uuid : null,
+      activity: this,
+      origin: this.uuid,
+      parameters: parametersOverride ?? this.macro.parameters,
+      regionContext,
+    } as unknown as Parameters<typeof macro.execute>[0]);
   }
 
   /* -------------------------------------------- */
@@ -129,22 +130,38 @@ export default class MacroActivity extends BaseMacroActivity {
     const targets = Array.from(game.user.targets);
 
     if (this.macro.function.startsWith("ddb.")) {
-      this._executeDDBMacro(targets.map((t) => t.document.uuid));
+      this._executeDDBMacro(targets.map((t) => t.document.uuid).filter((uuid): uuid is string => !!uuid));
     } else {
       this._executeFoundryMacro(targets);
     }
   }
 
   /** @override */
-  async _triggerSubsequentActions(_config: unknown, _results: unknown) {
+  override async _triggerSubsequentActions(config: unknown, _results: unknown) {
     // this.rollDamage({ event: config.event }, {}, { data: { "flags.dnd5e.originatingMessage": results.message?.id } });
 
-    const targets = Array.from(game.user.targets);
+    // callers such as RegionAutomations.useActivity can override the stored macro
+    // parameters and provide the triggering region's details via the usage config
+    const usageConfig = config as { ddbMacroParameters?: string; ddbRegionContext?: unknown; ddbTargetUuids?: string[] } | null;
+    const parametersOverride = usageConfig?.ddbMacroParameters;
+    const regionContext = usageConfig?.ddbRegionContext;
+    // A caller that names its recipients wins over the user's canvas targets: region automation
+    // runs on the GM, often for a scene the GM is not viewing, where canvas targeting cannot reach.
+    const explicitUuids = usageConfig?.ddbTargetUuids;
 
     if (this.macro.function.startsWith("ddb.")) {
-      this._executeDDBMacro(targets.map((t) => t.document.uuid));
+      const uuids = explicitUuids
+        ?? Array.from(game.user.targets).map((t) => t.document.uuid).filter((uuid): uuid is string => !!uuid);
+      this._executeDDBMacro(uuids, parametersOverride, regionContext);
     } else {
-      this._executeFoundryMacro(targets);
+      // a token on a scene that is not drawn has no placeable, so the document stands in for it
+      const targets = explicitUuids
+        ? explicitUuids
+          .map((uuid) => fromUuidSync(uuid) as (TokenDocument.Implementation & { object?: unknown }) | null)
+          .filter((token) => !!token)
+          .map((token) => token!.object ?? token)
+        : Array.from(game.user.targets);
+      this._executeFoundryMacro(targets, parametersOverride, regionContext);
     }
   }
 }

@@ -37,6 +37,64 @@ global {
   interface Canvas {
     level: (I5eSceneLevel & { id: string }) | null;
   }
+
+  // ---- Region highlight rendering (client/canvas/placeables/region.mjs, regions/mesh.mjs) ----
+  // fvtt-types carries none of these yet. The shapes below are the members the region
+  // highlight hooks touch, nothing more.
+
+  /** A shader class as `AbstractBaseShader` subclasses expose it: the statics used to build and create one. */
+  interface TCoreShaderClass {
+    new (...args: unknown[]): TCoreShader;
+    create(uniforms?: Record<string, unknown>, options?: Record<string, unknown>): TCoreShader;
+    defaultUniforms: Record<string, unknown>;
+    /** GLSL constant block shared by every shader (SQRT2 and friends). */
+    CONSTANTS: string;
+    _createVertexShader(): string;
+    _createFragmentShader(): string;
+  }
+
+  interface TCoreShader {
+    _preRender(mesh: TCoreRegionMesh, renderer: PIXI.Renderer): void;
+    uniforms: Record<string, unknown>;
+  }
+
+  /** `RegionMesh`: the highlight (and preview) mesh of a Region placeable. */
+  interface TCoreRegionMesh extends PIXI.Container {
+    region: TCoreRegionPlaceable;
+    tint: number | string;
+    shader: TCoreShader;
+    setShaderClass(shaderClass: TCoreShaderClass): void;
+  }
+
+  /** The polygon tree of a Region's shapes; `drawShape` issues graphics calls for every polygon. */
+  interface TCoreRegionPolygonTree {
+    drawShape(graphics: PIXI.Graphics): void;
+    /** Every outline and hole as a Clipper path, scaled by `CONST.CLIPPER_SCALING_FACTOR`. */
+    clipperPaths: readonly (readonly { X: number; Y: number }[])[];
+  }
+
+  /** The Region placeable members the highlight hooks read. */
+  interface TCoreRegionPlaceable {
+    id: string | null;
+    document: RegionDocument.Implementation;
+    controlled: boolean;
+    hover: boolean;
+    isPreview: boolean;
+    visible: boolean;
+    zIndex: number;
+    destroyed: boolean;
+    animationState: {
+      polygonTree: TCoreRegionPolygonTree;
+      bounds?: { x: number; y: number; width: number; height: number };
+    };
+    renderFlags: { set(flags: Record<string, boolean>): void };
+  }
+
+  /** The Region layer members the highlight hooks read: `_highlights` holds every highlight mesh. */
+  interface TCoreRegionLayer {
+    _highlights?: PIXI.Container;
+    placeables: TCoreRegionPlaceable[];
+  }
 }
 
 // Native Foundry v14 Scene schema fields missing from foundry-vtt-types #main.
@@ -70,6 +128,7 @@ declare module "fvtt-types/configuration" {
     }
 
     // v14 common/documents/scene.mjs:106 -- fog.mode NumberField, choices
+    // CONST.FOG_EXPLORATION_MODES, initial INDIVIDUAL (1). fvtt-types #main still has the
     // v13 shape (exploration/overlay) -- merging can add `mode` but not remove those.
     interface FogSchema {
       mode: foundry.data.fields.NumberField<{ required: true; initial: 1 }>;

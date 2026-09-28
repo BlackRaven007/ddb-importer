@@ -50,6 +50,7 @@ export async function getConjureAnimals({
   stub = await DDBCompanionMixin.addEnrichedImageData(stub);
   const enriched = foundry.utils.getProperty(document, "flags.monsterMunch.enrichedImages");
 
+  // console.warn("Conjure Animals", {
   //   stub: deepClone(stub),
   //   enriched,
   // });

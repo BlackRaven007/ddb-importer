@@ -30,6 +30,11 @@ function getContentsOfDirectory(directoryPath) {
     if (['.js', '.mjs', '.ts'].includes(fileExtension)) {
       const content = fs.readFileSync(filePath, { encoding: 'utf8', flag: 'r' });
 
+      if (/export\s+default\s+abstract\s+class\s/.test(content)) {
+        seen.add(baseName);
+        return;
+      }
+
       const className = content.match(/class\s+([a-zA-Z_$][\w$]*)/);
       if (className) {
         if (className[1] === "Empty") {
@@ -42,6 +47,7 @@ function getContentsOfDirectory(directoryPath) {
         const exportLine = `export { default as ${className[1]} } from "./${baseName2}";`
         contents.push(exportLine);
         seen.add(baseName);
+        // console.log(exportLine);
       }
     }
   });
@@ -60,6 +66,7 @@ const flatDirectories = [
 for (const directory of flatDirectories) {
   const contents = getContentsOfDirectory(directory);
   const outfilePath = path.join(directory, "_module.ts");
+  // console.log(`Writing ${outfilePath}`);
   writeModuleFile(outfilePath, contents);
 }
 
@@ -110,6 +117,7 @@ for (const directory of nestedDirs) {
     contents.push(...getContentsOfDirectory(basePath));
 
     const outfilePath = path.join(basePath, "_module.ts");
+    // console.log(`Writing ${outfilePath}`);
     writeModuleFile(outfilePath, contents);
   }
 
@@ -120,6 +128,7 @@ for (const directory of nestedDirs) {
       const contents = getContentsOfDirectory(fullDirPath);
 
       const outfilePath = path.join(fullDirPath, "_module.ts");
+      // console.log(`Writing ${outfilePath}`);
       writeModuleFile(outfilePath, contents);
     }
   }

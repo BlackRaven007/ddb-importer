@@ -1,6 +1,6 @@
 import { DICTIONARY } from "../../config/_module";
 import { utils, logger } from "../../lib/_module";
-import { DDBDataUtils, DDBModifiers } from "../lib/_module";
+import { DDBDataUtils } from "../lib/_module";
 import DDBFeatureMixin from "./DDBFeatureMixin";
 
 export default class DDBAction extends DDBFeatureMixin {
@@ -15,8 +15,15 @@ export default class DDBAction extends DDBFeatureMixin {
   declare ddbFeature: TDDBActionTypes;
   declare ddbDefinition: TDDBActionTypes & IDDBActionBackedDefinition;
 
-  _init() {
+  override _init() {
     this.isAction = true;
+    // A DDB action carries no classId/className of its own, so the class comes
+    // from the class feature it hangs off. Without it the ruleset version falls
+    // back to the source book, and a legacy subclass served under the 2024
+    // rules (e.g. Path of the Beast (TCoE)) produces actions stamped 2014 while
+    // the feature documents beside them are 2024.
+    this._class = this._findClassForDefinition(this.ddbDefinition)
+      ?? this._findClassForDefinition(this._parent?.definition as TDDBFeatureMixinDefinitions | undefined);
     logger.debug(`Generating Action ${this.ddbDefinition.name}`);
   }
 
@@ -24,7 +31,7 @@ export default class DDBAction extends DDBFeatureMixin {
     return DDBDataUtils.displayAsAttack(this.ddbData, this.ddbDefinition, this.rawCharacter);
   }
 
-  _generateSystemType(typeNudge: ICoreSourceTypes | null = null) {
+  override _generateSystemType(typeNudge: ICoreSourceTypes | null = null) {
     if (this.documentType === "weapon") {
       this._generateWeaponType();
     } else if (this.ddbData.character.actions.class.some((a) =>
@@ -56,7 +63,7 @@ export default class DDBAction extends DDBFeatureMixin {
     return this.ddbDefinition.attackTypeRange || this.ddbDefinition.rangeId;
   }
 
-  getDamage(bonuses: string[] = []) {
+  override getDamage(bonuses: string[] = []) {
     // when the action type is not set to melee or ranged we don't apply the mod to damage
     const meleeOrRangedAction = this.isMeleeOrRangedAction();
     const modBonus = (this.ddbDefinition.statId || this.ddbDefinition.abilityModifierStatId)
@@ -64,11 +71,10 @@ export default class DDBAction extends DDBFeatureMixin {
       && meleeOrRangedAction
       ? " + @mod"
       : "";
-    const unarmedDamageBonus = DDBModifiers.filterBaseCharacterModifiers(this.ddbData, "damage", { subType: "unarmed-attacks" })
-      .reduce((prev, cur) => prev + (cur.value as number), 0);
-
+    // unarmed damage and attack bonuses (damage/unarmed-attacks, bonus/unarmed-attacks) are
+    // generated on effects with conditions, not added here
     const damage = this.ddbDefinition.isMartialArts
-      ? super.getMartialArtsDamage(bonuses.concat((unarmedDamageBonus === 0 ? [] : [`+ ${unarmedDamageBonus}`])))
+      ? super.getMartialArtsDamage(bonuses)
       : super.getDamage(bonuses.concat([modBonus]));
 
     if (damage.number || damage.custom?.enabled) {
@@ -82,7 +88,7 @@ export default class DDBAction extends DDBFeatureMixin {
     }
   }
 
-  getActionAttackAbility() {
+  override getActionAttackAbility() {
     const defaultAbility = this.ddbDefinition.abilityModifierStatId
       ? DICTIONARY.actor.abilities.find(
         (stat) => stat.id === this.ddbDefinition.abilityModifierStatId,
@@ -107,13 +113,6 @@ export default class DDBAction extends DDBFeatureMixin {
     }
   }
 
-  getBonusDamage() {
-    if (this.ddbDefinition.isMartialArts) {
-      return DDBModifiers.filterBaseCharacterModifiers(this.ddbData, "bonus", { subType: "unarmed-attacks" }).reduce((prev, cur) => prev + (cur.value as number), 0);
-    }
-    return "";
-  }
-
   _generateProperties() {
     if (!("properties" in this.data.system)) return;
     const kiEmpowered = this.ddbData.character.classes
@@ -129,7 +128,7 @@ export default class DDBAction extends DDBFeatureMixin {
     }
   }
 
-  async build() {
+  override async build() {
     try {
       if (this.is2014 && DDBAction.SKIPPED_2014_ONLY_ACTIONS.includes(this.originalName)) {
         foundry.utils.setProperty(this.data, "flags.ddbimporter.skip", true);
@@ -145,8 +144,9 @@ export default class DDBAction extends DDBFeatureMixin {
       await this._generateSummons();
       await this._generateCompanions();
 
-      if (!this.enricher.stopDefaultActivity)
+      if (!this.enricher.stopDefaultActivity) {
         await this._generateActivity();
+      }
       await this.enricher.addAdditionalActivities(this);
       this._generateResourceFlags();
 
@@ -167,7 +167,7 @@ export default class DDBAction extends DDBFeatureMixin {
         `Unable to Generate Action: ${this.name}, please log a bug report. Err: ${utils.errorMessage(err)}`,
         "extension",
       );
-      logger.error("Error", err);
+      logger.error(`Unable to Generate Action: ${this.name}`, err);
     }
   }
 

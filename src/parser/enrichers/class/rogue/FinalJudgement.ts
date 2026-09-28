@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class FinalJudgement extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Divine Spirits (Cast Spirit Guardians)",
       targetType: "self",
@@ -20,7 +20,7 @@ export default class FinalJudgement extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -61,7 +61,7 @@ export default class FinalJudgement extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       replaceActivityUses: true,
       uses: {
@@ -71,7 +71,7 @@ export default class FinalJudgement extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Radiant Blade",
@@ -82,11 +82,11 @@ export default class FinalJudgement extends DDBEnricherData {
           description: "The sanctified blade is a magic weapon, emits Bright Light in a 30-foot radius and Dim Light for an additional 30 feet, and deals an extra 2d4 Radiant damage on a hit.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("2d4[radiant]", 20, "system.bonuses.mwak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("2d4[radiant]", 20, "system.rolls.damage.mwak.bonus"),
         ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.atlChange("ATL.light.bright", "upgrade", 30, 20),
-          DDBEnricherData.ChangeHelper.atlChange("ATL.light.dim", "upgrade", 60, 20),
+        tokenChanges: [
+          DDBEnricherData.ChangeHelper.tokenChange("token.light.bright", "upgrade", 30, 20),
+          DDBEnricherData.ChangeHelper.tokenChange("token.light.dim", "upgrade", 60, 20),
         ],
       },
     ];

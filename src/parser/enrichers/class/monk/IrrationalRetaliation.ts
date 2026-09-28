@@ -3,11 +3,11 @@ import type DDBClassFeatureEnricher from "../../DDBClassFeatureEnricher";
 
 export default class IrrationalRetaliation extends DDBEnricherData<DDBClassFeatureEnricher> {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       activationType: "reaction",
@@ -17,13 +17,12 @@ export default class IrrationalRetaliation extends DDBEnricherData<DDBClassFeatu
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Irrational Retaliation",
         options: {
-          durationRounds: 1,
-          durationSeconds: 12,
+          expiry: "sourceEnd",
           description: "The Warrior of Pride has Advantage on attack rolls against this creature until the end of their next turn.",
         },
         midiChanges: [

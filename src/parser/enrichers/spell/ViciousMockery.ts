@@ -14,28 +14,22 @@ export default class ViciousMockery extends DDBEnricherData {
   //   };
   // }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Vicious Mockery",
-        daeSpecialDurations: ["1Attack", "turnEnd"],
-        ac5eChanges: [
-          DDBEnricherData.ChangeHelper.customChange("once; 1", 20, "flags.automated-conditions-5e.attack.disadvantage"),
-        ],
-      },
-      {
-        midiOnly: true,
-        noCreate: true,
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.overrideChange("1", 20, "flags.midi-qol.disadvantage.attack.all"),
-        ],
-        data: {
-          duration: {
-            value: 6,
-            expiry: "turnEnd",
-            units: "seconds",
-          },
+        options: {
+          expiry: "targetEnd",
+          description: "Disadvantage on the next attack roll made before the end of the target's next turn. Without DAE or AC5e the effect lasts for every attack until then.",
         },
+        // DAE and AC5e each end the effect after the one attack; the native expiry is the ceiling
+        daeSpecialDurations: ["1Attack"],
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleDisadvantageChange("attack"),
+        ],
+        ac5eChanges: [
+          DDBEnricherData.ChangeHelper.ac5eChange("once; 1", 20, "flags.automated-conditions-5e.attack.disadvantage"),
+        ],
       },
     ];
   }

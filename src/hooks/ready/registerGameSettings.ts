@@ -1,6 +1,8 @@
 import { DICTIONARY, SETTINGS } from "../../config/_module";
 import { FileHelper, utils } from "../../lib/_module";
 import DDBSetup from "../../apps/DDBSetup";
+import { DDBRegionDisplayProfilesMenu } from "../../apps/DDBRegionDisplayProfiles";
+import RegionDisplayProfiles from "../../lib/RegionDisplayProfiles";
 // IDDBListCampaign is declared globally in lib/types.d.ts.
 // JournalPageLookup is declared globally in muncher/adventure/native/types.d.ts.
 
@@ -265,6 +267,18 @@ export default async function () {
     type: DDBSetup as any,
     restricted: true,
   });
+
+  if (RegionDisplayProfiles.enabled) {
+    game.settings.registerMenu(SETTINGS.MODULE_ID, "regionDisplayProfiles", {
+      name: `${SETTINGS.MODULE_ID}.settings.region-display-profiles.name`,
+      label: `${SETTINGS.MODULE_ID}.settings.region-display-profiles.label`,
+      hint: `${SETTINGS.MODULE_ID}.settings.region-display-profiles.hint`,
+      icon: "fas fa-draw-polygon",
+      // a stand-in that opens the one editor window: Foundry builds a new menu instance per click
+      type: DDBRegionDisplayProfilesMenu as any,
+      restricted: true,
+    });
+  }
 
   for (const [name, data] of Object.entries(SETTINGS.GET_DEFAULT_SETTINGS())) {
     game.settings.register(SETTINGS.MODULE_ID, name as any, data as any);

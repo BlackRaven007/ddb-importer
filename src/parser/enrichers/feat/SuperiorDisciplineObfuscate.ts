@@ -2,16 +2,16 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class SuperiorDisciplineObfuscate extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       activationType: "special",
       activationCondition: "When you gain the Invisible condition; expend 1 Blood Point per creature (up to 3)",
       addItemConsume: true,
-      itemConsumeTargetName: "Blood Potency",
+      itemConsumeTargetName: "feat:blood-potency",
       addScalingMode: "amount",
       addConsumptionScalingMax: "3",
       data: {
@@ -30,7 +30,7 @@ export default class SuperiorDisciplineObfuscate extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Obfuscate: Shared Invisibility",

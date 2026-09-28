@@ -2,13 +2,13 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class AlchemistsFire extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.is2014
       ? DDBEnricherData.ACTIVITY_TYPES.ATTACK
       : DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     if (this.is2014) {
       return {
         addItemConsume: true,
@@ -40,7 +40,7 @@ export default class AlchemistsFire extends DDBEnricherData {
     }
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] | null {
+  override get additionalActivities(): IDDBAdditionalActivity[] | null {
     if (this.is2014) {
       return [
         {
@@ -52,7 +52,7 @@ export default class AlchemistsFire extends DDBEnricherData {
             generateCheck: true,
             checkOverride: {
               associated: [],
-              ability: ["dex"],
+              ability: "dex",
               dc: {
                 calculation: "",
                 formula: "10",
@@ -66,7 +66,7 @@ export default class AlchemistsFire extends DDBEnricherData {
 
   }
 
-  get override(): IDDBOverrideData | null {
+  override get override(): IDDBOverrideData | null {
     if (this.is2014) {
       return null;
     } else {
@@ -79,13 +79,15 @@ export default class AlchemistsFire extends DDBEnricherData {
 
   }
 
-  get effects(): IDDBEffectHint[] {
-    if (this.is2014) return [{
-      options: {
-        transfer: false,
-        description: "You are on fire, take [[/damage 1d4 fire]] at the start of your turn. You can use an action to distinguish with a [[/check dex 10]].",
-      },
-    }];
+  override get effects(): IDDBEffectHint[] {
+    if (this.is2014) {
+      return [{
+        options: {
+          transfer: false,
+          description: "You are on fire, take [[/damage 1d4 fire]] at the start of your turn. You can use an action to distinguish with a [[/check dex 10]].",
+        },
+      }];
+    }
 
     return [{
       statuses: ["Burning"],

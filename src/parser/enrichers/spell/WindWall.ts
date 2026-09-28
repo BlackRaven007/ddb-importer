@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class WindWall extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       splitDamage: true,
       data: {

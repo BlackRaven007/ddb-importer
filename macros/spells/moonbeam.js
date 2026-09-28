@@ -132,6 +132,7 @@ if (args[0] === "each") {
   }).render(true);
 }
 
+// Delete Moonbeam
 if (args[0] === "off") {
   if (castItem) targetActor.deleteEmbeddedDocuments("Item", [castItem.id]);
   deleteTemplates(targetActor.id, "Moonbeam");

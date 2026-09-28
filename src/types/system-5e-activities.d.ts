@@ -36,6 +36,8 @@ global {
 
   interface I5eActivityEffect {
     _id?: string;
+    /** dnd5e 6.0 - link a standalone/compendium ActiveEffect. Resolution is async (`entry.getEffect()`). */
+    uuid?: string;
     onSave?: boolean;
     riders?: {
       activity?: string[];
@@ -46,6 +48,102 @@ global {
       min?: number | null;
       max?: number | null;
     };
+  }
+
+  // ---- Activity behaviors (dnd5e 6.0, attached to template-created Regions) ----
+
+  /** Config for `type: "applyActiveEffect"` - dispositions are derived from the activity target at placement. */
+  interface I5eActivityBehaviorApplyEffectConfig {
+    /** ActiveEffect UUIDs; ddb-importer enrichers may give standalone effect NAMES, resolved at import. */
+    effects?: string[];
+    sizes?: TActorSizes[];
+    types?: TCreatureTypes[];
+  }
+
+  /** Config for `type: "difficultTerrain"`. */
+  interface I5eActivityBehaviorDifficultTerrainConfig {
+    types?: string[];
+  }
+
+  /** ddb-importer's `ddbDisplay` activity behavior: the region display profile the placed region uses. */
+  interface I5eActivityBehaviorDisplayConfig extends Omit<IRegionDisplayFlag, "profile"> {
+    profile: string;
+  }
+
+  interface I5eActivityBehavior {
+    _id?: string;
+    type: "applyActiveEffect" | "difficultTerrain" | "ddbMacro" | "ddbDisplay";
+    name?: string;
+    ddbimporter?: {
+      auraeffectsOnly?: boolean;
+      auraeffectsNever?: boolean;
+      ac5eOnly?: boolean;
+      ac5eNever?: boolean;
+    };
+    level?: {
+      min?: number | null;
+      max?: number | null;
+    };
+    config?: I5eActivityBehaviorApplyEffectConfig | I5eActivityBehaviorDifficultTerrainConfig | I5eActivityBehaviorMacroConfig | I5eActivityBehaviorDisplayConfig;
+  }
+
+  /**
+   * Which `tokenEnter` events a region trigger treats as a creature entering its area. Core also
+   * raises `tokenEnter`, with no movement, for every token inside a region that is created,
+   * activated or moved, and for a token created inside one.
+   * - "movement": only a token's own movement into the area (the 2014 rule: creating the area on
+   *   a creature or moving it onto one is not entering).
+   * - "movementOrArea": that, plus the area moving onto a token, but not the region being created
+   *   or activated, or a token created inside it (the 2024 "when the area moves into its space"
+   *   wording, where the cast rolled for creatures already inside).
+   * - "any": every `tokenEnter`.
+   * - "auto": resolved at placement to "movementOrArea" when the placing activity rolls for the
+   *   creatures in its area (save, attack, damage, heal), otherwise to "any".
+   */
+  type TRegionEnterOn = "auto" | "movement" | "movementOrArea" | "any";
+
+  /** ddb-importer's `ddbMacro` activity behavior: run a RegionAutomations handler on core region events. */
+  interface I5eActivityBehaviorMacroConfig {
+    /** Fire on the origin token's turn, even outside the region. */
+    ownerTurn?: boolean;
+    ownerTurnTargets?: "region" | "none";
+    fireOnPlacement?: boolean;
+    /** A one-shot region ends after its follow-up card has been created. */
+    deleteAfterUse?: boolean;
+    /** Alternative sibling names offered alongside the recipient choice. */
+    activityChoices?: string[];
+    /** Source conditions which suppress this owner-turn trigger. */
+    skipOriginStatuses?: string[];
+    /** One-shot fallback outside combat, in seconds; combat end also removes the region. */
+    fallbackDuration?: number;
+    function?: string;
+    events?: string[];
+    /** Sibling activity id to use instead of the placing activity. */
+    activity?: string;
+    oncePerTurn?: boolean;
+    /** Never trigger for the token the region originates from. */
+    excludeSelf?: boolean;
+    /** Which `tokenEnter` events count as entering the area; see TRegionEnterOn. */
+    enterOn?: TRegionEnterOn;
+    scale?: boolean;
+    /** Roll attack/damage automatically instead of posting a card with buttons (default false). */
+    autoRoll?: boolean;
+    /** Tokens triggered by one burst of region events share a single usage card (default true). */
+    groupTargets?: boolean;
+    /** Only trigger for actors of these sizes (CONFIG.DND5E.actorSizes keys); empty = all. */
+    sizes?: string[];
+    /** Only trigger for these creature types (CONFIG.DND5E.creatureTypes keys); empty = all. */
+    types?: string[];
+    /** Never trigger for these creature types - "any creature other than an ooze" wording. */
+    excludeTypes?: string[];
+    /** executeMacro handler: `ddb.<type>.<file>` or a Foundry macro name or a world / compendium macro uuid. */
+    macroName?: string;
+    /** Override for a ddbmacro activity's stored macro parameters, or the executeMacro parameters. */
+    macroParameters?: string;
+    /** Extra handler arguments (e.g. activityName, custom handler data), merged under the structured fields. */
+    args?: Record<string, unknown>;
+    /** Region display profile id for the region this trigger is placed on; blank for the Foundry look. */
+    displayProfile?: string;
   }
 
   interface IMidiActivityProperties {
@@ -97,9 +195,12 @@ global {
     name?: string;
     img?: string;
     activation?: I5eActivityActivation;
+    behaviors?: I5eActivityBehavior[];
     consumption?: I5eActivityConsumption;
     description?: {
-      chatFlavor: string;
+      chatFlavor?: string;
+      /** dnd5e 6.0 chat description (HTMLField); falls back to `item.system.description.chat` on cards. */
+      value?: string;
     };
     duration?: I5eActivityDuration;
     effects?: I5eActivityEffect[];
@@ -107,6 +208,13 @@ global {
       ddbimporter?: {
         isElixirAdditionalActivity?: boolean;
         activityRiders?: string[];
+        /** Used while its spell is concentrated on, joins that concentration (ConcentrationFollowUp). */
+        joinConcentration?: boolean;
+      };
+      dnd5e?: {
+        /** Id of the applied enchantment (same item) this rider activity was created for; removed with it. */
+        dependentOn?: string;
+        // [key: string]: unknown;
       };
       // some enrichers write midi properties via activity flags overrides
       midiProperties?: IMidiActivityProperties;
@@ -127,7 +235,10 @@ global {
   type T5eActivityAttackAbility = T5eAbility | "spellcasting" | "none" | "";
 
   interface I5eActivityAttack {
+    /** Still a persisted string in dnd5e 6.0. */
     ability?: T5eActivityAttackAbility;
+    /** dnd5e 6.0 derives `attack.abilities` (Set, persisted: false) from `ability` - never write it. */
+    // abilities?: never;
     bonus?: string;
     critical?: {
       threshold?: number;
@@ -155,10 +266,16 @@ global {
 
   interface I5eActivitySave {
     ability?: string[];
+    /** dnd5e 6.0 FormulaField - appended to the target's roll, resolved against the OWNING actor's roll data. */
+    bonus?: string;
     dc?: {
       calculation?: string;
       formula?: string;
+      /** Derived AE target only in dnd5e 6.0 (persisted: false) - never write it. */
+      // bonus?: never;
     };
+    /** dnd5e 6.0 - gates whether the chat save button is visible to all (default true). */
+    visible?: boolean;
     override?: boolean;
   }
 
@@ -193,8 +310,9 @@ global {
   type I5eActivityCastSpellProperties = typeof DICTIONARY.spell.components[keyof typeof DICTIONARY.spell.components];
   interface I5eActivitySpell {
     challenge?: {
-      attack?: number;
-      save?: number;
+      /** FormulaField in dnd5e 6.0 - emit deterministic formula strings, not numbers. */
+      attack?: string;
+      save?: string;
       override: boolean;
     };
     level?: number | null;
@@ -258,13 +376,17 @@ global {
   }
 
   interface I5eActivityCheck {
-    // dnd5e stores check.ability as a string, but some build paths supply arrays
-    ability?: string | string[];
+    /** A single StringField in dnd5e; blank lets an associated skill or tool supply the ability. */
+    ability?: string;
     associated?: string[];
+    /** dnd5e 6.0 FormulaField - appended to the target's roll, resolved against the OWNING actor's roll data. */
+    bonus?: string;
     dc?: {
       calculation?: string;
       formula?: string;
     };
+    /** dnd5e 6.0 - gates whether the chat check button is visible to all (default true). */
+    visible?: boolean;
   }
 
   interface I5eCheckActivity extends I5eActivityBase {
@@ -324,9 +446,14 @@ global {
 
   interface I5eActivityTransform {
     customize?: boolean;
+    /** dnd5e 6.0 - with mode "form", offers a "No Form" choice that removes every applied form. */
+    formless?: boolean;
+    /** Moved to `visibility.identifier` in dnd5e 6.0 (auto-migrated). */
     identifier?: string;
-    preset?: "wildshape" | "polymorph";
-    mode?: "cr" | "";
+    /** A `DND5E.transformation.presets` key; blank for mode "form", which ignores the settings. */
+    preset?: "wildshape" | "polymorph" | "polymorphSelf" | "";
+    /** dnd5e 6.0 adds "form": forms live in the activity's `effects[]`; `profiles[]` are ignored. */
+    mode?: "cr" | "form" | "";
   }
 
   export interface I5eActivitySettings {
@@ -344,8 +471,26 @@ global {
   interface I5eTransformActivity extends I5eActivityBase {
     type: "transform";
     transform?: I5eActivityTransform;
-    settings?: I5eActivitySettings;
+    /** Null for mode "form", which never reads the transformation settings. */
+    settings?: I5eActivitySettings | null;
+    profiles?: I5eSummonProfile[];
   };
+
+  /**
+   * dnd5e 6.0 teleport distance. Normally leave the whole object unset - the distance is derived
+   * from the activity's `range` (`units: "any"` -> Infinity). Only set `override: true` with
+   * `value`/`units` for a custom distance; `value` is a deterministic formula ("" -> Infinity).
+   */
+  interface I5eActivityTeleport {
+    override?: boolean;
+    units?: string;
+    value?: string;
+  }
+
+  interface I5eTeleportActivity extends I5eActivityBase {
+    type: "teleport";
+    teleport?: I5eActivityTeleport;
+  }
 
   type I5eActivity =
     | I5eAttackActivity
@@ -359,7 +504,8 @@ global {
     | I5eDDBMacroActivity
     | I5eEnchantActivity
     | I5eForwardActivity
-    | I5eTransformActivity;
+    | I5eTransformActivity
+    | I5eTeleportActivity;
 
   /**
    * The wide shape used by the DDB activity builder classes, which assemble an
@@ -369,7 +515,7 @@ global {
   interface IActivityData extends I5eActivityBase {
     spell?: I5eActivitySpell;
     restrictions?: I5eActivityRestrictions;
-    settings?: I5eActivitySettings;
+    settings?: I5eActivitySettings | null;
     activity?: I5eActivityActivity;
     attack?: I5eActivityAttack;
     damage?: I5eActivityDamage;
@@ -383,9 +529,9 @@ global {
     profiles?: I5eSummonProfile[];
     summon?: I5eActivitiesSummon;
     transform?: I5eActivityTransform;
+    teleport?: I5eActivityTeleport;
     macro?: IDDBActivityMacro;
     save?: I5eActivitySave;
     check?: I5eActivityCheck;
   }
 }
-

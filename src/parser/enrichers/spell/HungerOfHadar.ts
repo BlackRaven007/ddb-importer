@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class HungerOfHadar extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DDBMACRO;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast and Place Darkness",
       data: {
@@ -17,11 +17,38 @@ export default class HungerOfHadar extends DDBEnricherData {
           visible: false,
           parameters: `{"darkness":true,"distance":20,"isTemplate":true,"lightConfig":{"dim":0,"bright":20},"flag":"darkness"}`,
         },
+        target: {
+          override: true,
+          template: {
+            type: "sphere",
+            size: "20",
+            units: "ft",
+          },
+          affects: {
+            type: "creature",
+          },
+        },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.difficultTerrain(),
+          DDBEnricherData.BehaviorHelper.applyEffect({ effects: DDBEnricherData.SRDEffects.condition("blinded") }),
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenTurnStart"],
+            activityName: "Start of Turn Damage",
+          }),
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenTurnEnd"],
+            activityName: "End of Turn Save vs Damage",
+          }),
+        ],
       },
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get clearAutoEffects(): boolean {
+    return true;
+  }
+
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {

@@ -3,11 +3,11 @@ import Maneuver from "./Maneuver";
 
 export default class ManeuverCommandersStrike extends Maneuver {
 
-  get type() {
+  override get type(): IDDBActivityType {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Commander's Strike",
       targetType: "ally",
@@ -16,18 +16,18 @@ export default class ManeuverCommandersStrike extends Maneuver {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       this.extraDamageActivity(),
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         midiOnly: true,
         activityMatch: "Commander's Strike",
-        daeSpecialDurations: ["1Attack" as const],
+        daeSpecialDurations: ["1Attack"],
         data: {
           duration: {
             value: 6,
@@ -36,8 +36,8 @@ export default class ManeuverCommandersStrike extends Maneuver {
           },
         },
         midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.mwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.rwak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.rolls.damage.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.rolls.damage.rwak.bonus"),
         ],
       },
     ];

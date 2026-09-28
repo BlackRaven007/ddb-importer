@@ -2,18 +2,18 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class HolyStarOfMystra extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast Spell",
       targetType: "self",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -21,6 +21,8 @@ export default class HolyStarOfMystra extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.ATTACK,
         },
         build: {
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
           generateAttack: true,
           generateDamage: true,
           generateActivation: true,
@@ -56,7 +58,7 @@ export default class HolyStarOfMystra extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const results: IDDBEffectHint[] = [
       { type: "Acid", img: "icons/magic/acid/dissolve-bone-white.webp" },
       { type: "Cold", img: "icons/magic/water/barrier-ice-crystal-wall-jagged-blue.webp" },
@@ -67,13 +69,12 @@ export default class HolyStarOfMystra extends DDBEnricherData {
       return {
         name: `Elemental Immunity: ${element.type}`,
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(element.type.toLowerCase(), 1, "system.traits.di.value"),
+          DDBEnricherData.ChangeHelper.damageImmunityChange(element.type, 1),
         ],
         img: element.img,
         activityMatch: "Cast Spell",
         options: {
           durationSeconds: 60,
-          durationRounds: 10,
         },
       };
     });

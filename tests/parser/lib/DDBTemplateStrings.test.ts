@@ -4,9 +4,12 @@ vi.mock("../../../src/parser/lib/DDBReferenceLinker", () => ({
   parseTags: (t: string) => t,
 }));
 
-import { parse } from "../../../src/parser/lib/DDBTemplateStrings";
+import { parse, parseSnippet } from "../../../src/parser/lib/DDBTemplateStrings";
+import logger from "../../../src/lib/Logger";
 
+// =============================================================================
 // Fixtures
+// =============================================================================
 
 function makeFeature(defOverrides: Record<string, any> = {}, extra: Record<string, any> = {}): any {
   return {
@@ -51,7 +54,60 @@ const ddb = makeDdb();
 const ddbWithWizard = makeDdb({ classes: [wizardClass] });
 const character = makeCharacter();
 
+describe("compound template constraints", () => {
+  function evaluate(text: string, level: number, cha = 4): number {
+    const formula = text.replace(/^(?:\+ )?\[\[/, "").replace(/\]\]$/, "")
+      .replaceAll("@classes.wizard.levels", String(level)).replaceAll("@classes.cleric.levels", String(level))
+      .replaceAll("@abilities.cha.mod", String(cha));
+    return Function("floor", "ceil", "min", "max", `return (${formula});`)(Math.floor, Math.ceil, Math.min, Math.max);
+  }
+
+  it("adds an ability modifier after rounding an odd or even class level", () => {
+    const text = parse(ddbWithWizard, character, "{{(classlevel/2)@rounddown+modifier:cha#unsigned}}", makeFeature({ classId: 42 }))!.text;
+    expect(evaluate(text, 11)).toBe(9);
+    expect(evaluate(text, 12)).toBe(10);
+    expect(evaluate(text, 11, -1)).toBe(4);
+  });
+
+  it("preserves outer parentheses and a numeric constraint after #", () => {
+    const text = parse(ddbWithWizard, character, "{{((classlevel/10)@rounddown+1)*10#max:20}}", makeFeature({ classId: 42 }))!.text;
+    expect([9, 10, 20].map((level) => evaluate(text, level))).toEqual([10, 20, 20]);
+  });
+
+  it("keeps arithmetic outside a parenthesized rounded expression", () => {
+    const text = parse(ddbWithWizard, character, "{{((classlevel/2)@rounddown)+3}}", makeFeature({ classId: 42 }))!.text;
+    expect(evaluate(text, 11)).toBe(8);
+  });
+
+  it("resolves constraint operands without reversing min/max", () => {
+    const feature = makeFeature({ classId: 42 });
+    const capped = parse(ddbWithWizard, character, "{{classlevel@max:modifier:cha}}", feature)!.text;
+    const bounded = parse(ddbWithWizard, character, "{{classlevel@min:modifier:cha}}", feature)!.text;
+    expect(evaluate(capped, 10)).toBe(4);
+    expect(evaluate(bounded, 2)).toBe(4);
+  });
+
+  it("replaces the captured Divine Spark expression with the feature's spark scale", () => {
+    const source = "Restore <strong>{{1+(classlevel/7)@rounddown,max:1+(classlevel/13)@rounddown+(classlevel/18)@rounddown}}d8{{modifier:wis}}</strong> HP";
+    const feature = makeFeature({ classId: 42, name: "Channel Divinity: Divine Spark" });
+    const text = parse(ddbWithWizard, character, source, feature)!.text;
+    expect(text).toContain("[[/roll (@scale.channel-divinity.spark)d8 + @abilities.wis.mod]]");
+  });
+
+  it.each(["{{classlevel@unknown}}", "{{(classlevel/2)@rounddown+unknown}}", "{{((classlevel/2)@rounddown+1}}"])("preserves unsupported input %s and warns", (source) => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    try {
+      expect(parse(ddbWithWizard, character, source, makeFeature({ classId: 42 }))!.text).toBe(source);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+// =============================================================================
 // Basics
+// =============================================================================
 
 describe("parse basics", () => {
   it("returns undefined for empty text", () => {
@@ -95,7 +151,9 @@ describe("parse basics", () => {
   });
 });
 
+// =============================================================================
 // savedc
+// =============================================================================
 
 describe("savedc templates", () => {
   it("replaces a single-ability save DC", () => {
@@ -126,7 +184,9 @@ describe("savedc templates", () => {
   });
 });
 
+// =============================================================================
 // modifier
+// =============================================================================
 
 describe("modifier templates", () => {
   it("replaces a single ability modifier as a signed inline roll", () => {
@@ -140,7 +200,9 @@ describe("modifier templates", () => {
   });
 });
 
+// =============================================================================
 // proficiency / characterlevel / spellattack / abilityscore
+// =============================================================================
 
 describe("simple attribute templates", () => {
   it("replaces proficiency", () => {
@@ -164,7 +226,9 @@ describe("simple attribute templates", () => {
   });
 });
 
+// =============================================================================
 // classlevel
+// =============================================================================
 
 describe("classlevel templates", () => {
   it("resolves classlevel via a classId on the feature definition", () => {
@@ -204,7 +268,9 @@ describe("classlevel templates", () => {
   });
 });
 
+// =============================================================================
 // limiteduse and fixedvalue
+// =============================================================================
 
 describe("limiteduse and fixedvalue templates", () => {
   const limitedFeature = () => makeFeature({ limitedUse: { maxUses: 3 } });
@@ -245,7 +311,9 @@ describe("limiteduse and fixedvalue templates", () => {
   });
 });
 
+// =============================================================================
 // scalevalue
+// =============================================================================
 
 describe("scalevalue templates", () => {
   it("resolves a fixed scale value", () => {
@@ -281,9 +349,50 @@ describe("scalevalue templates", () => {
     const result = parse(ddbWithWizard, character, "{{scalevalue}}", feature);
     expect(result?.text).toBe("[[/roll @scale.wizard.sneak-attack]]");
   });
+
+  // Real class features arrive as { definition, levelScale } with no componentId anywhere;
+  // only DDB actions carry one. The TypeScript port briefly required both.
+  it("resolves a class feature wrapper that has no componentId", () => {
+    const feature = {
+      definition: {
+        id: 55,
+        entityTypeId: 100,
+        classId: 42,
+        name: "Sneak Attack",
+        levelScales: [{ level: 1, fixedValue: null, dice: { diceString: "1d6" } }],
+      },
+      levelScale: { level: 1, fixedValue: null, dice: { diceString: "1d6" } },
+    };
+    const result = parse(ddbWithWizard, character, "{{scalevalue}}", feature as any);
+    expect(result?.text).toBe("[[/roll @scale.wizard.sneak-attack]]");
+  });
+
+  it("resolves a class feature wrapper whose current level has no scale row yet", () => {
+    const feature = {
+      definition: {
+        id: 55,
+        entityTypeId: 100,
+        classId: 42,
+        name: "Sneak Attack",
+        levelScales: [{ level: 3, fixedValue: null, dice: { diceString: "2d6" } }],
+      },
+      levelScale: null,
+    };
+    const result = parse(ddbWithWizard, character, "{{scalevalue}}", feature as any);
+    expect(result?.text).toBe("[[/roll @scale.wizard.sneak-attack]]");
+  });
+
+  it("hands the template back verbatim when no scale can be found", () => {
+    const feature = makeFeature({ componentId: 999 }, { componentId: 999 });
+    const result = parse(ddb, character, "use it {{scalevalue}} times", feature);
+    expect(result?.text).toBe("use it {{scalevalue}} times");
+    expect(result?.text).not.toContain("[[scalevalue]]");
+  });
 });
 
+// =============================================================================
 // Odd cases
+// =============================================================================
 
 describe("odd cases", () => {
   it("wraps unknown templates in an inline roll rather than passing them through", () => {
@@ -323,10 +432,13 @@ describe("odd cases", () => {
   });
 });
 
+// =============================================================================
 // Real DDB snippets
+//
 // Regression coverage using verbatim description/snippet text pulled from two
 // live characters (diff/raw.json, diff/optional.json). Characterization style:
 // each assertion pins the actual parse() output for a real-world input shape.
+// =============================================================================
 
 // A dice-backed scale value, matching the "resolves a dice scale value" fixture.
 const scaleDiceFeature = () => makeFeature(
@@ -409,6 +521,63 @@ describe("real DDB snippets", () => {
     );
   });
 
+  it("applies a min constraint list ending in an unsigned marker to a modifier token", () => {
+    const result = parse(ddb, character, "You can use this feature {{modifier:wis#min:1,unsigned}} times per Long Rest", makeFeature());
+    expect(result?.text).toBe("You can use this feature [[max(@abilities.wis.mod, 1)]] times per Long Rest");
+  });
+
+  it("applies a min constraint list ending in an unsigned marker to a multiplied modifier", () => {
+    const result = parse(ddb, character, "You regain {{2*modifier:int#min:2,unsigned}} charges", makeFeature());
+    expect(result?.text).toBe("You regain [[max(2 * @abilities.int.mod, 2)]] charges");
+  });
+
+  it("does not read an unsigned marker as a second ability", () => {
+    const result = parse(ddb, character, "The bonus equals {{modifier:str,unsigned}} points", makeFeature());
+    expect(result?.text).toBe("The bonus equals [[@abilities.str.mod]] points");
+  });
+
+  it("rounds the whole expression for a # rounding constraint followed by an unsigned marker", () => {
+    const result = parse(
+      ddbWithWizard,
+      character,
+      "You gain {{modifier:wis+(classlevel/2)#rounddown,unsigned}} points",
+      makeFeature({ classId: 42 }),
+    );
+    expect(result?.text).toBe("You gain [[floor(@abilities.wis.mod + (@classes.wizard.levels / 2))]] points");
+  });
+
+  it("keeps the sign outside the roll for a constraint list ending in a signed marker", () => {
+    const result = parse(
+      ddbWithWizard,
+      character,
+      "Add {{(((classlevel-4)/7)@rounddown+1)#max:3,min:1,signed}} to the roll",
+      makeFeature({ classId: 42 }),
+    );
+    expect(result?.text).toBe(
+      "Add + [[max(min((floor(((@classes.wizard.levels - 4) / 7)) + 1), 3), 1)]] to the roll",
+    );
+  });
+
+  it("rounds before applying min in a signed rounddown constraint list", () => {
+    const result = parse(
+      ddbWithWizard,
+      character,
+      "Add {{(12+classlevel)/7#rounddown,min:2,signed}} to the roll",
+      makeFeature({ classId: 42 }),
+    );
+    expect(result?.text).toBe("Add + [[max(floor((12 + @classes.wizard.levels) / 7), 2)]] to the roll");
+  });
+
+  it("leaves a signed constraint list unsigned when it is a dice count", () => {
+    const result = parse(
+      ddbWithWizard,
+      character,
+      "Gain <strong>{{(12+classlevel)/7#rounddown,min:2,signed}}d6</strong> Temporary HP",
+      makeFeature({ classId: 42 }),
+    );
+    expect(result?.text).toBe("Gain <strong>[[max(floor((12 + @classes.wizard.levels) / 7), 2)]]d6</strong> Temporary HP");
+  });
+
   it("resolves a bare proficiency token", () => {
     const result = parse(ddb, character, "You have {{proficiency}} Luck Points that you can spend on the benefits below", makeFeature());
     expect(result?.text).toBe("You have + [[@prof]] Luck Points that you can spend on the benefits below");
@@ -488,5 +657,21 @@ describe("display string linktext (friendly labels lost)", () => {
     expect(displayStrings[1].parsed).toBe(" + @abilities.str.mod");
     expect(displayStrings[2].parsed).toBe(" + @prof");
     expect(displayStrings[3].parsed).toBe(" + @details.level");
+  });
+});
+
+describe("parseSnippet", () => {
+  const source = "Use the widget as a Bonus Action {{modifier:wis#min:1,unsigned}} times.\r\n\r\n<em>Turn on Widget by clicking on this feature and selecting the drop down called Widget. Deselect it to stop this effect.</em>";
+
+  it("removes DDB character-sheet instructions from an activity snippet", () => {
+    expect(parseSnippet({ ddbData: ddb, rawCharacter: null, text: source, feature: makeFeature() })).toBe(
+      "<p>Use the widget as a Bonus Action [[max(@abilities.wis.mod, 1)]] times.</p>\n",
+    );
+  });
+
+  it("removes DDB character-sheet instructions when there is no DDB data to parse templates with", () => {
+    expect(parseSnippet({ ddbData: null, text: source, feature: makeFeature() })).toBe(
+      "<p>Use the widget as a Bonus Action {{modifier:wis#min:1,unsigned}} times.</p>\n",
+    );
   });
 });

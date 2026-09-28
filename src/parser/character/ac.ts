@@ -108,6 +108,14 @@ function getUnarmoredAC(modifiers: IModifiersMod[], character: I5ePCData): numbe
   const isUnarmored = modifiers.filter(
     (modifier) => modifier.type === "set" && modifier.subType === "unarmored-armor-class" && modifier.isGranted,
   );
+  // if (isUnarmored.length === 0) {
+  //   // Some items will have an unarmoured bonus, but won't set a base, so if we are in this
+  //   // situation, we add a default base ac
+  //   isUnarmored.push({
+  //     statId: 2,
+  //     value: 0,
+  //   });
+  // }
 
   const ignoreDex = modifiers.some((modifier) => modifier.type === "ignore" && modifier.subType === "unarmored-dex-ac-bonus");
 
@@ -116,12 +124,16 @@ function getUnarmoredAC(modifiers: IModifiersMod[], character: I5ePCData): numbe
   ).map((mods) => Number(mods.value));
   const maxUnamoredDexMod = ignoreDex ? 0 : Math.min(...maxUnamoredDexMods, 20);
 
+  // console.log(`Max Dex: ${maxUnamoredDexMod}`);
   isUnarmored.forEach((unarmored) => {
     let unarmoredACValue = 10;
     // +DEX
     // for a case of setting unarmoured ac, the dex won't detract
     unarmoredACValue += Math.max(0, Math.min(utils.calculateModifier(characterAbilities.dex.value ?? 10), maxUnamoredDexMod));
     // +WIS or +CON, if monk or barbarian, draconic resilience === null
+
+    // console.log(`Unarmoured AC Value: ${unarmoredACValue}`);
+    // console.log(unarmored);
 
     if (unarmored.statId !== null) {
       const ability = DICTIONARY.actor.abilities.find((ability) => ability.id === unarmored.statId);
@@ -134,6 +146,7 @@ function getUnarmoredAC(modifiers: IModifiersMod[], character: I5ePCData): numbe
     if (unarmored.value) unarmoredACValue += Number(unarmored.value);
     unarmoredACValues.push(unarmoredACValue);
   });
+  // console.warn(unarmoredACValues);
   return unarmoredACValues;
 }
 
@@ -155,6 +168,8 @@ function getDualWieldAC(data: IDDBData, modifiers: IDDBModifier[]) {
   return dualWieldBonus;
 }
 
+// To Do: Rework AC functions as class functions to help reduce complexity in calculation.
+
 function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmor: IDDBCalculatedArmor): IDDBACResults {
   const characterAbilities = character.flags?.ddbimporter?.dndbeyond?.effectAbilities;
   if (!characterAbilities) {
@@ -163,8 +178,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
   // an unset ability score is treated as the neutral 10 (modifier +0)
   const dexModifier = utils.calculateModifier(characterAbilities?.dex.value ?? 10);
   let actorBase = 10 + dexModifier;
-  // generated AC effects
-  const effects: I5eEffectData[] = [];
   // array to assemble possible AC values
   const armorClassValues = [];
   // max holders
@@ -207,7 +220,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
       const acType = DICTIONARY.equipment.armorType.find((a) => a.id === armourTypeId);
       if (acType) calculatedArmor.armors[armor].definition.type = acType.name;
     }
-    let effect: I5eEffectData;
     let acValue: IDDBACValue;
 
     switch (calculatedArmor.armors[armor].definition.type) {
@@ -217,6 +229,9 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
         const ignoreUnarmouredACBonus = DDBModifiers.filterBaseModifiers(data, "ignore", { subType: "unarmored-dex-ac-bonus" });
         if (ignoreUnarmouredACBonus) {
           acCalc = armorAC + calculatedArmor.miscACBonus;
+          // console.log(armorAC);
+          // console.log(gearAC);
+          // console.log(miscACBonus);
         } else {
           acCalc = armorAC + calculatedArmor.miscACBonus + calculatedArmor.unarmoredACBonus;
         }
@@ -229,7 +244,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
           calculatedArmor,
         };
         if (acCalc > actorBase) actorBase = acCalc - shieldMod;
-        effect = ACBonusEffects.generateFixedACEffect(String(acValue.value), `AC ${calculatedArmor.armors[armor].definition.name} (Natural): ${acValue.value}`, true);
         break;
       }
       case "Unarmored Defense": {
@@ -243,7 +257,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
           calculatedArmor,
         };
         if (acCalc > actorBase) actorBase = acCalc - shieldMod;
-        effect = ACBonusEffects.generateFixedACEffect(String(acValue.value), `AC ${calculatedArmor.armors[armor].definition.name} (Unarmored Defense): ${acValue.value}`);
         break;
       }
       case "Unarmored": {
@@ -258,7 +271,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
           calculatedArmor,
         };
         if (acCalc > actorBase) actorBase = acCalc - shieldMod;
-        effect = ACBonusEffects.generateFixedACEffect(`${acValue.value} + @abilities.dex.mod`, `AC ${calculatedArmor.armors[armor].definition.name} (Unarmored): ${acValue.value}`, true, 15);
         break;
       }
       case "Heavy Armor": {
@@ -271,7 +283,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
           shieldMod,
           calculatedArmor,
         };
-        effect = ACBonusEffects.generateFixedACEffect(String(acValue.value), `AC ${calculatedArmor.armors[armor].definition.name} (Heavy): ${acValue.value}`);
         break;
       }
       case "Medium Armor": {
@@ -289,7 +300,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
           shieldMod,
           calculatedArmor,
         };
-        effect = ACBonusEffects.generateFixedACEffect(`${acCalc} + {@abilities.dex.mod, ${maxDexMedium}}kl`, `AC ${calculatedArmor.armors[armor].definition.name} (Medium): ${acValue.value}`);
         break;
       }
       case "Light Armor": {
@@ -302,7 +312,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
           shieldMod,
           calculatedArmor,
         };
-        effect = ACBonusEffects.generateFixedACEffect(`${acCalc} + @abilities.dex.mod`, `AC ${calculatedArmor.armors[armor].definition.name} (Light): ${acValue.value}`);
         break;
       }
       case "Custom": {
@@ -319,7 +328,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
         if (acValue.formula === undefined) {
           logger.warn(`calculateACOptions: custom armor ${acValue.name} has no formula, using an empty AC formula`);
         }
-        effect = ACBonusEffects.generateFixedACEffect(acValue.formula ?? "", `AC ${acValue.name}: ${acValue.value}`, false, 22);
         break;
       }
       default: {
@@ -332,19 +340,8 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
           shieldMod,
           calculatedArmor,
         };
-        effect = ACBonusEffects.generateFixedACEffect(`${acCalc} + @abilities.dex.mod`, `AC ${calculatedArmor.armors[armor].definition.name}: ${acValue.value}`, false, 22);
         break;
       }
-    }
-    if (effect) {
-      const effectImporterFlags = effect.flags?.ddbimporter;
-      if (effectImporterFlags) {
-        effectImporterFlags.itemId = String(calculatedArmor.armors[armor].id);
-        effectImporterFlags.entityTypeId = String(calculatedArmor.armors[armor].entityTypeId);
-      } else {
-        logger.warn(`calculateACOptions: generated AC effect for ${calculatedArmor.armors[armor].definition.name} is missing ddbimporter flags`);
-      }
-      effects.push(effect);
     }
     armorClassValues.push(acValue);
     if (acValue.value > maxValue
@@ -374,7 +371,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
   return {
     actorBase,
     armorClassValues,
-    effects,
     maxType,
     maxValue,
     maxData,
@@ -383,7 +379,6 @@ function calculateACOptions(data: IDDBData, character: I5ePCData, calculatedArmo
 
 
 DDBCharacter.prototype._generateOverrideArmorClass = function _generateOverrideArmorClass(this: DDBCharacter, overRideAC: IDDBCharacterValue) {
-  const overRideEffect = ACBonusEffects.generateFixedACEffect(String(overRideAC.value), `AC Override: ${overRideAC.value}`);
   const flatIntAc = parseInt(String(overRideAC.value));
 
   const attributes = this.raw.character.system.attributes;
@@ -394,34 +389,16 @@ DDBCharacter.prototype._generateOverrideArmorClass = function _generateOverrideA
   }
 
   attributes.ac = {
-    flat: flatIntAc,
-    calc: "flat",
-    formula: "",
+    calcs: ["unarmored", "armored"],
+    formulas: [],
+    flat: null,
+    override: flatIntAc,
   };
-  this.raw.character.effects = (this.raw.character.effects ?? []).concat(overRideEffect);
-  importerFlags.acEffects = [overRideEffect];
   importerFlags.baseAC = flatIntAc;
-  importerFlags.autoAC = foundry.utils.deepClone(attributes.ac);
-  importerFlags.overrideAC = {
-    flat: flatIntAc,
-    calc: "flat",
-    formula: "",
-  };
-  // this.raw.character.flags.ddbimporter.fixedAC = {
-  //   type: "Number",
-  //   label: "Armor Class",
-  //   value: parseInt(String(overRideAC.value)),
-  // };
 
   this.armor.results = {
     maxValue: flatIntAc,
     maxType: "override",
-    // actorBase,
-    // armorClassValues,
-    // effects,
-    // maxType,
-    // maxValue,
-    // maxData,
   };
 };
 
@@ -600,74 +577,68 @@ DDBCharacter.prototype._generateArmorClass = function _generateArmorClass(this: 
     calculatedArmor,
     results,
   });
-  // get the max AC we can use from our various computed values
-
-  // DND5E.armorClasses = {
-  //   "default": {
-
-
+  // every applicable calc is emitted and the system takes the max against the
+  // equipped items. The computed maxValue is only a cross-check: class
+  // "set unarmored-armor-class" modifiers are effect-excluded, so it
+  // under-reports Unarmored Defense characters (the calc entry carries the AC).
   const classFeatures = FilterModifiers.getAllClassFeatures(ddb.character);
   logger.debug("Class features", classFeatures);
 
-  let calc = "default";
-  let flat = null;
-  let formula = "";
+  const calcs = new Set<string>(["unarmored", "armored"]);
+  let flat: number | null = null;
+  const formulas: I5eArmorClassFormula[] = [];
+
   const draconicResilienceFeatures = classFeatures.filter((kf) =>
     kf.className === "Sorcerer"
     && kf.name === "Draconic Resilience",
   );
   if (draconicResilienceFeatures.some((kf) => kf.subclassName === "Draconic Bloodline")) {
-    calc = "draconic";
+    calcs.add("draconic");
   } else if (draconicResilienceFeatures.some((kf) => kf.subclassName === "Draconic Sorcery")) {
-    calc = "unarmoredBard";
+    calcs.add("unarmoredBard");
   }
 
   if (classFeatures.some((kf) =>
     kf.className === "Monk"
     && kf.subclassName === null
     && kf.name === "Unarmored Defense",
-  )) calc = "unarmoredMonk";
+  )) calcs.add("unarmoredMonk");
 
   if (classFeatures.some((kf) =>
     kf.className === "Bard"
     && kf.subclassName === "College of Dance"
     && kf.name === "Unarmored Defense",
-  )) calc = "unarmoredBard";
+  )) calcs.add("unarmoredBard");
 
   if (classFeatures.some((kf) =>
     kf.className === "Barbarian"
     && kf.subclassName === null
     && kf.name === "Unarmored Defense",
-  )) calc = "unarmoredBarb";
+  )) calcs.add("unarmoredBarb");
 
   if (results.maxType === "Natural") {
-    calc = "natural";
-    flat = results.actorBase;
+    calcs.add("natural");
+    flat = results.actorBase ?? null;
   }
 
   if (results.maxType === "Custom") {
-    calc = "custom";
-    formula = results.maxData?.formula ?? "";
+    const customFormula = results.maxData?.formula ?? "";
+    if (customFormula !== "") {
+      formulas.push({
+        formula: customFormula,
+        label: (results.maxData?.name ?? "Custom").replace(/^Base Armor - /, ""),
+      });
+    }
   }
 
   logger.debug("AC Results:", {
-    fixed: {
-      type: "Number",
-      label: "Armor Class",
-      value: results.maxValue,
-    },
+    ddbComputedMax: results.maxValue,
     base: results.actorBase,
-    effects: results.effects,
     bonusEffects,
-    override: {
-      flat: results.maxValue,
-      calc: "flat",
-      formula: "",
-    },
     auto: {
+      calcs: [...calcs],
       flat,
-      calc,
-      formula,
+      formulas,
     },
   });
 
@@ -679,20 +650,14 @@ DDBCharacter.prototype._generateArmorClass = function _generateArmorClass(this: 
   }
 
   attributes.ac = {
+    calcs: [...calcs],
     flat,
-    calc,
-    formula,
+    formulas,
+    override: null,
   };
 
   this.raw.character.effects = (this.raw.character.effects ?? []).concat(bonusEffects);
 
-  importerFlags.acEffects = results.effects;
   importerFlags.baseAC = results.actorBase;
-  importerFlags.autoAC = foundry.utils.deepClone(attributes.ac);
-  importerFlags.overrideAC = {
-    flat: results.maxValue,
-    calc: "flat",
-    formula: "",
-  };
 
 };

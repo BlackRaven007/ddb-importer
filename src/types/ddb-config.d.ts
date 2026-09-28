@@ -272,6 +272,8 @@ global {
   export interface IDDBConfigTool {
     id: number;
     name: string;
+    // present on the live config only.
+    description?: string;
   }
 
   export interface IDDBConfigWeapon {
@@ -375,6 +377,7 @@ global {
   }
 
   export interface IDDBConfig {
+    EVOLVED_PROPERTIES?: Record<string, string>;
     abilityScoreDisplayTypes: IDDBConfigIdName[];
     abilitySkills: IDDBConfigAbilitySkill[];
     activationTypes: IDDBConfigActivationType[];

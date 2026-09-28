@@ -44,6 +44,7 @@ export default class ArcaneWard {
     const incomingHP = update.system.attributes.hp.value ?? 0;
     const oldHP = (foundry.utils.getProperty(this.actor, "system.attributes.hp.value") as number) ?? 0;
     const isHealing = incomingHP >= oldHP;
+    // console.warn({
     //   incomingHP,
     //   oldHP,
     //   update,

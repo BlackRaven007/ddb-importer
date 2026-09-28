@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class EclipseOfIllOmen extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "bonus",
@@ -26,7 +26,7 @@ export default class EclipseOfIllOmen extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Eclipse of Ill Omen",
@@ -37,12 +37,13 @@ export default class EclipseOfIllOmen extends DDBEnricherData {
       },
       {
         name: "Cursed by Ill Omen",
+        statuses: ["Cursed"],
         options: {
           durationSeconds: 60,
           description: "Speed halved and can't regain hit points until the eclipse ends.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.multiplyChange("0.5", 50, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0.5", 50),
         ],
       },
     ];

@@ -491,6 +491,7 @@ export default class DDBVehicle {
       travel["units"] = "mph";
       // a null travelPace coerced to 0 before, keep that result explicit
       const travelPaceMilesPerDay = (this.source.travelPace ?? 0) / 660; // / 220;
+      // const travelPaceMilesPerHour = this.source.travelPace / 5280;
       const travelPaceMilesPerHour = travelPaceMilesPerDay / 24;
       if (DDBVehicle.FLIGHT_IDS.includes(this.source.id)
         || this.configurations.DT === "spelljammer"
@@ -538,21 +539,21 @@ export default class DDBVehicle {
         const type: I5eMovementType = DDBVehicle.MOVEMENT_DICT[speedType] as I5eMovementType;
         if (!type || speedsChecked.has(type)) continue;
         speedsChecked.add(type);
-        movement[type] = String(mode.value);
+        (movement.speeds ??= {})[type] = String(mode.value);
       } else if (movementModes) {
         for (const m of comp.definition.speeds[0].modes) {
           // a null movementId never matches a MOVEMENT_ID key, mirror that with an impossible index
           const modeMovementType: I5eMovementType = MOVEMENT_ID[m.movementId ?? -1] as I5eMovementType;
           if (!modeMovementType || speedsChecked.has(modeMovementType)) continue;
           speedsChecked.add(modeMovementType);
-          if (modeMovementType) movement[modeMovementType] = String(m.value);
+          if (modeMovementType) (movement.speeds ??= {})[modeMovementType] = String(m.value);
         }
       } else if (mode.restrictionsText) {
         if (speedsChecked.has("fly")) continue;
         const restrictionRegex = /Fly Speed (\d+) ft/i;
         const restrictionMatch = mode.restrictionsText.match(restrictionRegex);
         if (restrictionMatch) {
-          movement["fly"] = restrictionMatch[1];
+          (movement.speeds ??= {})["fly"] = restrictionMatch[1];
           speedsChecked.add("fly");
         }
       }
@@ -587,12 +588,8 @@ export default class DDBVehicle {
     // if we are using actor level AC apply
     if (this.configurations.PCMT === "vehicle" && this.primaryComponent) {
       if (this.configurations.DT === "spelljammer") {
-        // this gets calculated dynamicaly now - todo - check its right
-        foundry.utils.setProperty(this.data, "system.attributes.ac.motionless", this.primaryComponent.definition.armorClassDescription);
         this.data.system.attributes.ac.flat = this.primaryComponent.definition.armorClass;
       } else {
-        // this gets calculated dynamicaly now - todo - check its right
-        foundry.utils.setProperty(this.data, "system.attributes.ac.motionless", this.primaryComponent.definition.armorClass);
         this.data.system.attributes.ac.flat = this.primaryComponent.definition.armorClass + this.mods["dex"];
       }
     }

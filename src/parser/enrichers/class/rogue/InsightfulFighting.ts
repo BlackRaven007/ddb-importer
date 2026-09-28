@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class InsightfulFighting extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.CHECK;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Insight Check",
       targetType: "self",
@@ -14,7 +14,7 @@ export default class InsightfulFighting extends DDBEnricherData {
       data: {
         check: {
           associated: ["ins"],
-          ability: [],
+          ability: "",
           dc: {
             calculation: "",
             formula: "",
@@ -24,7 +24,7 @@ export default class InsightfulFighting extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -42,14 +42,13 @@ export default class InsightfulFighting extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Insightful Fighting: Target",
         activityMatch: "No Match",
         options: {
           durationSeconds: 60,
-          durationRounds: 10,
           description: "You can use sneak attack against the target even if you don’t have advantage on the attack roll.",
         },
       },

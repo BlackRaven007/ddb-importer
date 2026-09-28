@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class SpiritualManifestation extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.CAST;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Spirit Guardians",
       addSpellUuid: "Spirit Guardians",
@@ -34,11 +34,11 @@ export default class SpiritualManifestation extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Spiritual Manifestation - Cover",
-        statuses: ["HalfCover"],
+        statuses: ["CoverHalf"],
         activityMatch: "Spirit Guardians",
       },
     ];

@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class RiskyBusiness extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "special",
@@ -17,18 +17,20 @@ export default class RiskyBusiness extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Risky Attack",
         ac5eOnly: true,
         options: {
-          durationRounds: 1,
+          // the single attack roll this turn
+          expiry: "turnEnd",
         },
+        daeSpecialDurations: ["1Attack"],
         ac5eChanges: [
           // automated-conditions-5e: the next attack roll is made at
           // disadvantage; "once" expires the flag after a single use
-          DDBEnricherData.ChangeHelper.customChange("once; 1", 20, "flags.automated-conditions-5e.attack.disadvantage"),
+          DDBEnricherData.ChangeHelper.ac5eChange("once; 1", 20, "flags.automated-conditions-5e.attack.disadvantage"),
         ],
       },
     ];

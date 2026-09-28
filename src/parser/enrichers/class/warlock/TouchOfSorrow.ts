@@ -2,15 +2,15 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class TouchOfSorrow extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return this.isAction;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (!this.isAction) return [];
     return [
       {

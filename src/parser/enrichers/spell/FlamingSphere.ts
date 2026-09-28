@@ -2,19 +2,19 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class FlamingSphere extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SUMMON;
   }
 
-  get summonsFunction() {
+  override get summonsFunction(): ((data: ICompanionData) => Promise<ICompanionResult>) | null {
     return DDBImporter.lib.DDBSummonsInterface.getFlamingSphere;
   }
 
-  get generateSummons() {
+  override get generateSummons(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Summon Sphere",
       type: DDBEnricherData.ACTIVITY_TYPES.SUMMON,
@@ -40,13 +40,15 @@ export default class FlamingSphere extends DDBEnricherData {
   }
 
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [{
       init: {
         name: "Save vs Damage",
         type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
       },
       build: {
+        generateDuration: true,
+        durationOverride: { units: "inst", concentration: false },
         generateDamage: true,
         generateSave: true,
         generateActivation: false,
@@ -56,7 +58,7 @@ export default class FlamingSphere extends DDBEnricherData {
     }];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         flags: {

@@ -1,11 +1,11 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class TakeGhastlyForm extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.ENCHANT;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return  {
       name: "Take Ghastly Form",
       targetType: "self",
@@ -21,7 +21,7 @@ export default class TakeGhastlyForm extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -34,9 +34,10 @@ export default class TakeGhastlyForm extends DDBEnricherData {
           generateTarget: true,
           generateActivation: true,
           generateConsumption: false,
+          // a Wisdom save against the ranger's spell save DC
           saveOverride: {
-            ability: ["str"],
-            dc: { calculation: "wis", formula: "" },
+            ability: ["wis"],
+            dc: { calculation: "spellcasting", formula: "" },
           },
           activationOverride: {
             type: "turnStart",
@@ -45,14 +46,8 @@ export default class TakeGhastlyForm extends DDBEnricherData {
         },
         overrides: {
           id: "ddbUnnervingAura",
+          useActivitySnippet: true,
           data: {
-            save: {
-              ability: ["wis"],
-              dc: {
-                calculation: "spellcasting",
-                formula: "",
-              },
-            },
             target: {
               affects: {
                 type: "creature",
@@ -77,10 +72,13 @@ export default class TakeGhastlyForm extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Ancient Armor",
+        // a rider stays inert on the feature until the enchantment copies it, and the copy must
+        // transfer to reach the actor
+        options: { transfer: true },
         changes: [
           DDBEnricherData.ChangeHelper.addChange("@scale.hollow-warden.wrath-of-the-wild", 20, "system.attributes.ac.bonus"),
         ],
@@ -90,12 +88,16 @@ export default class TakeGhastlyForm extends DDBEnricherData {
       },
       {
         name: "Ghastly Form",
+        statuses: ["Transformed"],
         activityMatch: "Take Ghastly Form",
         options: {
-          durationSeconds: 60,
+          // the transformation runs "for 1 minute or until you have the Incapacitated
+          // condition, die, or end it" - a counted duration, NOT a turn anchor. The feature's
+          // only "next turn" clause belongs to the Unnerving Aura frightened rider, and a
+          // pseudo expiry here would null durationSeconds and drop the form after one turn.
           expiry: "turnStart",
+          durationSeconds: 60,
         },
-        daeSpecialDurations: ["turnStartSource"],
         data: {
           flags: {
             ddbimporter: {
@@ -116,7 +118,7 @@ export default class TakeGhastlyForm extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       ignoredConsumptionActivities: ["Unnerving Aura"],
     };

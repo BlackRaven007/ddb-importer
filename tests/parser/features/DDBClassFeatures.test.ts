@@ -11,12 +11,11 @@ import {
   makeDdbFeature,
   makeRawCharacter,
 } from "../../_fixtures/ddb/factories";
-import { installActivityConfigStubs, installDocumentStub, repairEnricherDataStatics } from "../../_fixtures/ddb/stubs";
+import { installActivityConfigStubs, installDocumentStub } from "../../_fixtures/ddb/stubs";
 
 beforeAll(async () => {
   installActivityConfigStubs();
   installDocumentStub();
-  await repairEnricherDataStatics();
   // enricher.init() builds a summons manager backed by real compendia which do
   // not exist in the test environment; everything else on the enricher is real.
   vi.spyOn(DDBEnricherFactoryMixin.prototype, "init").mockResolvedValue(undefined);
@@ -45,7 +44,16 @@ function makeFeature({ id, name, requiredLevel = 1, displayOrder = 1, descriptio
   });
 }
 
-function makeKlassData({ level = 5, features = [] as any[], subclassFeatures = [] as any[], optionalClassFeatures = [] as any[] } = {}): any {
+function makeKlassData({
+  level = 5,
+  features = [] as any[],
+  subclassFeatures = [] as any[],
+  optionalClassFeatures = [] as any[],
+  className = "Testclass",
+  // present on the character but absent from definition.classFeatures, the
+  // "container feature" shape DDB ships for Gunslinger Maneuvers
+  derivedOnlyFeatures = [] as any[],
+} = {}): any {
   const subclassDefinition = subclassFeatures.length > 0
     ? {
       id: SUBCLASS_ID,
@@ -57,11 +65,11 @@ function makeKlassData({ level = 5, features = [] as any[], subclassFeatures = [
     level,
     definition: {
       id: CLASS_ID,
-      name: "Testclass",
+      name: className,
       classFeatures: features.map((f) => ({ ...f.definition })),
     },
     subclassDefinition,
-    classFeatures: features.concat(subclassFeatures),
+    classFeatures: features.concat(subclassFeatures).concat(derivedOnlyFeatures),
   });
   return makeDdbCharacterData({
     character: {
@@ -148,6 +156,54 @@ describe("DDBClassFeatures.deriveFeatures", () => {
     });
     const grouped = makeClassFeatures(ddbData).klassFeatures["Testclass"];
     expect(grouped.filtered.class.map((f: any) => f.definition.name)).toEqual(["Beta Guard"]);
+  });
+
+  // DDB ships some features on the character but leaves them out of
+  // definition.classFeatures. They are normally duplicates and correctly dropped;
+  // FORCE_DERIVED_FEATURES recovers the ones whose text lives nowhere else.
+  it("drops a derived feature missing from the definition feature list", () => {
+    const ddbData = makeKlassData({
+      features: [makeFeature({ id: 70101, name: "Alpha Strike" })],
+      derivedOnlyFeatures: [makeFeature({ id: 70301, name: "Maneuvers" })],
+    });
+    const grouped = makeClassFeatures(ddbData).klassFeatures["Testclass"];
+    expect(grouped.filtered.class.map((f: any) => f.definition.name)).toEqual(["Alpha Strike"]);
+  });
+
+  it("keeps a derived feature listed under its class in FORCE_DERIVED_FEATURES", () => {
+    const ddbData = makeKlassData({
+      className: "Gunslinger",
+      features: [makeFeature({ id: 70101, name: "Alpha Strike" })],
+      derivedOnlyFeatures: [makeFeature({ id: 70301, name: "Maneuvers" })],
+    });
+    const grouped = makeClassFeatures(ddbData).klassFeatures["Gunslinger"];
+    expect(grouped.filtered.class.map((f: any) => f.definition.name)).toEqual([
+      "Alpha Strike",
+      "Maneuvers",
+    ]);
+  });
+
+  it("still drops that name for a class it is not listed under", () => {
+    // the whole reason FORCE_DERIVED_FEATURES is keyed by class name: Fighter has
+    // its own "Maneuvers", which must keep going through the normal path
+    const ddbData = makeKlassData({
+      className: "Fighter",
+      features: [makeFeature({ id: 70101, name: "Alpha Strike" })],
+      derivedOnlyFeatures: [makeFeature({ id: 70301, name: "Maneuvers" })],
+    });
+    const grouped = makeClassFeatures(ddbData).klassFeatures["Fighter"];
+    expect(grouped.filtered.class.map((f: any) => f.definition.name)).toEqual(["Alpha Strike"]);
+  });
+
+  it("still applies the level and skip filters to a forced derived feature", () => {
+    const ddbData = makeKlassData({
+      className: "Gunslinger",
+      level: 2,
+      features: [makeFeature({ id: 70101, name: "Alpha Strike" })],
+      derivedOnlyFeatures: [makeFeature({ id: 70301, name: "Maneuvers", requiredLevel: 9 })],
+    });
+    const grouped = makeClassFeatures(ddbData).klassFeatures["Gunslinger"];
+    expect(grouped.filtered.class.map((f: any) => f.definition.name)).toEqual(["Alpha Strike"]);
   });
 
   it("splits subclass features and removes class features they shadow", () => {
@@ -248,6 +304,28 @@ describe("DDBClassFeatures.build", () => {
     const merged = classFeatures.data[0] as any;
     expect(merged.system.description.value).toContain("<h3>Testclass: Level 3</h3>");
     expect(merged.system.description.value).toContain("Improved alpha strike.");
+  });
+
+  it("drops a level prefixed repeat of a FORCE_DUPLICATE_FEATURE feature", async () => {
+    // DDB ships the leveled repeats as "9: Critical Shot", and the prefix survives
+    // on originalName, so the FORCE_DUPLICATE_FEATURE lookup has to normalise it
+    const base = makeFeature({ id: 70301, name: "Critical Shot", requiredLevel: 2, displayOrder: 1 });
+    const improved = makeFeature({
+      id: 70302,
+      name: "9: Critical Shot",
+      requiredLevel: 9,
+      displayOrder: 2,
+      description: "<p>Improved crit range.</p>",
+    });
+    const ddbData = makeKlassData({ level: 20, features: [base, improved] });
+    const classFeatures = makeClassFeatures(ddbData);
+
+    await classFeatures.build();
+
+    expect(classFeatures.data.map((f: any) => f.name)).toEqual(["Critical Shot"]);
+    const doc = classFeatures.data[0] as any;
+    expect(doc.system.description.value).not.toContain("Improved crit range.");
+    expect(doc.system.description.value).not.toContain("Level 9");
   });
 
   it("adds subclass features with subclass flags", async () => {

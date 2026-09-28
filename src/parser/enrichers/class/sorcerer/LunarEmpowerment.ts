@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class LunarEmpowerment extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
       name: "Full Moon: Shed Light",
@@ -14,7 +14,7 @@ export default class LunarEmpowerment extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -30,6 +30,28 @@ export default class LunarEmpowerment extends DDBEnricherData {
             type: "special",
             value: 1,
             condition: "",
+          },
+        },
+        overrides: {
+          data: {
+            target: {
+              override: true,
+              affects: {
+                type: "ally",
+              },
+              template: {
+                contiguous: false,
+                type: "radius",
+                size: "10",
+                units: "ft",
+              },
+            },
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.applyEffect({
+                effects: "Full Moon Aura",
+                auraeffectsNever: true,
+              }),
+            ],
           },
         },
       },
@@ -70,29 +92,26 @@ export default class LunarEmpowerment extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const effects: IDDBEffectHint[] = [
       {
         name: "Full Moon Aura",
-        activitiesMatch: ["Full Moon"],
+        standalone: true,
+        auraeffectsNever: true,
         changes: [
-          DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.inv.roll.mode"),
-          DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.per.roll.mode"),
+          DDBEnricherData.ChangeHelper.advantageSkillChange("inv"),
+          DDBEnricherData.ChangeHelper.advantageSkillChange("per"),
+        ],
+      },
+      {
+        name: "Full Moon Aura",
+        activitiesMatch: ["Full Moon"],
+        auraeffectsOnly: true,
+        changes: [
+          DDBEnricherData.ChangeHelper.advantageSkillChange("inv"),
+          DDBEnricherData.ChangeHelper.advantageSkillChange("per"),
         ],
         daeStackable: "noneNameOnly",
-        data: {
-          flags: {
-            ActiveAuras: {
-              ignoreSelf: false,
-              aura: "Allies",
-              radius: `10`,
-              isAura: true,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-            },
-          },
-        },
         auraeffects: {
           applyToSelf: true,
           bestFormula: "",
@@ -111,7 +130,7 @@ export default class LunarEmpowerment extends DDBEnricherData {
         name: "New Moon",
         activityMatch: "New Moon",
         changes: [
-          DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.ste.roll.mode"),
+          DDBEnricherData.ChangeHelper.advantageSkillChange("ste"),
         ],
       },
       {

@@ -7,21 +7,22 @@ import _BloodCurse from "./_BloodCurse";
  */
 export default class BloodCurseOfTheExorcist extends _BloodCurse {
 
-  get curseName(): string {
+  override get curseName(): string {
     return "Blood Curse of the Exorcist";
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get clearAutoEffects(): boolean {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: this.curseName,
+      useActivitySnippet: true,
       targetType: "creature",
       targetCount: 1,
       rangeType: "ft",
@@ -32,7 +33,7 @@ export default class BloodCurseOfTheExorcist extends _BloodCurse {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -76,16 +77,14 @@ export default class BloodCurseOfTheExorcist extends _BloodCurse {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Stunned by Exorcism",
         activityMatch: this.amplifiedName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "sourceEnd",
         },
-        daeSpecialDurations: ["turnEndSource"],
         statuses: ["Stunned"],
       },
     ];

@@ -72,6 +72,7 @@ export default class DDBCompanion2024 extends DDBCompanionMixin {
     for (const [ability, data] of Object.entries(abilityScores) as [T5eAbility, typeof abilityScores[T5eAbility]][]) {
       if (!data) continue;
       const save = Number.parseInt(data.save.replace("−", "-"));
+      // const mod = Number.parseInt(data.mod.replace("−", "-"));
       const score = Number.parseInt(data.score);
 
       abilities[ability].value = score;
@@ -116,7 +117,8 @@ export default class DDBCompanion2024 extends DDBCompanionMixin {
   }
 
   #generateHitPoints() {
-    const hpString = this._extractValue("HP");
+    // AU Semblance of Life spirit forms carry their pool under a "Temp HP" label
+    const hpString = this._extractValue("HP") ?? this._extractValue("Temp HP");
     if (!hpString) return;
     this._handleHitPoints(hpString);
     this._handleHitDice(hpString);
@@ -165,7 +167,7 @@ export default class DDBCompanion2024 extends DDBCompanionMixin {
     const types = Object.keys(CONFIG.DND5E.damageTypes);
 
     for (const value of values) {
-      if (types.includes(value.split("(")[0].trim())) damageTypes.push(value.trim());
+      if (types.includes(value.split("(")[0].trim().toLowerCase())) damageTypes.push(value.trim());
       else conditions.push(value.trim());
     }
 
@@ -251,13 +253,12 @@ export default class DDBCompanion2024 extends DDBCompanionMixin {
         this.summons.match.saves = true;
       }
       if (html.includes("your Proficiency Bonus to any ability check or saving throw")) {
-        const abilityBonuses = this.npc.system.bonuses?.abilities;
-        if (abilityBonuses) {
-          abilityBonuses.check = "@prof";
-          abilityBonuses.save = "@prof";
-        } else {
-          logger.warn(`Companion ${this.npc.name} has no ability bonuses data, unable to set proficiency bonuses`);
-        }
+        const rolls = ((this.npc.system as I5eMonsterSystemData).rolls ??= {});
+        rolls.ability = {
+          ...(rolls.ability ?? {}),
+          check: { bonus: "@prof" },
+          save: { bonus: "@prof" },
+        };
       }
     });
   }
@@ -266,7 +267,8 @@ export default class DDBCompanion2024 extends DDBCompanionMixin {
     for (const header of this.block.querySelectorAll(".monster-header")) {
       let now = header.nextElementSibling as HTMLElement | null;
       if (!now) continue;
-      const featType = DDBCompanion2024._getActionType((header as HTMLElement).innerText);
+      // jsdom (the audit harness) has no innerText
+      const featType = DDBCompanion2024._getActionType((header as HTMLElement).innerText ?? header.textContent ?? "");
       let block = now.outerHTML;
       while (now !== null) {
         if (now.nextElementSibling === null || now.nextElementSibling.classList.contains("monster-header")) {
@@ -282,7 +284,7 @@ export default class DDBCompanion2024 extends DDBCompanionMixin {
   }
 
 
-  async _generate() {
+  override async _generate() {
     this.#generateSize();
     this.#generateType();
     this.#generateAbilities();

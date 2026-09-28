@@ -2,19 +2,21 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BreathWeapon2024 extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     if (this.is2014) return null;
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get damageType() {
+  get damageType(): string {
     return this.ddbParser.originalName.split(")")[0].split("(")[1].trim().toLowerCase();
   }
 
-  get activity(): IDDBActivityData {
-    if (this.is2014) return {
-      rangeSelf: true,
-    };
+  override get activity(): IDDBActivityData {
+    if (this.is2014) {
+      return {
+        rangeSelf: true,
+      };
+    }
     return {
       name: "Cone",
       rangeSelf: true,
@@ -41,7 +43,7 @@ export default class BreathWeapon2024 extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     if (this.is2014) return [];
     return [
       {
@@ -73,6 +75,8 @@ export default class BreathWeapon2024 extends DDBEnricherData {
   }
 
   // get override(): IDDBOverrideData {
+  //   console.warn(this);
+  //   const uses = this._getUsesWithSpent({
   //     type: "race",
   //     name: this.data.name,
   //   });

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // Characterization tests for AdvancementHelper instance-level advancement
 // builders, using the fake dnd5e advancement classes from the global test mocks.
+//
 // Intentionally uncovered (compendium/async spell-advancement methods):
 //   getCompendiumSpellUuidsFromNames, _getSpellUuidsFromFeatureSpellData,
 //   getTraitSpellAdvancements, getCantripChoiceAdvancement,
@@ -19,7 +20,20 @@ vi.mock("../../../src/parser/classes/DDBSubClass", () => ({ default: class DDBSu
 
 import AdvancementHelper from "../../../src/parser/advancements/AdvancementHelper";
 
+describe("weapon mastery name resolution", () => {
+  it("uses canonical names in advancement choices including nested ammunition", () => {
+    const helper = makeHelper();
+    const mods = ["Push (Heavy Crossbow (Wooden Bolts))", "Push (Crossbow, Heavy)", "Vex (Shortbow (Wooden Arrows))"]
+      .map((friendlySubtypeName) => ({ type: "weapon-mastery", friendlySubtypeName, restriction: "", isGranted: true }));
+    const advancement = helper.getWeaponMasteryAdvancement(mods as IModifiersMod[], makeFeature(), 1)?.toObject();
+    expect(advancement).toMatchObject({ configuration: { mode: "mastery", choices: [{ count: 2 }] },
+      value: { chosen: ["weapon:mar:heavycrossbow", "weapon:sim:shortbow"] } });
+  });
+});
+
+// =============================================================================
 // Fixtures
+// =============================================================================
 
 function makeDdbData(choices: Record<string, any> = {}): any {
   return {
@@ -69,7 +83,9 @@ function profMod(subType: string, friendlySubtypeName: string): any {
   };
 }
 
+// =============================================================================
 // advancementUpdate (static)
+// =============================================================================
 describe("AdvancementHelper.advancementUpdate", () => {
   const TraitAdvancement: any = game.dnd5e.documents.advancement.TraitAdvancement;
 
@@ -106,7 +122,9 @@ describe("AdvancementHelper.advancementUpdate", () => {
   });
 });
 
+// =============================================================================
 // getSaveAdvancement
+// =============================================================================
 describe("AdvancementHelper.getSaveAdvancement", () => {
   it("returns null when there are no saving throw modifiers", () => {
     const adv = makeHelper().getSaveAdvancement({
@@ -166,7 +184,9 @@ describe("AdvancementHelper.getSaveAdvancement", () => {
   });
 });
 
+// =============================================================================
 // getSkillAdvancement
+// =============================================================================
 describe("AdvancementHelper.getSkillAdvancement", () => {
   it("returns null when no skills can be derived", () => {
     const adv = makeHelper().getSkillAdvancement({
@@ -186,7 +206,7 @@ describe("AdvancementHelper.getSkillAdvancement", () => {
       level: 1,
     });
     const data = adv.toObject();
-    expect(data.title).toBe("Skill Proficiencies");
+    expect(data.name).toBe("Skill Proficiencies");
     expect(data.classRestriction).toBe("primary");
     expect(data.configuration.allowReplacements).toBe(true);
     expect(data.configuration.choices).toEqual([{ count: 2, pool: ["skills:ath", "skills:prc", "skills:sur"] }]);
@@ -201,13 +221,13 @@ describe("AdvancementHelper.getSkillAdvancement", () => {
       level: 1,
     });
     const data = adv.toObject();
-    expect(data.title).toBe("Skill Proficiencies");
+    expect(data.name).toBe("Skill Proficiencies");
     expect(data.classRestriction).toBeUndefined();
     expect(data.configuration.grants).toEqual(["skills:med", "skills:rel"]);
     expect(data.value.chosen).toEqual(["skills:med", "skills:rel"]);
   });
 
-  it("uses the feature name as title for non-base features", () => {
+  it("uses the feature name as name for non-base features", () => {
     const adv: any = makeHelper().getSkillAdvancement({
       feature: makeFeature({ name: "Bonus Proficiency", description: "<p>You gain proficiency in the Intimidation skill.</p>" }),
       mods: [],
@@ -215,7 +235,7 @@ describe("AdvancementHelper.getSkillAdvancement", () => {
       level: 3,
     });
     const data = adv.toObject();
-    expect(data.title).toBe("Bonus Proficiency");
+    expect(data.name).toBe("Bonus Proficiency");
     expect(data.configuration.grants).toEqual(["skills:itm"]);
   });
 
@@ -237,7 +257,9 @@ describe("AdvancementHelper.getSkillAdvancement", () => {
   });
 });
 
+// =============================================================================
 // getLanguageAdvancement
+// =============================================================================
 describe("AdvancementHelper.getLanguageAdvancement", () => {
   function langMod(friendlySubtypeName: string): any {
     return {
@@ -263,7 +285,7 @@ describe("AdvancementHelper.getLanguageAdvancement", () => {
       1,
     );
     const data = adv.toObject();
-    expect(data.title).toBe("Extra Languages");
+    expect(data.name).toBe("Extra Languages");
     expect(data.configuration.choices).toEqual([{ count: 2, pool: ["languages:standard:dwarvish", "languages:exotic:undercommon"] }]);
     expect(data.value.chosen).toEqual(["languages:standard:dwarvish", "languages:exotic:undercommon"]);
   });
@@ -275,15 +297,30 @@ describe("AdvancementHelper.getLanguageAdvancement", () => {
       1,
     );
     const data = adv.toObject();
-    // "Background:" prefixed names fall back to the generic title
-    expect(data.title).toBe("Languages");
+    // "Background:" prefixed names fall back to the generic name
+    expect(data.name).toBe("Languages");
     expect(data.configuration.grants).toEqual(["languages:standard:giant"]);
     expect(data.configuration.choices).toEqual([{ count: 1, pool: ["languages:*"] }]);
     expect(data.value.chosen).toEqual(["languages:standard:giant"]);
   });
+  it("grants Common for the 2024 species phrasing without doubling the trait prefix", () => {
+    const adv: any = makeHelper({ type: "race", isMuncher: true }).getLanguageAdvancement(
+      [],
+      makeFeature({
+        name: "Languages",
+        description: "<p>Your character knows at least three languages: Common plus two languages you roll or choose from the Standard Languages table.</p>",
+      }),
+      0,
+    );
+    const data = adv.toObject();
+    expect(data.configuration.grants).toEqual(["languages:standard:common"]);
+    expect(data.configuration.choices).toEqual([{ count: 2, pool: ["languages:standard:*"] }]);
+  });
 });
 
+// =============================================================================
 // getToolAdvancement / getEmptyToolAdvancement
+// =============================================================================
 describe("AdvancementHelper.getToolAdvancement", () => {
   it("returns null for 'Tools: None' with no modifiers", () => {
     const adv = makeHelper().getToolAdvancement({
@@ -303,7 +340,7 @@ describe("AdvancementHelper.getToolAdvancement", () => {
       level: 1,
     });
     const data = adv.toObject();
-    expect(data.title).toBe("Tool Proficiencies");
+    expect(data.name).toBe("Tool Proficiencies");
     expect(data.configuration.grants).toEqual(["tool:herb"]);
     expect(data.value.chosen).toEqual(["tool:herb"]);
     expect(data.classRestriction).toBe("primary");
@@ -356,7 +393,7 @@ describe("AdvancementHelper.getEmptyToolAdvancement", () => {
       level: 1,
     });
     const data = adv.toObject();
-    expect(data.title).toBe("Tool Proficiencies");
+    expect(data.name).toBe("Tool Proficiencies");
     expect(data.configuration.grants).toEqual(["tool:art:smith"]);
     expect(data.value.chosen).toEqual(["tool:art:smith"]);
   });
@@ -383,7 +420,9 @@ describe("AdvancementHelper.getEmptyToolAdvancement", () => {
   });
 });
 
+// =============================================================================
 // getArmorAdvancement
+// =============================================================================
 describe("AdvancementHelper.getArmorAdvancement", () => {
   it("returns null when nothing grants armor", () => {
     const adv = makeHelper().getArmorAdvancement({
@@ -403,7 +442,7 @@ describe("AdvancementHelper.getArmorAdvancement", () => {
       level: 1,
     });
     const data = adv.toObject();
-    expect(data.title).toBe("Armor Training");
+    expect(data.name).toBe("Armor Training");
     expect(data.configuration.allowReplacements).toBe(false);
     expect(data.configuration.grants).toEqual(["armor:lgt", "armor:shl"]);
     expect(data.value.chosen).toEqual(["armor:lgt", "armor:shl"]);
@@ -418,13 +457,15 @@ describe("AdvancementHelper.getArmorAdvancement", () => {
       level: 4,
     });
     const data = adv.toObject();
-    expect(data.title).toBe("Bonus Armor Training");
+    expect(data.name).toBe("Bonus Armor Training");
     expect(data.configuration.choices).toEqual([{ count: 1, pool: ["armor:med"] }]);
     expect(data.value.chosen).toEqual(["armor:med"]);
   });
 });
 
+// =============================================================================
 // getWeaponAdvancement
+// =============================================================================
 describe("AdvancementHelper.getWeaponAdvancement", () => {
   it("returns null when nothing grants weapons", () => {
     const adv = makeHelper().getWeaponAdvancement(
@@ -444,7 +485,7 @@ describe("AdvancementHelper.getWeaponAdvancement", () => {
       1,
     );
     const data = adv.toObject();
-    expect(data.title).toBe("Weapon Proficiencies");
+    expect(data.name).toBe("Weapon Proficiencies");
     expect(data.configuration.mode).toBe("default");
     expect(data.configuration.allowReplacements).toBe(false);
     expect(data.configuration.grants).toEqual(["weapon:sim", "weapon:mar"]);
@@ -460,19 +501,156 @@ describe("AdvancementHelper.getWeaponAdvancement", () => {
       2,
     );
     const data = adv.toObject();
-    expect(data.title).toBe("Extra Training");
+    expect(data.name).toBe("Extra Training");
     expect(data.classRestriction).toBe("");
     expect(data.configuration.choices).toEqual([{ count: 2, pool: ["weapon:mar:longsword", "weapon:mar:rapier"] }]);
     expect(data.value.chosen).toEqual(["weapon:mar:longsword", "weapon:mar:rapier"]);
   });
 });
 
+describe("AdvancementHelper skill choice subtypes", () => {
+  it("recognises DDB choose subtypes and names their skills", () => {
+    expect(AdvancementHelper.isSkillChoiceSubType("choose-a-barbarian-skill-proficiency")).toBe(true);
+    expect(AdvancementHelper.isSkillChoiceSubType("choose-nature-or-survival")).toBe(true);
+    expect(AdvancementHelper.isSkillChoiceSubType("magical-knowledge-skill")).toBe(true);
+    expect(AdvancementHelper.isSkillChoiceSubType("enchanter-proficiency")).toBe(true);
+    expect(AdvancementHelper.isSkillChoiceSubType("choose-a-kensei-tool")).toBe(false);
+    expect(AdvancementHelper.isSkillChoiceSubType("choose-an-iron-mind-saving-throw")).toBe(false);
+    expect(AdvancementHelper.isSkillChoiceSubType("choose-a-gaming-set")).toBe(false);
+    expect(AdvancementHelper.isSkillChoiceSubType("perception")).toBe(false);
+  });
+
+  it("separates skill picks from tool, weapon and feature picks that share the shape", () => {
+    for (const slug of [
+      "choose-a-skill",
+      "choose-a-warlock-skill",
+      "choose-an-arcane-archer-lore-skill",
+      "choose-a-skill-or-tool",
+      "choose-banneret-proficiency",
+      "choose-a-nightwatcher-proficiency",
+      "choose-deception-investigation-persuasion-slight-of-hand-or-stealth",
+    ]) {
+      expect(AdvancementHelper.isSkillChoiceSubType(slug), slug).toBe(true);
+    }
+    for (const slug of [
+      "choose-cooks-utensils-or-herbalism-kit",
+      "choose-herbalism-kit-or-water-vehicles",
+      "choose-brewers-supplies-or-cooks-utensils",
+      "choose-bladesinger-proficiency",
+      "choose-a-dwarven-artisanal-focus",
+      "armorer-tool-proficiency",
+      "choose-intelligence-wisdom-or-charisma-saving-throws",
+    ]) {
+      expect(AdvancementHelper.isSkillChoiceSubType(slug), slug).toBe(false);
+    }
+  });
+
+  it("names the skills of a choose subtype", () => {
+    expect(AdvancementHelper.skillsFromChooseSubType("choose-nature-or-survival")).toEqual(["nat", "sur"]);
+    expect(AdvancementHelper.skillsFromChooseSubType("choose-deception-investigation-persuasion-slight-of-hand-or-stealth"))
+      .toEqual(["dec", "inv", "per", "slt", "ste"]);
+    expect(AdvancementHelper.skillsFromChooseSubType("choose-a-skill")).toEqual([]);
+  });
+
+  it("reads a \"from the following list\" skill choice from the description", () => {
+    const feature = makeFeature({
+      name: "Watchful Training",
+      requiredLevel: 3,
+      description: "<p>You gain proficiency in two skills of your choice from the following list: Arcana, History, or Nature.</p>",
+    });
+    const adv: any = makeHelper({ isSubclass: true }).getSkillAdvancement({
+      feature,
+      mods: [profMod("choose-a-watchful-proficiency", "Choose a Watchful Proficiency")],
+      level: 3,
+    });
+    expect(adv.toObject().configuration.choices).toEqual([{ count: 2, pool: ["skills:arc", "skills:his", "skills:nat"] }]);
+  });
+
+  it("builds a skill pick from a choose subtype the description does not spell out", () => {
+    const feature = makeFeature({ name: "Research Skills", requiredLevel: 3, description: "<p>You gain a proficiency.</p>" });
+    const adv: any = makeHelper({ isSubclass: true }).getSkillAdvancement({
+      feature,
+      mods: [profMod("choose-history-investigation-or-nature", "Choose History, Investigation, or Nature")],
+      level: 3,
+    });
+    expect(adv.toObject().configuration.choices).toEqual([{ count: 1, pool: ["skills:his", "skills:inv", "skills:nat"] }]);
+
+    const open: any = makeHelper({ isSubclass: true }).getSkillAdvancement({
+      feature: makeFeature({ name: "Well-Rounded", requiredLevel: 6, description: "<p>You gain a proficiency.</p>" }),
+      mods: [profMod("choose-a-skill", "Choose a Skill")],
+      level: 6,
+    });
+    expect(open.toObject().configuration.choices).toEqual([{ count: 1, pool: ["skills:*"] }]);
+  });
+});
+
+describe("AdvancementHelper.getSaveAdvancement all saves", () => {
+  it("expands Diamond Soul's single saving-throws modifier to every save", () => {
+    const adv: any = makeHelper().getSaveAdvancement({
+      feature: makeFeature({ name: "Diamond Soul", requiredLevel: 14 }),
+      mods: [profMod("saving-throws", "Saving Throws")],
+      availableToMulticlass: false,
+      level: 14,
+    });
+    expect(adv.toObject().configuration.grants).toEqual(["saves:str", "saves:dex", "saves:con", "saves:int", "saves:wis", "saves:cha"]);
+  });
+
+  it("offers a pick of any save for a choose-a-saving-throw modifier", () => {
+    const adv: any = makeHelper({ isSubclass: true }).getSaveAdvancement({
+      feature: makeFeature({ name: "Iron Mind", requiredLevel: 7 }),
+      mods: [profMod("choose-an-iron-mind-saving-throw", "Choose a Saving Throw")],
+      availableToMulticlass: false,
+      level: 7,
+    });
+    const data = adv.toObject();
+    expect(data.configuration.grants).toEqual([]);
+    expect(data.configuration.choices).toEqual([{ count: 1, pool: ["saves:*"] }]);
+  });
+});
+
+// =============================================================================
 // getExpertiseAdvancement
+// =============================================================================
 describe("AdvancementHelper.getExpertiseAdvancement", () => {
+  it("treats the 2024 level-prefixed repeats as Expertise", () => {
+    expect(AdvancementHelper.isExpertiseFeature("9: Expertise")).toBe(true);
+    expect(AdvancementHelper.isExpertiseFeature("Expertise")).toBe(true);
+    expect(AdvancementHelper.isExpertiseFeature("Keeper of History")).toBe(false);
+    const adv: any = makeHelper().getExpertiseAdvancement(makeFeature({ name: "9: Expertise", requiredLevel: 9 }), 9);
+    const data = adv.toObject();
+    expect(data.name).toBe("Expertise");
+    expect(data.configuration.choices).toEqual([{ count: 2, pool: ["skills:*", "tool:thief"] }]);
+  });
+
+  it("grants the skills and tools a feature's expertise modifiers name", () => {
+    const mods = [
+      { type: "expertise", subType: "history", friendlySubtypeName: "History", restriction: "", componentId: 101 },
+      { type: "expertise", subType: "thieves-tools", friendlySubtypeName: "Thieves' Tools", restriction: "", componentId: 101 },
+    ] as any[];
+    const adv: any = makeHelper({ isSubclass: true }).getExpertiseAdvancement(makeFeature({ name: "Trapper's Tools", requiredLevel: 3 }), 3, mods);
+    const data = adv.toObject();
+    expect(data.name).toBe("Trapper's Tools");
+    expect(data.configuration.grants).toEqual(["skills:his", "tool:thief"]);
+    expect(data.configuration.choices ?? []).toEqual([]);
+  });
+
+  it("counts choose modifiers and yields nothing for a listed name without expertise modifiers", () => {
+    const choose = [{ type: "expertise", subType: "choose-a-skill-expertise", friendlySubtypeName: "Choose a Skill", restriction: "", componentId: 101 }] as any[];
+    const adv: any = makeHelper({ isSubclass: true }).getExpertiseAdvancement(makeFeature({ name: "Visionary", requiredLevel: 11 }), 11, choose);
+    expect(adv.toObject().configuration.choices).toEqual([{ count: 1, pool: ["skills:*"] }]);
+
+    const none = makeHelper({ isSubclass: true }).getExpertiseAdvancement(
+      makeFeature({ name: "Bonus Proficiencies", requiredLevel: 3 }),
+      3,
+      [profMod("giant", "Giant")],
+    );
+    expect(none).toBeNull();
+  });
+
   it("builds the default Expertise choice", () => {
     const adv: any = makeHelper().getExpertiseAdvancement(makeFeature({ name: "Expertise" }), 1);
     const data = adv.toObject();
-    expect(data.title).toBe("Expertise");
+    expect(data.name).toBe("Expertise");
     expect(data.configuration.mode).toBe("expertise");
     expect(data.configuration.allowReplacements).toBe(false);
     expect(data.configuration.choices).toEqual([{ count: 2, pool: ["skills:*", "tool:thief"] }]);
@@ -481,7 +659,7 @@ describe("AdvancementHelper.getExpertiseAdvancement", () => {
   it("grants fixed skills for Survivalist", () => {
     const adv: any = makeHelper().getExpertiseAdvancement(makeFeature({ name: "Survivalist" }), 1);
     const data = adv.toObject();
-    expect(data.title).toBe("Survivalist (Expertise)");
+    expect(data.name).toBe("Survivalist (Expertise)");
     expect(data.configuration.grants).toEqual(["skills:prc", "skills:nat"]);
     // count 0 is dropped from the pool entry
     expect(data.configuration.choices).toEqual([{ pool: ["skills:prc", "skills:nat"] }]);
@@ -516,7 +694,9 @@ describe("AdvancementHelper.getExpertiseAdvancement", () => {
   });
 });
 
+// =============================================================================
 // getConditionAdvancement
+// =============================================================================
 describe("AdvancementHelper.getConditionAdvancement", () => {
   it("returns null with no parsable conditions and no modifiers", () => {
     const adv = makeHelper().getConditionAdvancement([], makeFeature({ description: "<p>Nothing here.</p>" }), 1);
@@ -530,7 +710,7 @@ describe("AdvancementHelper.getConditionAdvancement", () => {
       1,
     );
     const data = adv.toObject();
-    expect(data.title).toBe("Psychic Resilience");
+    expect(data.name).toBe("Psychic Resilience");
     expect(data.configuration.allowReplacements).toBe(false);
     expect(data.configuration.grants).toEqual(["dr:psychic"]);
     expect(data.value.chosen).toEqual(["dr:psychic"]);
@@ -557,7 +737,9 @@ describe("AdvancementHelper.getConditionAdvancement", () => {
   });
 });
 
+// =============================================================================
 // generateScaleValueAdvancement (static)
+// =============================================================================
 describe("AdvancementHelper.generateScaleValueAdvancement", () => {
   it("returns null when the feature has no level scales", () => {
     expect(AdvancementHelper.generateScaleValueAdvancement(makeFeature({ name: "No Scales" }))).toBeNull();
@@ -572,7 +754,7 @@ describe("AdvancementHelper.generateScaleValueAdvancement", () => {
       ],
     });
     const result: any = AdvancementHelper.generateScaleValueAdvancement(feature);
-    expect(result.title).toBe("Sneak Attack");
+    expect(result.name).toBe("Sneak Attack");
     expect(result.configuration.identifier).toBe("sneak-attack");
     expect(result.configuration.type).toBe("dice");
     expect(result.configuration.scale["1"]).toEqual({ number: 1, faces: 6 });
@@ -621,5 +803,38 @@ describe("AdvancementHelper.generateScaleValueAdvancement", () => {
     const result: any = AdvancementHelper.generateScaleValueAdvancement(feature);
     expect(result.configuration.type).toBe("string");
     expect(result.configuration.scale["1"]).toEqual({ value: "1d8 + 2" });
+  });
+});
+
+// =============================================================================
+// getSpellChoiceAdvancement (school restricted feat choice)
+// =============================================================================
+describe("AdvancementHelper.getSpellChoiceAdvancement", () => {
+  it("offers a school restricted level 1 choice when the feat is gained, with one free cast", async () => {
+    const lookup = AdvancementHelper._getSpellUuidsFromFeatureSpellData;
+    AdvancementHelper._getSpellUuidsFromFeatureSpellData = async () => [];
+    try {
+      const adv: any = await AdvancementHelper.getSpellChoiceAdvancement({
+        spellChoice: { level: 1, spellList: "", amount: "1", schools: ["div", "enc"] },
+        abilities: ["int", "wis", "cha"],
+        name: "Test Feat (Spells)",
+        spellLinks: [],
+        is2024: false,
+        method: "spell",
+      });
+      const data = adv.toObject();
+      expect(data.level).toBe(0);
+      expect(data.configuration.choices).toEqual({ 0: { count: 1, replacement: false } });
+      expect(data.configuration.restriction).toEqual({ level: 1, type: "spell", list: [], school: ["div", "enc"] });
+      expect(data.configuration.spell).toEqual({
+        ability: ["int", "wis", "cha"],
+        method: "spell",
+        prepared: CONFIG.DND5E.spellPreparationStates.always.value,
+        uses: { max: "1", per: "lr", requireSlot: false },
+      });
+      expect(data.hint).toBe("Choose a level 1 spell from the Divination or Enchantment school.");
+    } finally {
+      AdvancementHelper._getSpellUuidsFromFeatureSpellData = lookup;
+    }
   });
 });

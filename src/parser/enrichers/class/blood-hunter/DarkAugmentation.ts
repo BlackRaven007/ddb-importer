@@ -11,7 +11,7 @@ export default class DarkAugmentation extends _BloodHunter {
 
   static SAVE_ABILITIES = ["str", "dex", "con"];
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (this.isAction) return [];
 
     const saveBonus = `max(1, ${this.hemocraftModifier})`;
@@ -23,9 +23,9 @@ export default class DarkAugmentation extends _BloodHunter {
           transfer: true,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("5", 20, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("5", 20, "system.attributes.movement.speeds.walk"),
           ...DarkAugmentation.SAVE_ABILITIES.map((ability) =>
-            DDBEnricherData.ChangeHelper.unsignedAddChange(saveBonus, 20, `system.abilities.${ability}.bonuses.save`),
+            DDBEnricherData.ChangeHelper.unsignedAddChange(saveBonus, 20, `system.abilities.${ability}.save.roll.bonus`),
           ),
         ],
       },

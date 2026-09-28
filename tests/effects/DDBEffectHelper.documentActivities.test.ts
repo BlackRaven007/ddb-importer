@@ -1,16 +1,15 @@
 // Characterization tests for DDBEffectHelper.documentWithFilteredActivities.
+//
 // The method deep-copies a document via toObject() and then applies ~28
 // options: activity filtering, effect stripping, id regeneration,
 // duration/target overrides, uses clearing, property add/remove, etc.
 // These tests pin the current behavior of each option (alone plus a few
 // interactions) using hand-built plain documents, always with
 // returnDataOnly: true unless the construction path itself is under test.
+//
 // DDBEffectHelper is the unit under test so it is imported un-mocked; the
-// barrels its import chain drags in are stubbed exactly as in the pure test.
+// global foundry stubs carry the import chain.
 
-vi.mock("../../src/parser/monster/features/DDBMonsterFeature", () => ({
-  default: class {},
-}));
 import DDBEffectHelper from "../../src/effects/DDBEffectHelper";
 
 const globalAny: any = globalThis;
@@ -63,7 +62,6 @@ function baseDocData(): any {
     effects: [
       { _id: "effectIdOne00000", type: "base", flags: {} },
       { _id: "effectIdTwo00000", type: "enchantment", flags: {} },
-      { _id: "auraEffectId0000", type: "base", flags: { ActiveAura: { isAura: true } } },
     ],
     flags: {
       itemacro: { macro: "code" },
@@ -160,14 +158,9 @@ describe("DDBEffectHelper.documentWithFilteredActivities", () => {
   });
 
   describe("document effect stripping", () => {
-    it("removes ActiveAura aura effects by default", () => {
+    it("keeps document effects when only filtering activities", () => {
       const result = run({ filterEffects: false });
       expect(result.effects.map((e: any) => e._id)).toEqual(["effectIdOne00000", "effectIdTwo00000"]);
-    });
-
-    it("keeps aura effects with clearActiveAuraEffects: false", () => {
-      const result = run({ filterEffects: false, clearActiveAuraEffects: false });
-      expect(result.effects).toHaveLength(3);
     });
 
     it("clears all effects with clearEffects: true, which also empties activity effect links", () => {

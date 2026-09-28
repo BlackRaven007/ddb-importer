@@ -1,3 +1,4 @@
+import { nameString } from "./NameNormalizer.mjs";
 import { SETTINGS } from "../config/_module";
 
 interface DiceParserDice { sign: string; count: number; die: number };
@@ -81,6 +82,17 @@ export default class Utils {
     return str.replace(/[^a-zA-Z0-9]/g, "");
   }
 
+  static getToolKey({ baseTool = null, toolKey, name }: {
+    baseTool?: string | null;
+    toolKey?: string;
+    name: string;
+  }): string {
+    if (toolKey && Utils.getSetting<boolean>("add-ddb-tools")) {
+      return toolKey;
+    }
+    return baseTool ?? Utils.idString(name.toLowerCase());
+  }
+
   static pascalCase(str: string): string {
     return str.split(" ").map((s) => Utils.capitalize(Utils.idString(s))).join("");
   }
@@ -114,6 +126,7 @@ export default class Utils {
       result += "I".repeat(padding);
     }
     // if (result.length > length) {
+    //   console.warn(`Generated ID stub for ${name} exceeded max length of ${length}: ${result}`, {
     //     prefix,
     //     postfix,
     //     length,
@@ -125,23 +138,13 @@ export default class Utils {
     //   });
     // }
 
-    return result;
+    // prefix and postfix alone can exceed the length (teleport + legendary is 17), and Foundry
+    // rejects any activity or effect id that is not exactly 16 characters
+    return result.substring(0, length);
   }
 
   static nameString(str: string): string {
-    return str
-      .replaceAll("&amp;", "&")
-      .replaceAll("&nbsp;", " ")
-      .replaceAll("&eacute;", "é")
-      .replaceAll("&ucirc;", "û")
-      .replaceAll("&iacute;", "í")
-      .replaceAll("&shy;", "")
-      .replaceAll("&hellip;", "...")
-      .replaceAll(/&mdash;|&ndash;/g, "-")
-      .replaceAll(/&ldquo;|&rdquo;/g, "\"")
-      .replaceAll("&rsquo;", "'")
-      .replaceAll("’", "'")
-      .replaceAll("  ", " ").trim();
+    return nameString(str);
   }
 
   // Escape a string for literal use inside a `new RegExp(...)`.
@@ -185,6 +188,26 @@ export default class Utils {
     return dom;
   }
 
+  // matches a single non-nested <p> or <blockquote>, plus any <hr> separator in front of
+  // it, since DDB fences its sheet notes off with one and removing the note alone would
+  // leave the rule dangling; a DOM round trip is not used here because re-serialising
+  // would escape the & in Foundry's &Reference[...] enrichers.
+  // The leading group is non-capturing, so \1 still backreferences the block tag.
+  static NOTE_BLOCK_REGEX = /(?:<hr\b[^>]*>\s*)?<(p|blockquote)\b[^>]*>(?:(?!<\/\1>)[\s\S])*<\/\1>\s*/gi;
+
+  /**
+   * Removes whole <p>/<blockquote> blocks containing any of the given marker phrases,
+   * along with a preceding <hr> separator. Used to drop D&D Beyond character-sheet
+   * instructions ("Deselect it to end...") which mean nothing in Foundry.
+   */
+  static stripNoteBlocks(html: string, markers: string[]): string {
+    if (!html || !markers.some((marker) => html.includes(marker))) return html;
+
+    return html.replace(Utils.NOTE_BLOCK_REGEX, (match) =>
+      markers.some((marker) => match.includes(marker)) ? "" : match,
+    );
+  }
+
   static replaceHtmlSpaces(str: string): string {
     return str.replace(/&nbsp;/g, " ").replace(/\xA0/g, " ").replace(/\s\s+/g, " ").trim();
   }
@@ -195,6 +218,12 @@ export default class Utils {
 
   static stringKindaEqual(a: string, b: string): boolean {
     return Utils.renderLesserString(a) === Utils.renderLesserString(b);
+  }
+
+  static stringKindaContains(haystack: string, needle: string): boolean {
+    const lesserNeedle = Utils.renderLesserString(needle);
+    if (lesserNeedle === "") return false;
+    return Utils.renderLesserString(haystack).includes(lesserNeedle);
   }
 
   static calculateModifier(value: number): number {
@@ -224,7 +253,7 @@ export default class Utils {
     return result;
   }
 
-  static parseDiceString(inStr: string, mods = "", diceHint = "", specialFlags = ""): DiceParserResult {
+  static parseDiceString(inStr: string, mods = "", diceHint = "", specialFlags = "", addHint = false): DiceParserResult {
     // sanitizing possible inputs a bit
     const str = `${inStr}`.toLowerCase().replace(/[–-–−]/gu, "-").replace(/\s+/gu, "");
 
@@ -295,7 +324,7 @@ export default class Utils {
       }
     });
 
-    const result = Utils.diceStringResultBuild(diceMap, dice, bonus, mods, diceHint, specialFlags);
+    const result = Utils.diceStringResultBuild(diceMap, dice, bonus, mods, diceHint, specialFlags, addHint);
     return result;
   }
 
@@ -369,6 +398,8 @@ export default class Utils {
     entityTypes.set("table", "RollTable");
     entityTypes.set("tables", "RollTable");
     entityTypes.set("RollTable", "RollTable");
+    entityTypes.set("effect", "ActiveEffect");
+    entityTypes.set("effects", "ActiveEffect");
 
     [
       "feat", "spell", "inventory", "equipment", "consumable", "tool", "loot",
@@ -642,6 +673,17 @@ export default class Utils {
       || img.includes("systems/dnd5e/icons/svg/actors/vehicle.svg");
   }
 
+
+  /**
+   * A localized string for a count, from the plural forms nested under `key` ("one", "other", and
+   * whatever else the language's rules need), selected with `game.i18n.pluralRules` as dnd5e does.
+   * `{count}` is filled with the count; a category the language file lacks falls back to "other".
+   */
+  static localizePlural(key: string, count: number, data: Record<string, unknown> = {}): string {
+    const category = game.i18n.pluralRules.select(count);
+    const pluralKey = game.i18n.has(`${key}.${category}`, false) ? `${key}.${category}` : `${key}.other`;
+    return game.i18n.format(pluralKey, { count: String(count), ...data });
+  }
 
   static getSetting<T>(key: string, moduleId: string = SETTINGS.MODULE_ID): T {
     return (game.settings.get as (moduleId: string, key: string) => unknown)(moduleId, key) as T;

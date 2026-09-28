@@ -1,20 +1,21 @@
 import DDBEnricherData from "../data/DDBEnricherData";
+import ItemRarity from "../../../lib/ItemRarity";
 
 export default class TashasBubblingCauldron extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SUMMON;
   }
 
-  get summonsFunction() {
+  override get summonsFunction(): ((data: ICompanionData) => Promise<ICompanionResult>) | null {
     return DDBImporter.lib.DDBSummonsInterface.getBubblingCauldrons;
   }
 
-  get generateSummons() {
+  override get generateSummons(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Create Cauldron",
       noTemplate: true,
@@ -41,7 +42,7 @@ export default class TashasBubblingCauldron extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -62,11 +63,11 @@ export default class TashasBubblingCauldron extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     let descriptionSuffix = "";
     if (this.ddbParser.itemCompendium?.index) {
       const possibleItems = this.ddbParser.itemCompendium.index
-        .filter((i: Record<string, any>) => ["common", "uncommon"].includes(i.system?.rarity)
+        .filter((i: Record<string, any>) => ItemRarity.keys(i.system).some((r) => ["common", "uncommon"].includes(r))
           && i.type == "consumable"
           && i.system.type.value === "potion"
           && i.name.toLowerCase().includes("potion"),

@@ -1,25 +1,43 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class SpiritShroud extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
+      data: {
+        target: {
+          template: {
+            contiguous: false,
+            type: "radius",
+            size: "10",
+            units: "ft",
+          },
+        },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.applyEffect({
+            effects: "Slowed by Spirit Shroud",
+            auraeffectsNever: true,
+          }),
+        ],
+      },
       overrideTarget: true,
       targetType: "self",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [{
       init: {
         name: "Damage",
         type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
       },
       build: {
+        generateDuration: true,
+        durationOverride: { units: "inst", concentration: false },
         generateDamage: true,
         generateConsumption: false,
         noSpellslot: true,
@@ -36,11 +54,11 @@ export default class SpiritShroud extends DDBEnricherData {
     }];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Surrounded by a Spirit Shroud",
-        aurasNever: true,
+        auraeffectsNever: true,
         midiNever: true,
         options: {
           durationSeconds: 60,
@@ -48,31 +66,30 @@ export default class SpiritShroud extends DDBEnricherData {
       },
       {
         name: "Slowed by Spirit Shroud",
-        midiNever: true,
-        aurasNever: true,
+        standalone: true,
+        auraeffectsNever: true,
         changes: [
-          DDBEnricherData.ChangeHelper.customChange(
+          DDBEnricherData.ChangeHelper.movementBonusChange(
             "-10",
             20,
-            "system.attributes.movement.all",
           ),
         ],
         options: {
           durationSeconds: 60,
+          description: "Within 10 feet of the Spirit Shroud: speed reduced by 10 feet (creatures of the caster's choice).",
         },
       },
       {
         name: "Spirit Shroud",
         activityMatch: "Cast",
-        aurasOnly: true,
+        auraeffectsOnly: true,
         options: {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.customChange(
+          DDBEnricherData.ChangeHelper.movementBonusChange(
             "-10",
             20,
-            "system.attributes.movement.all",
           ),
         ],
         data: {
@@ -81,19 +98,6 @@ export default class SpiritShroud extends DDBEnricherData {
               specialDuration: [],
               selfTargetAlways: true,
               selfTarget: true,
-            },
-            ActiveAuras: {
-              isAura: true,
-              aura: "Enemy",
-              radius: "10",
-              alignment: "",
-              type: "",
-              ignoreSelf: true,
-              height: false,
-              hidden: false,
-              hostile: false,
-              onlyOnce: false,
-              displayTemp: true,
             },
           },
         },
@@ -121,7 +125,7 @@ export default class SpiritShroud extends DDBEnricherData {
     ];
   }
 
-  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
+  override get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
     return {
       type: "spell",
       name: "spiritShroud.js",
@@ -129,7 +133,7 @@ export default class SpiritShroud extends DDBEnricherData {
     };
   }
 
-  get itemMacro(): IDDBItemMacro {
+  override get itemMacro(): IDDBItemMacro {
     return {
       type: "spell",
       name: "spiritShroud.js",

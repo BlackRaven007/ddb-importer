@@ -1,3 +1,4 @@
+// console.warn(scope)
 
 const parentActor = (typeof actor !== 'undefined')
   ? actor
@@ -92,6 +93,7 @@ async function placeTemplate({ origin, parentActor, distance, flag } = {}) {
   measureTemplate.drawPreview();
 }
 
+// const position = await DDBImporter.lib.Crosshairs.aimCrosshair({
 //   drawBoundries: false,
 //   trackDistance: false,
 // });

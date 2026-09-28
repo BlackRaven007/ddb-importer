@@ -2,15 +2,15 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class HorseLord extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get addToDefaultAdditionalActivities() {
+  override get addToDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {

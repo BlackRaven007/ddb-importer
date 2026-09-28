@@ -1,7 +1,7 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Earthquake extends DDBEnricherData {
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         target: {
@@ -23,11 +23,11 @@ export default class Earthquake extends DDBEnricherData {
     };
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
       data: {
@@ -49,15 +49,18 @@ export default class Earthquake extends DDBEnricherData {
         damage: {
           parts: [],
         },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.difficultTerrain({ types: ["rocks"] }),
+        ],
       },
     };
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         activitiesMatch: ["Cast", "Damage from Collapsed Structure"],
@@ -66,7 +69,7 @@ export default class Earthquake extends DDBEnricherData {
     ];
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -75,6 +78,7 @@ export default class Earthquake extends DDBEnricherData {
           noSpellslot: true,
           name: "Place Fissure Templates (End of Turn)",
           data: {
+            duration: { override: true, units: "inst", concentration: false },
             img: "icons/magic/earth/lava-stone-fire-eye.webp",
             description: {
               chatFlavor:
@@ -106,6 +110,7 @@ export default class Earthquake extends DDBEnricherData {
           noSpellslot: true,
           name: "Damage from Collapsed Structure",
           data: {
+            duration: { override: true, units: "inst", concentration: false },
             img: "icons/environment/settlement/building-rubble.webp",
             save: {
               ability: ["dex"],
@@ -133,6 +138,7 @@ export default class Earthquake extends DDBEnricherData {
           noSpellslot: true,
           name: "Escape from Collapsed Building",
           data: {
+            duration: { override: true, units: "inst", concentration: false },
             img: "icons/environment/traps/net.webp",
             save: {
               ability: ["ath"],

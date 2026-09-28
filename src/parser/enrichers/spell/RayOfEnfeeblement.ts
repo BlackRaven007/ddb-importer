@@ -2,17 +2,17 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class RayOfEnfeeblement extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.is2014 ? DDBEnricherData.ACTIVITY_TYPES.ATTACK : DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -20,6 +20,8 @@ export default class RayOfEnfeeblement extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
           generateSave: true,
           generateTarget: true,
           noSpellslot: true,
@@ -33,7 +35,7 @@ export default class RayOfEnfeeblement extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (this.is2014) {
       return [
         {
@@ -61,10 +63,10 @@ export default class RayOfEnfeeblement extends DDBEnricherData {
           name: "Briefly Enfeebled",
           activityMatch: "Cast",
           options: {
-            durationSeconds: 6,
+            expiry: "sourceStart",
             description: this.ddbParser?.ddbDefinition?.description ?? "",
           },
-          daeSpecialDurations: ["1Attack" as const],
+          daeSpecialDurations: ["1Attack"],
         },
         {
           name: "Enfeebled",
@@ -74,10 +76,10 @@ export default class RayOfEnfeeblement extends DDBEnricherData {
             description: this.ddbParser?.ddbDefinition?.description ?? "",
           },
           changes: [
-            DDBEnricherData.ChangeHelper.unsignedAddChange("-1d8", 20, "system.bonuses.mwak.damage"),
-            DDBEnricherData.ChangeHelper.unsignedAddChange("-1d8", 20, "system.bonuses.rwak.damage"),
-            DDBEnricherData.ChangeHelper.unsignedAddChange("-1d8", 20, "system.bonuses.msak.damage"),
-            DDBEnricherData.ChangeHelper.unsignedAddChange("-1d8", 20, "system.bonuses.rsak.damage"),
+            DDBEnricherData.ChangeHelper.unsignedAddChange("-1d8", 20, "system.rolls.damage.mwak.bonus"),
+            DDBEnricherData.ChangeHelper.unsignedAddChange("-1d8", 20, "system.rolls.damage.rwak.bonus"),
+            DDBEnricherData.ChangeHelper.unsignedAddChange("-1d8", 20, "system.rolls.damage.msak.bonus"),
+            DDBEnricherData.ChangeHelper.unsignedAddChange("-1d8", 20, "system.rolls.damage.rsak.bonus"),
           ],
           midiChanges: [
             DDBEnricherData.ChangeHelper.overrideChange(

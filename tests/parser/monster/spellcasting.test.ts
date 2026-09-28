@@ -2,7 +2,9 @@ import DDBMonster from "../../../src/parser/DDBMonster";
 import "../../../src/parser/monster/spellcasting";
 import { makeMockMonster } from "../../_fixtures/mockMonster";
 
+// =============================================================================
 // getSpellcasting - regex extraction of spellcasting ability
+// =============================================================================
 describe("DDBMonster.getSpellcasting", () => {
   const getSpellcasting = DDBMonster.prototype.getSpellcasting;
 
@@ -43,7 +45,9 @@ describe("DDBMonster.getSpellcasting", () => {
   });
 });
 
+// =============================================================================
 // _generateSpelldc - regex extraction of spell save DC
+// =============================================================================
 describe("DDBMonster._generateSpelldc", () => {
   const generateSpelldc = DDBMonster.prototype._generateSpelldc;
 
@@ -72,7 +76,9 @@ describe("DDBMonster._generateSpelldc", () => {
   });
 });
 
+// =============================================================================
 // _generateSpellLevel - regex extraction of caster level
+// =============================================================================
 describe("DDBMonster._generateSpellLevel", () => {
   const generateSpellLevel = DDBMonster.prototype._generateSpellLevel;
 
@@ -120,7 +126,9 @@ describe("DDBMonster._generateSpellLevel", () => {
   });
 });
 
+// =============================================================================
 // _generateSpellAttackBonus - regex extraction and calculation
+// =============================================================================
 describe("DDBMonster._generateSpellAttackBonus", () => {
   const generateSpellAttackBonus = DDBMonster.prototype._generateSpellAttackBonus;
 

@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class WallOfSand extends DDBEnricherData {
 
-  get type() {
-    return DDBEnricherData.ACTIVITY_TYPES.SAVE;
+  override get type(): IDDBActivityType | null {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Place Wall",
       data: {

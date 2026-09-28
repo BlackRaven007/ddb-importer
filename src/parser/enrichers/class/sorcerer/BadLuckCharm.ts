@@ -2,15 +2,15 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BadLuckCharm extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities(): boolean {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get addToDefaultAdditionalActivities(): boolean {
+  override get addToDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -39,7 +39,7 @@ export default class BadLuckCharm extends DDBEnricherData {
               {
                 type: "itemUses",
                 value: "1",
-                target: "sorcery-points",
+                target: "feat:sorcery-points",
                 scaling: { allowed: false, max: "" },
               },
             ],
@@ -49,13 +49,13 @@ export default class BadLuckCharm extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Bad Luck Charm",
         activityMatch: "Bad Luck Charm: Impose Disadvantage",
         options: {
-          durationRounds: 1,
+          expiry: "sourceStart",
           description: "Disadvantage on the next D20 Test made before the start of the source's next turn.",
         },
         midiChanges: [

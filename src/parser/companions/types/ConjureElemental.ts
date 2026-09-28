@@ -84,6 +84,7 @@ export async function getConjureElemental({
     const enriched = foundry.utils.getProperty(document, "flags.monsterMunch.enrichedImages");
 
 
+    // console.warn(`Conjure Elemental ${elemental.name}`, {
     //   stub: foundry.utils.deepClone(stub),
     //   enriched,
     // });

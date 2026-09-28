@@ -20,7 +20,6 @@ DDBCharacter.prototype._newPCSkeleton = async function _newPCSkeleton(this: DDBC
     flags: {
       ddbimporter: {
         compendium: false,
-        acEffects: [],
         baseAC: 10,
         dndbeyond: {
           totalLevels: null,
@@ -45,6 +44,7 @@ DDBCharacter.prototype._generateCharacter = async function _generateCharacter(th
   // *************************************
   // PARSING THE CHARACTER
   // **************************************
+  //
   // ddb = fixCharacterLevels(ddb);
 
   const ddb = this.source?.ddb;

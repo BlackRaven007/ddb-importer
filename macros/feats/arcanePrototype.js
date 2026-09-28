@@ -115,7 +115,7 @@ async function arcanePrototype(actor, feature) {
       },
       quantity: 1,
       weight: { value: 0 },
-      rarity: "common",
+      rarities: ["common"],
       uses: { spent: 0, max: "1", autoDestroy: true, recovery: [] },
       properties: ["mgc"],
       attuned: false,
@@ -184,7 +184,7 @@ async function arcanePrototype(actor, feature) {
 
 if (scope && foundry.utils.getProperty(scope, "flags.ddb-importer.ddbMacroFunction")) {
   if (!actor || !item) {
-    logger.error("No actor or item passed to arcane prototype");
+    console.error("No actor or item passed to arcane prototype");
     return;
   }
   console.info("Running Arcane Prototype macro with:", {

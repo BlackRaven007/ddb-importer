@@ -1,4 +1,6 @@
+// ---------------------------------------------------------------------------
 // Foundry VTT dnd5e system – Actor document interfaces
+// ---------------------------------------------------------------------------
 
 
 export {};
@@ -17,7 +19,7 @@ global {
 
   type TArmorType = "light" | "medium" | "heavy" | "shield" | "natural";
 
-  type TItemRarity = "" | "common" | "uncommon" | "rare" | "veryRare" | "legendary" | "artifact";
+  type TItemRarity = "common" | "uncommon" | "rare" | "veryRare" | "legendary" | "artifact";
 
   type TWeaponMastery = "cleave" | "graze" | "nick" | "push" | "sap" | "slow" | "topple" | "vex";
 
@@ -192,7 +194,7 @@ global {
     properties: TWeaponProperties[];
     quantity: number;
     range: I5eWeaponRange;
-    rarity: TItemRarity;
+    rarities: TItemRarity[];
     requirements: string;
     container?: string;
     source: I5eSourceInfo;
@@ -263,6 +265,7 @@ global {
 
   interface I5eSystemDurationData {
     concentration?: boolean;
+    expiry?: T5eEffectExpiry | null;
     special?: string;
     units?: TDurationUnit;
     value?: string | null;
@@ -311,7 +314,8 @@ global {
     source: I5eSourceInfo;
     target: I5eSystemTargetData;
     uses: I5eSystemLimitedUses;
-    sourceClass?: string;
+    /** dnd5e 6.0 `class:<identifier>` of the class that granted the spell; drives `item.classIdentifier` in roll data. */
+    sourceItem?: string;
   }
 
   interface I5eSpellItem extends I5eSystemBaseDocumentData {
@@ -345,7 +349,7 @@ global {
     proficient: boolean | null;
     properties: TEquipmentProperties[];
     quantity: number;
-    rarity: TItemRarity;
+    rarities: TItemRarity[];
     source: I5eSourceInfo;
     strength: number;
     container?: string;
@@ -394,7 +398,7 @@ global {
     quantity: number;
     weight: I5eItemWeight;
     price: I5ePrice;
-    rarity: TItemRarity;
+    rarities: TItemRarity[];
     attunement: string;
     currency: I5eCurrency;
     capacity: I5eContainerCapacity;
@@ -414,6 +418,8 @@ global {
 
   // ---- Tool item ------------------------------------------------------------
 
+  type TToolType = "art" | "game" | "music" | "vehicle" | "";
+
   interface I5eToolSystemData {
     activities: Record<string, I5eActivity>;
     uses: I5eSystemLimitedUses;
@@ -426,14 +432,14 @@ global {
     quantity: number;
     weight: I5eItemWeight;
     price: I5ePrice;
-    rarity: TItemRarity;
+    rarities: TItemRarity[];
     attunement: string;
     ability: string;
     bonus: string;
     chatFlavor: string;
     proficient: number;
     properties: TToolProperties[];
-    type: { value: string; baseItem: string };
+    type: { value: TToolType; baseItem: string };
     container?: string;
     attuned: boolean;
     equipped: boolean;
@@ -468,7 +474,7 @@ global {
     quantity: number;
     weight: I5eItemWeight;
     price: I5ePrice;
-    rarity: TItemRarity;
+    rarities: TItemRarity[];
     attunement: string;
     attuned: boolean;
     equipped: boolean;
@@ -498,7 +504,7 @@ global {
     quantity: number;
     weight: I5eItemWeight;
     price: I5ePrice;
-    rarity: TItemRarity;
+    rarities: TItemRarity[];
     properties: string[];
     type: {
       value: TLootTypes;
@@ -539,16 +545,12 @@ global {
     mod?: number;
     /** Spell save DC */
     dc?: number | null;
-    /** Whether the cantrip damage is boosted */
-    cantripBoost?: boolean;
     /** Whether to override the default DC calculation */
     overrideDC?: boolean;
     /** DDB spell ID */
     id?: number;
     /** DDB entity type ID */
     entityTypeId?: number;
-    /** Healing bonus modifier */
-    healingBoost?: number;
     /** Whether the spell uses a spell slot */
     usesSpellSlot?: boolean;
     /** Whether material components are forced (e.g. Artificer) */
@@ -621,6 +623,7 @@ global {
     largeAvatarUrl?: string;
     pictureUrl?: string;
     filterType?: string;
+    rarity?: string;
     ability2?: string;
     damage?: { parts?: string[][] };
     classFeatures?: number[];
@@ -643,7 +646,8 @@ global {
       componentId?: number;
       componentTypeId?: number;
       choiceId?: string;
-      optionId?: string;
+      // numeric DDB option id; documents written by earlier 7.x releases hold it as a string
+      optionId?: number | string;
       optionComponentId?: number;
       parentChoiceId?: string | null;
       parentName?: string;
@@ -684,7 +688,8 @@ global {
 
   interface IDDBImporterTransferEnchantmentTargetItemMatches {
     field: string;
-    value: string;
+    /** Compared with strict equality, or with `includes` when the item field is an array. */
+    value: string | number | boolean;
   }
 
   interface IDDBImporterTransferEnchantmentFlags {
@@ -705,24 +710,17 @@ global {
   }
 
   interface IDDBImporterFlagsEffect {
-    // Aura behavior flags
-    applyStart?: boolean;
-    applyEntry?: boolean;
-    applyImmediate?: boolean;
-    everyEntry?: boolean;
-    allowVsRemoveCondition?: boolean;
-    removalCheck?: string | boolean;
-    removalSave?: string | boolean;
-    saveRemoves?: boolean;
-    saveOnEntry?: boolean;
     condition?: string;
     save?: string;
     sequencerFile?: string;
     sequencerScale?: number;
+    /** Activity ids a runtime automation should use from the source document. */
     activityIds?: string[];
     isCantrip?: boolean;
     nameSuffix?: string;
-    removeOnOff?: boolean;
+    /** Ability used when a condition can be removed with a check (see DDBEffectHelper.adjustCondition). */
+    removalCheck?: string | boolean;
+    removalSave?: string | boolean;
     enchantmentEffects?: string[];
 
     // magicStone-style effect data
@@ -793,6 +791,7 @@ global {
     lineageName?: string;
     isHomebrew?: boolean;
     entityRaceId?: number;
+    entityRaceTypeId?: number;
     species?: string;
     trait?: string;
     moreDetailsUrl?: string;
@@ -816,8 +815,18 @@ global {
     removeSpell?: boolean;
 
     // Custom enrichers
+    /** 2024 Healer feat: this spell's healing dice carry a parser-applied reroll modifier. */
+    healingReroll?: boolean;
+    /** Elemental Adept: the damage types whose dice on this spell carry a parser-applied `min2`. */
+    elementalAdept?: string[];
     arcanePrototype?: { spellUuid: string; imbuedLevel: number; ddbSpellId: number; source: string };
     isSpellItem?: boolean;
+    /** Generated to carry automation other documents grant or reference; filed under "Effect Items". */
+    isEffectItem?: boolean;
+    /** "Effect Items" sub-folder name of a generated effect item. */
+    effectName?: string;
+    /** The evolving-item property an effect item hosts. */
+    evolvedProperty?: string;
     spellName?: string;
     shadowBlade?: boolean;
     shadowBladeTier?: string;
@@ -837,12 +846,17 @@ global {
     addSpellEffects?: boolean;
     generic?: boolean;
     effectLabelOverride?: string;
+    /** Transient: standalone effects awaiting import into the effects compendium (stripped at import). */
+    standaloneEffects?: I5eEffectData[];
 
     // Effect matching (on effects)
     activityMatch?: string;
     activitiesMatch?: string[];
+    activityTypesMatch?: IDDBActivityType[];
+    activityIdsExclude?: string[];
     ignoreTransfer?: boolean;
     effectIdLevel?: { min?: number | null; max?: number | null };
+    effectOnSave?: boolean;
     activityRiders?: string[];
     effectRiders?: string[];
     itemRiders?: string[];
@@ -857,7 +871,6 @@ global {
 
     // Activity/enricher flags
     replaceActivityUses?: boolean;
-    forceSpellAdvancement?: boolean;
     spellHintName?: string;
     defaultAdditionalActivities?: { data?: Record<string, unknown> };
 
@@ -867,6 +880,12 @@ global {
     ignoreItemForChrisPremades?: boolean;
     ignoreIcon?: boolean;
     retainResourceConsumption?: boolean;
+    retainOriginalConsumption?: boolean;
+    retainChildUses?: boolean;
+    retainUseSpent?: boolean;
+    retainActivityUseSpent?: boolean | string[];
+    ignoredConsumptionActivities?: string[];
+    consumptionValue?: string;
     parentId?: string;
 
     // Monster feature flags (stamped on monster feature items)

@@ -3,17 +3,17 @@ import Maneuver from "./Maneuver";
 
 
 export default class ManeuverQuickToss extends Maneuver {
-  get type() {
+  override get type(): IDDBActivityType {
     return this.useMidiAutomations
       ? DDBEnricherData.ACTIVITY_TYPES.UTILITY
       : DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         midiOnly: true,
-        daeSpecialDurations: ["1Attack" as const],
+        daeSpecialDurations: ["1Attack"],
         data: {
           duration: {
             value: 6,
@@ -22,8 +22,8 @@ export default class ManeuverQuickToss extends Maneuver {
           },
         },
         midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.mwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.rwak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.rolls.damage.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.rolls.damage.rwak.bonus"),
         ],
       },
     ];

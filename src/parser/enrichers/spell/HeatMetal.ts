@@ -1,7 +1,7 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class HeatMetal extends DDBEnricherData {
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -11,6 +11,7 @@ export default class HeatMetal extends DDBEnricherData {
           noSpellslot: true,
           noConsumeTargets: true,
           data: {
+            duration: { override: true, units: "inst", concentration: false },
             type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
           },
         },
@@ -21,6 +22,8 @@ export default class HeatMetal extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
           generateDamage: false,
           generateSave: true,
           noSpellslot: true,
@@ -33,15 +36,17 @@ export default class HeatMetal extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Heat Metal: It's getting real hot",
+        // disadvantage until the start of the caster's next turn, whichever activity applied it
+        options: { expiry: "sourceStart" },
       },
     ];
   }
 
-  get addAutoAdditionalActivities() {
+  override get addAutoAdditionalActivities(): boolean {
     return false;
   }
 

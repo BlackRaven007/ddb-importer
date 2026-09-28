@@ -3,7 +3,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Guidance extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     const midiProperties = this.is2014
       ? {}
       : {
@@ -23,7 +23,7 @@ export default class Guidance extends DDBEnricherData {
     };
   }
 
-  get effects2014() {
+  get effects2014(): IDDBEffectHint[] {
     return [
       {
         name: `Guidance`,
@@ -35,7 +35,7 @@ export default class Guidance extends DDBEnricherData {
         noCreate: true,
         midiNever: true,
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1d4", 20, "system.bonuses.abilities.check"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("1d4", 20, "system.rolls.ability.check.bonus"),
         ],
       },
       {
@@ -53,12 +53,12 @@ export default class Guidance extends DDBEnricherData {
             },
           },
         ],
-        daeSpecialDurations: ["isInitiative" as const],
+        daeSpecialDurations: ["isInitiative"],
       },
     ];
   }
 
-  get effects2024() {
+  get effects2024(): IDDBEffectHint[] {
     return DICTIONARY.actor.skills.map((skill) => {
       return {
         name: `${skill.label} Guidance`,
@@ -66,14 +66,14 @@ export default class Guidance extends DDBEnricherData {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.addChange("1d4", 100, `system.skills.${skill.name}.bonuses.check`),
+          DDBEnricherData.ChangeHelper.addChange("1d4", 100, `system.skills.${skill.name}.roll.bonus`),
         ],
-        daeSpecialDurations: [`isSkill.${skill.name}` as TDAESpecialDuration],
+        daeSpecialDurations: [`isSkill.${skill.name}` as TDAEOnlySpecialDuration],
       };
     });
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return this.is2014 ? this.effects2014 : this.effects2024;
   }
 

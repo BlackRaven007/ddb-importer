@@ -11,14 +11,15 @@
     "isolatedModules": true,
     "types": [
       "fvtt-types",
-      "dnd5e/dnd5e/dnd5e.d.mts",
+      "dnd5e",
       "vitest/globals",
     ],
     "paths": {
       "@client/*": ["./foundry/client/*"],
       "@common/*": ["./foundry/common/*"]
     },
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noImplicitOverride": true
   },
   "include": [
     "src/**/*.ts",

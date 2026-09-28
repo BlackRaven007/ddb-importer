@@ -1,8 +1,17 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
+/**
+ * Gunslinger ranged critical range: 19 at level 2, 18 at 9, 17 at 17. DDB ships the thresholds as a
+ * level scale on the feature, so the Gunslinger scale advancement carries them as
+ * `@scale.gunslinger.critical-shot`. Core dnd5e only has an unconditional actor-wide threshold, so
+ * the ranged-weapon restriction needs a module: AC5e's threshold flag with an `actionType.rwak`
+ * condition, or midi's per-action-type critical flag.
+ */
 export default class CriticalShot extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  static SCALE = "@scale.gunslinger.critical-shot";
+
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Critical Shot",
@@ -11,13 +20,22 @@ export default class CriticalShot extends DDBEnricherData {
           transfer: true,
         },
         ac5eChanges: [
-          // automated-conditions-5e: expanded critical range for ranged weapon
-          // attacks; the scale value holds the threshold (19, then 18, then 17)
-          DDBEnricherData.ChangeHelper.addChange(
-            "bonus=(actionType.rwak? @scale.gunslinger.critical-shot : 0)",
+          DDBEnricherData.ChangeHelper.ac5eChange(
+            `set=${CriticalShot.SCALE}; actionType.rwak`,
             20,
             "flags.automated-conditions-5e.attack.criticalThreshold",
           ),
+        ],
+      },
+      {
+        name: "Critical Shot",
+        midiOnly: true,
+        ac5eNever: true,
+        options: {
+          transfer: true,
+        },
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.overrideChange(CriticalShot.SCALE, 20, "flags.midi-qol.critical.rwak"),
         ],
       },
     ];

@@ -8,11 +8,11 @@ export default class EerieToken extends DDBEnricherData {
   compendiumFolders!: DDBCompendiumFolders;
   tokens: I5eLootItem[] = [];
 
-  get type(): IDDBActivityType | null {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.ENCHANT;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     return {
       name: "Create Eerie Token",
       activationType: "bonus",
@@ -26,7 +26,7 @@ export default class EerieToken extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -93,17 +93,21 @@ export default class EerieToken extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData | null {
-    const uses = this._getGeneratedUses({
-      type: "class",
-      name: "Eerie Token",
-    });
+  override get override(): IDDBOverrideData | null {
+    // The species action lives in the race bucket. 2014 ships three separate actions with no
+    // limited use, so its once-per-long-rest token is stated here.
+    const uses: I5eSystemLimitedUses = this.is2014
+      ? { max: "1", recovery: [{ period: "lr", type: "recoverAll", formula: undefined }] }
+      : this._getGeneratedUses({
+        type: "race",
+        name: "Eerie Token",
+      });
     return {
       uses,
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const compendium = CompendiumHelper.getCompendiumType("traits");
     if (!compendium) return [];
     const compendiumId = compendium?.metadata?.id;
@@ -204,7 +208,7 @@ export default class EerieToken extends DDBEnricherData {
     }
   }
 
-  async cleanup() {
+  override async cleanup() {
     this.handler = new DDBItemImporter("trait", [], EerieToken.handlerOptions);
     if (game.user.isGM) await this.generateToken();
     this.linkUpItemUUIDs();
@@ -239,7 +243,7 @@ export default class EerieToken extends DDBEnricherData {
           "value": 0,
           "units": "lb",
         },
-        "rarity": "",
+        "rarities": [],
         "properties": [
           "mgc",
         ],

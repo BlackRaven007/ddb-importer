@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class NimbusOfPathos extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       activationType: "action",
@@ -15,7 +15,7 @@ export default class NimbusOfPathos extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Nimbus of Pathos",
@@ -25,19 +25,13 @@ export default class NimbusOfPathos extends DDBEnricherData {
         },
         changes: [
           DDBEnricherData.ChangeHelper.unsignedAddChange("4", 20, "system.attributes.ac.bonus"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1d10[radiant]", 20, "system.bonuses.mwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1d10[radiant]", 20, "system.bonuses.rwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1d10[radiant]", 20, "system.bonuses.msak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1d10[radiant]", 20, "system.bonuses.rsak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("1d10[radiant]", 20, "system.rolls.damage.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("1d10[radiant]", 20, "system.rolls.damage.rwak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("1d10[radiant]", 20, "system.rolls.damage.msak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("1d10[radiant]", 20, "system.rolls.damage.rsak.bonus"),
           DDBEnricherData.ChangeHelper.overrideChange("18", 20, "flags.dnd5e.weaponCriticalThreshold"),
-        ],
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.all"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.ability.save.all"),
-        ],
-        ac5eChanges: [
-          DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.automated-conditions-5e.attack.advantage"),
-          DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.automated-conditions-5e.save.advantage"),
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("save"),
         ],
       },
     ];

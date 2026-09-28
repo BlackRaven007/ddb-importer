@@ -2,19 +2,18 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class SilverBulwark extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Silver Bulwark",
         options: {
-          durationRounds: 1,
+          expiry: "sourceStart",
           description: "Resistance to Bludgeoning, Piercing and Slashing damage until the start of your next turn.",
         },
-        daeSpecialDurations: ["turnStartSource"],
         changes: [
           DDBEnricherData.ChangeHelper.unsignedAddChange("bludgeoning", 20, "system.traits.dr.value"),
           DDBEnricherData.ChangeHelper.unsignedAddChange("piercing", 20, "system.traits.dr.value"),

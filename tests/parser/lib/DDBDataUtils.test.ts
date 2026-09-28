@@ -1,6 +1,8 @@
 import DDBDataUtils from "../../../src/parser/lib/DDBDataUtils";
 
+// =============================================================================
 // Shared mock DDB data
+// =============================================================================
 function makeDDB(overrides: any = {}): any {
   return {
     character: {
@@ -41,7 +43,9 @@ function makeDDB(overrides: any = {}): any {
   };
 }
 
+// =============================================================================
 // getName
+// =============================================================================
 describe("DDBDataUtils.getName", () => {
   it("returns definition.name", () => {
     const ddb = makeDDB();
@@ -175,7 +179,9 @@ describe("DDBDataUtils.getName", () => {
   });
 });
 
+// =============================================================================
 // isComponentIdInClassFeatures
+// =============================================================================
 describe("DDBDataUtils.isComponentIdInClassFeatures", () => {
   const ddb = makeDDB();
 
@@ -196,7 +202,9 @@ describe("DDBDataUtils.isComponentIdInClassFeatures", () => {
   });
 });
 
+// =============================================================================
 // findComponentByComponentId
+// =============================================================================
 describe("DDBDataUtils.findComponentByComponentId", () => {
   const optionScales: any[] = [
     { id: 1, level: 1, description: "", dice: null, fixedValue: 1 },
@@ -249,7 +257,176 @@ describe("DDBDataUtils.findComponentByComponentId", () => {
   });
 });
 
+// =============================================================================
+// getScaleValueString
+// =============================================================================
+
+describe("DDBDataUtils.getScaleValueString", () => {
+  const scales = [{ level: 1, fixedValue: 1, dice: null }, { level: 5, fixedValue: 2, dice: null }];
+
+  // Class features arrive as { definition, levelScale } with no componentId; only actions
+  // carry one. The wrapper is itself the scale source.
+  it("resolves a class feature wrapper without a componentId", () => {
+    const ddb = makeDDB({ classOptions: [] });
+    const feature: any = {
+      definition: { id: 100, name: "Action Surge", classId: 1, levelScales: scales },
+      levelScale: scales[1],
+    };
+    expect(DDBDataUtils.getScaleValueString(ddb, feature)).toEqual({
+      name: "Action Surge",
+      value: "@scale.fighter.action-surge",
+    });
+  });
+
+  it("resolves a wrapper whose current level has no scale row", () => {
+    const ddb = makeDDB({ classOptions: [] });
+    const feature: any = {
+      definition: { id: 100, name: "Action Surge", classId: 1, levelScales: [{ level: 17, fixedValue: 2, dice: null }] },
+      levelScale: null,
+    };
+    expect(DDBDataUtils.getScaleValueString(ddb, feature).value).toBe("@scale.fighter.action-surge");
+  });
+
+  it("follows an action's componentId to its class feature", () => {
+    const ddb = makeDDB({ classOptions: [] });
+    ddb.character.classes[0].classFeatures[0].definition.classId = 1;
+    ddb.character.classes[0].classFeatures[0].definition.levelScales = scales;
+    const action: any = { name: "Action Surge", componentId: 100, componentTypeId: 1 };
+    expect(DDBDataUtils.getScaleValueString(ddb, action).value).toBe("@scale.fighter.action-surge");
+  });
+
+  it("returns no value when nothing resolves", () => {
+    const ddb = makeDDB({ classOptions: [] });
+    const action: any = { name: "Orphan", componentId: 99999, componentTypeId: 1 };
+    expect(DDBDataUtils.getScaleValueString(ddb, action)).toEqual({ name: undefined, value: undefined });
+  });
+});
+
+// =============================================================================
+// isModifierFromNamedFeature
+// =============================================================================
+describe("DDBDataUtils.isModifierFromNamedFeature", () => {
+  // ids and entity type ids taken from real cleric payloads
+  const CLASS_FEATURE_TYPE_ID = 12168134;
+  const OPTION_TYPE_ID = 258900837;
+
+  function makeMod(componentId: number, componentTypeId: number): any {
+    return {
+      type: "bonus",
+      subType: "cleric-cantrip-damage",
+      restriction: "",
+      componentId,
+      componentTypeId,
+    };
+  }
+
+  // 2014: Potent Spellcasting is a subclass class feature
+  function makeClassFeatureDDB() {
+    return makeDDB({
+      character: {
+        classes: [
+          {
+            definition: { id: 1, name: "Cleric", classFeatures: [] },
+            classFeatures: [
+              { definition: { id: 140, name: "Potent Spellcasting", entityTypeId: CLASS_FEATURE_TYPE_ID, requiredLevel: 8 } },
+              { definition: { id: 141, name: "Divine Strike", entityTypeId: CLASS_FEATURE_TYPE_ID, requiredLevel: 8 } },
+            ],
+            level: 8,
+          },
+        ],
+        options: { class: [], race: [], feat: [] },
+      },
+      classOptions: [],
+    });
+  }
+
+  // 2024: Potent Spellcasting is a chosen option of the Blessed Strikes feature
+  function makeOptionDDB() {
+    return makeDDB({
+      character: {
+        classes: [
+          {
+            definition: { id: 1, name: "Cleric", classFeatures: [] },
+            classFeatures: [
+              { definition: { id: 10292211, name: "Blessed Strikes", entityTypeId: CLASS_FEATURE_TYPE_ID, requiredLevel: 7 } },
+            ],
+            level: 7,
+          },
+        ],
+        options: {
+          class: [
+            {
+              componentId: 10292211,
+              componentTypeId: CLASS_FEATURE_TYPE_ID,
+              definition: { id: 4496847, name: "Potent Spellcasting", entityTypeId: OPTION_TYPE_ID },
+            },
+          ],
+          race: [],
+          feat: [],
+        },
+      },
+      classOptions: [],
+    });
+  }
+
+  it("matches a class feature on id, entityTypeId and name", () => {
+    const ddb = makeClassFeatureDDB();
+    expect(DDBDataUtils.isModifierFromNamedFeature(ddb, makeMod(140, CLASS_FEATURE_TYPE_ID), "Potent Spellcasting")).toBe(true);
+  });
+
+  it("does not match a differently named class feature", () => {
+    const ddb = makeClassFeatureDDB();
+    expect(DDBDataUtils.isModifierFromNamedFeature(ddb, makeMod(141, CLASS_FEATURE_TYPE_ID), "Potent Spellcasting")).toBe(false);
+  });
+
+  it("does not match when the componentTypeId differs", () => {
+    const ddb = makeClassFeatureDDB();
+    expect(DDBDataUtils.isModifierFromNamedFeature(ddb, makeMod(140, OPTION_TYPE_ID), "Potent Spellcasting")).toBe(false);
+  });
+
+  it("matches a class option on its own definition id", () => {
+    const ddb = makeOptionDDB();
+    expect(DDBDataUtils.isModifierFromNamedFeature(ddb, makeMod(4496847, OPTION_TYPE_ID), "Potent Spellcasting")).toBe(true);
+  });
+
+  it("matches a class option on its parent componentId", () => {
+    const ddb = makeOptionDDB();
+    expect(DDBDataUtils.isModifierFromNamedFeature(ddb, makeMod(10292211, CLASS_FEATURE_TYPE_ID), "Potent Spellcasting")).toBe(true);
+  });
+
+  it("does not match a class option on a mixed id and type id pair", () => {
+    const ddb = makeOptionDDB();
+    expect(DDBDataUtils.isModifierFromNamedFeature(ddb, makeMod(4496847, CLASS_FEATURE_TYPE_ID), "Potent Spellcasting")).toBe(false);
+  });
+
+  it("matches an optional class feature definition in classOptions", () => {
+    const ddb = makeDDB({
+      character: {
+        classes: [{ definition: { id: 1, name: "Cleric", classFeatures: [] }, classFeatures: [], level: 8 }],
+        options: { class: [], race: [], feat: [] },
+      },
+      classOptions: [
+        { id: 4496847, classId: 1, entityTypeId: OPTION_TYPE_ID, name: "Potent Spellcasting", levelScales: [], limitedUse: [] },
+      ],
+    });
+    expect(DDBDataUtils.isModifierFromNamedFeature(ddb, makeMod(4496847, OPTION_TYPE_ID), "Potent Spellcasting")).toBe(true);
+  });
+
+  it("returns false when options.class and classOptions are missing", () => {
+    const ddb = makeDDB({
+      character: {
+        classes: [{ definition: { id: 1, name: "Cleric", classFeatures: [] }, classFeatures: [], level: 8 }],
+        options: { race: [], feat: [] },
+      },
+    });
+    delete ddb.classOptions;
+    expect(DDBDataUtils.isModifierFromNamedFeature(ddb, makeMod(4496847, OPTION_TYPE_ID), "Potent Spellcasting")).toBe(false);
+  });
+});
+
+// =============================================================================
 // getClassFeatureIds
+// =============================================================================
 describe("DDBDataUtils.getClassFeatureIds", () => {
   const ddb = makeDDB();
 
@@ -291,7 +468,9 @@ describe("DDBDataUtils.getClassFeatureIds", () => {
   });
 });
 
+// =============================================================================
 // classIdentifierName
+// =============================================================================
 describe("DDBDataUtils.classIdentifierName", () => {
   it("removes 'Circle of the' prefix", () => {
     expect(DDBDataUtils.classIdentifierName("Circle of the Moon")).toBe("moon");
@@ -331,7 +510,9 @@ describe("DDBDataUtils.classIdentifierName", () => {
   });
 });
 
+// =============================================================================
 // hasClassFeature
+// =============================================================================
 describe("DDBDataUtils.hasClassFeature", () => {
   const ddb = makeDDB();
 
@@ -365,7 +546,9 @@ describe("DDBDataUtils.hasClassFeature", () => {
   });
 });
 
+// =============================================================================
 // hasSubClass
+// =============================================================================
 describe("DDBDataUtils.hasSubClass", () => {
   const ddb = makeDDB();
 
@@ -378,7 +561,9 @@ describe("DDBDataUtils.hasSubClass", () => {
   });
 });
 
+// =============================================================================
 // hasChosenCharacterOption
+// =============================================================================
 describe("DDBDataUtils.hasChosenCharacterOption", () => {
   it("returns true when option is in class options", () => {
     const ddb = makeDDB({
@@ -425,7 +610,30 @@ describe("DDBDataUtils.hasChosenCharacterOption", () => {
   });
 });
 
+// =============================================================================
+// hasCharacterFeat
+// =============================================================================
+describe("DDBDataUtils.hasCharacterFeat", () => {
+  // 2024 Fighting Style choices are feats, and DDB leaves character.options empty for them
+  it("finds a 2024 Fighting Style feat that hasChosenCharacterOption misses", () => {
+    const ddb = makeDDB({
+      character: {
+        feats: [{ definition: { name: "Great Weapon Fighting" } }],
+        options: { class: [], race: [], feat: [] },
+      },
+    });
+    expect(DDBDataUtils.hasCharacterFeat(ddb, "Great Weapon Fighting")).toBe(true);
+    expect(DDBDataUtils.hasChosenCharacterOption(ddb, "Great Weapon Fighting")).toBe(false);
+  });
+
+  it("returns false when the feat is not present", () => {
+    expect(DDBDataUtils.hasCharacterFeat(makeDDB(), "Great Weapon Fighting")).toBe(false);
+  });
+});
+
+// =============================================================================
 // getCustomValueFromCharacter
+// =============================================================================
 describe("DDBDataUtils.getCustomValueFromCharacter", () => {
   it("returns custom value when match found", () => {
     const character = {

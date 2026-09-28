@@ -13,7 +13,7 @@ interface IFlagDocument {
 }
 
 export class DDBAdventureFlags extends FormApplication {
-  static get defaultOptions() {
+  static override get defaultOptions() {
     const options = super.defaultOptions;
     options.title = "DDB Adventure Imported Flags";
     options.template = "modules/ddb-importer/handlebars/flag-details.hbs";
@@ -23,7 +23,9 @@ export class DDBAdventureFlags extends FormApplication {
   }
 
   /** @override */
-  async getData() {
+  override async getData() {
+    // console.warn(this);
+    // console.warn(this.object);
     const item = this.object as TAll5eItemDocuments | I5eMonsterData | I5eVehicleData;
 
     const flags: TFlags = {};
@@ -98,7 +100,7 @@ export class DDBAdventureFlags extends FormApplication {
   }
 
 
-  activateListeners(html: JQuery<HTMLElement>) {
+  override activateListeners(html: JQuery<HTMLElement>) {
     super.activateListeners(html);
     // watch the change of the import-policy-selector checkboxes
     $(html)
@@ -129,7 +131,7 @@ export class DDBAdventureFlags extends FormApplication {
   }
 
   /** @override - this application updates via checkbox listeners, not form submission */
-  async _updateObject(_event: Event, _formData: object): Promise<void> {
+  async _updateObject(_event: Event, _formData?: object): Promise<void> {
     // no-op
   }
 }

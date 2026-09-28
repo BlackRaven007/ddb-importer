@@ -3,11 +3,11 @@ import Maneuver from "./Maneuver";
 
 
 export default class ManeuverRiposte extends Maneuver {
-  get type() {
+  override get type(): IDDBActivityType {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       midiManualReaction: true,
       ignoredConsumptionActivities: this.ignoredConsumptionActivities,
@@ -17,16 +17,16 @@ export default class ManeuverRiposte extends Maneuver {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       this.extraDamageActivity(),
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
-        daeSpecialDurations: ["1Attack:mwak" as const],
+        daeSpecialDurations: ["1Attack:mwak"],
         data: {
           duration: {
             value: 6,
@@ -35,7 +35,7 @@ export default class ManeuverRiposte extends Maneuver {
           },
         },
         midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.mwak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.rolls.damage.mwak.bonus"),
         ],
       },
     ];

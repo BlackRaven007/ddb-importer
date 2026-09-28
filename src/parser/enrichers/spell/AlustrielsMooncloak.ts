@@ -2,21 +2,26 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class AlustrielsMooncloak extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
+      data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.applyEffect({ effects: "Within Moonlight" }),
+        ],
+      },
     };
   }
 
-  get addAutoAdditionalActivities() {
+  override get addAutoAdditionalActivities(): boolean {
     return false;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -24,6 +29,8 @@ export default class AlustrielsMooncloak extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
         },
         build: {
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
           generateConsumption: false,
           noSpellslot: true,
           generateAttack: false,
@@ -41,6 +48,8 @@ export default class AlustrielsMooncloak extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.HEAL,
         },
         build: {
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
           generateDamage: false,
           generateHealing: true,
           generateRange: true,
@@ -60,14 +69,13 @@ export default class AlustrielsMooncloak extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
-        activityMatch: "Cast",
         name: "Within Moonlight",
+        standalone: true,
         options: {
           durationSeconds: 60,
-          durationRounds: 10,
         },
         changes: [
           DDBEnricherData.ChangeHelper.damageResistanceChange("cold"),
@@ -75,40 +83,23 @@ export default class AlustrielsMooncloak extends DDBEnricherData {
           DDBEnricherData.ChangeHelper.damageResistanceChange("radiant"),
         ],
         statuses: ["coverHalf"],
-        data: {
-          flags: {
-            dae: {
-              stackable: "noneNameOnly",
-              selfTarget: true,
-              selfTargetAlways: true,
-            },
-            ActiveAuras: {
-              aura: "Allies",
-              radius: "20",
-              isAura: true,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-              ignoreSelf: false,
-              statuses: ["coverHalf"],
+      },
+    ];
+  }
+
+
+  override get override(): IDDBOverrideData {
+    return {
+      data: {
+        system: {
+          target: {
+            affects: {
+              type: "ally",
             },
           },
         },
-        auraeffects: {
-          applyToSelf: true,
-          bestFormula: "",
-          canStack: false,
-          collisionTypes: ["move"],
-          combatOnly: false,
-          disableOnHidden: true,
-          distanceFormula: `20`,
-          disposition: 1,
-          evaluatePreApply: true,
-          overrideName: "",
-          script: "",
-        },
       },
-    ];
+    };
   }
 
 }

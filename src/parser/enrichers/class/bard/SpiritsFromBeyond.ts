@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class SpiritsFromBeyond extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Channeling",
       activationType: "special",
@@ -19,7 +19,7 @@ export default class SpiritsFromBeyond extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         action: {
@@ -329,7 +329,7 @@ export default class SpiritsFromBeyond extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Spirits from Beyond - Speed Bonus",
@@ -337,15 +337,15 @@ export default class SpiritsFromBeyond extends DDBEnricherData {
           durationSeconds: null,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.addChange("10", 20, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.movementBonusChange("10", 20),
         ],
         activityMatch: "6. Wayfarer",
       },
       {
         name: "Spirits from Beyond - Charmed",
         options: {
-          durationSeconds: 6,
-          expiry: "turnStart",
+          // Trickster: "has the Charmed condition until the start of your next turn"
+          expiry: "sourceStart",
         },
         statuses: ["Charmed"],
         activityMatch: "7. Trickster",
@@ -353,8 +353,8 @@ export default class SpiritsFromBeyond extends DDBEnricherData {
       {
         name: "Spirits from Beyond - Invisible",
         options: {
-          durationSeconds: 6,
-          expiry: "turnEnd",
+          // Shade: "the Invisible condition until the end of its next turn"
+          expiry: "targetEnd",
         },
         statuses: ["Invisible"],
         activityMatch: "8. Shade",
@@ -362,15 +362,13 @@ export default class SpiritsFromBeyond extends DDBEnricherData {
       {
         name: "Spirits from Beyond - Frightened",
         options: {
-          durationSeconds: 6,
-          expiry: "turnStart",
+          expiry: "sourceStart",
           description: "The creature can take either an action or a Bonus Action, not both",
         },
-        daeSpecialDurations: ["turnStartSource"],
         statuses: ["Frightened"],
         activityMatch: "10. Coward",
         changes: [
-          DDBEnricherData.ChangeHelper.multiplyChange("0.5", 100, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0.5", 100),
         ],
       },
       {
@@ -384,7 +382,7 @@ export default class SpiritsFromBeyond extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       uses: this._getUsesWithSpent({
         name: "Channel Spirit",

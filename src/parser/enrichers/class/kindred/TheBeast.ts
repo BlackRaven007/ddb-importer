@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class TheBeast extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "bonus",
@@ -14,15 +14,14 @@ export default class TheBeast extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "The Beast",
         options: {
-          durationTurns: 1,
+          expiry: "sourceStart",
           description: "Advantage on D20 Tests until the start of your next turn.",
         },
-        daeSpecialDurations: ["turnStartSource"],
         midiChanges: [
           DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.midi-qol.advantage.all"),
         ],
@@ -30,7 +29,7 @@ export default class TheBeast extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       uses: this._getUsesWithSpent({
         type: "class",

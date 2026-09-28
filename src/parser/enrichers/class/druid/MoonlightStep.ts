@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class MoonlightStep extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Transport",
       targetType: "self",
@@ -19,17 +19,21 @@ export default class MoonlightStep extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Moonlight Step: Advantage on Next Attack",
         options: {
-          description: "You have Advantage on the next attack roll you make before the end of this turn.",
-          durationTurns: 1,
+          description: "You have Advantage on the next attack roll you make before the end of this turn. Without DAE or AC5e the effect lasts for every attack until the end of the turn.",
+          expiry: "turnEnd",
         },
-        daeSpecialDurations: ["1Attack" as const],
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.all"),
+        // DAE and AC5e each end the effect after the one attack; the native expiry is the ceiling
+        daeSpecialDurations: ["1Attack"],
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
+        ],
+        ac5eChanges: [
+          DDBEnricherData.ChangeHelper.ac5eChange("once; 1", 20, "flags.automated-conditions-5e.attack.advantage"),
         ],
       },
     ];

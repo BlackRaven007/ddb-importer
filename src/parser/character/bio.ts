@@ -125,6 +125,7 @@ function getBackgroundTemplate(): IDDBGeneratedBackground {
 export function generateBackground(bg: IDDBBackgroundInput): IDDBGeneratedBackground {
   const result = getBackgroundTemplate();
 
+  // console.warn(bg)
   // bg is a leaf definition/custom-background, never a wrapper: the source object
   // is mutated into the generated definition on the lines that follow.
   result.definition = bg as IDDBGeneratedBackgroundDefinition;
@@ -140,7 +141,11 @@ export function generateBackground(bg: IDDBBackgroundInput): IDDBGeneratedBackgr
   }
 
   if (bg.description) {
-    result.description += `<p>${bg.description}</p>`;
+    // official descriptions arrive as HTML (starting with a block tag) and
+    // must not be re-wrapped - a <p> around <p>s is invalid markup; homebrew
+    // custom backgrounds can be plain typed text, which still needs a paragraph
+    const description = bg.description.trim();
+    result.description += description.startsWith("<") ? description : `<p>${description}</p>`;
   } else if (bg.shortDescription) {
     result.description += bg.shortDescription.replace("\r\n", "");
   }

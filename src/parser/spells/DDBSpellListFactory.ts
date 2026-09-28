@@ -52,7 +52,7 @@ export default class DDBSpellListFactory extends SpellListFactory {
     ],
   };
 
-  _addSpellListOutline(spellListName: string, sourceAcronym: string) {
+  override _addSpellListOutline(spellListName: string, sourceAcronym: string) {
     this.spellsBySourceAndClass[sourceAcronym][spellListName] = [];
     super._addSpellListOutline(spellListName, sourceAcronym);
   }
@@ -90,6 +90,7 @@ export default class DDBSpellListFactory extends SpellListFactory {
 
     this._generateSpellsBySourceAndSpellListName(className);
 
+    // console.warn(`Spell List Data for ${className}`, {
     //   spellListsData: this.spellListsData[className],
     //   spellData,
     //   uuidList: this.uuidLists,

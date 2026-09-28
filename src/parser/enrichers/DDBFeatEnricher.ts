@@ -37,26 +37,48 @@ export default class DDBFeatEnricher extends DDBEnricherFactoryMixin {
     });
   }
 
-  NAME_HINTS_2014: Record<string, string> = {};
+  override NAME_HINTS_2014: Record<string, string> = {};
 
-  NAME_HINTS: Record<string, string> = {};
+  override NAME_HINTS: Record<string, string> = {
+    // a barrel export named Actor would shadow the Foundry global
+    "Actor": "ActorFeat",
+    // the enricher is filed under a misspelt name
+    "Aberrant Dragonmark": "AbberantDragonmark",
+  };
 
-  NAME_HINT_INCLUDES: Record<string, string> = {
+  override NAME_HINT_INCLUDES: Record<string, string> = {
     "Ritual Caster (": "Ritual Caster",
     "Strike of the Giants (": "Strike of the Giants",
     "Strike of the Giants:": "Strike of the Giants",
     "Greater Mark of ": "Greater Mark of",
+    "Arcane Infiltrator (": "Arcane Infiltrator",
+    "Familiar Friend (": "Familiar Friend",
+    // DM play-along reprints of Arcana Unleashed feats carry a "(DMAU)" suffix
+    "Arcane Overload (": "Arcane Overload",
+    "Transmutation Adept (": "Transmutation Adept",
+    // the 2014 feat definitions carry the damage type in the name
+    "Elemental Adept (": "Elemental Adept",
   };
 
   ENRICHERS: Record<string, EnricherConstructor> = {
+    // NAME_HINTS targets: the default loader pascal-cases the feat NAME, so hinted files need a map entry
+    "ActorFeat": FeatEnrichers.ActorFeat,
+    "AbberantDragonmark": FeatEnrichers.AbberantDragonmark,
     None: GenericEnrichers.None,
     Generic: FeatEnrichers.Generic,
     "Unarmed Strike": GenericEnrichers.UnarmedStrike,
     "Greater Mark of": FeatEnrichers._GreaterMarkOf,
+    "Arcane Infiltrator": FeatEnrichers.ArcaneInfiltrator,
+    "Familiar Friend": FeatEnrichers.FamiliarFriend,
+    "Arcane Overload": FeatEnrichers.ArcaneOverload,
+    "Transmutation Adept": FeatEnrichers.TransmutationAdept,
+    "Elemental Adept": FeatEnrichers.ElementalAdept,
     "Greater Aberrant Mark": FeatEnrichers._GreaterMarkOf,
     "Epic Boon: Choose an Epic Boon feat": FeatEnrichers.EpicBoon,
     "Fighting Style: Interception": GenericEnrichers.FightingStyleInterception,
     "Interception": GenericEnrichers.FightingStyleInterception,
+    "Fighting Style: Great Weapon Fighting": GenericEnrichers.FightingStyleGreatWeaponFighting,
+    "Great Weapon Fighting": GenericEnrichers.FightingStyleGreatWeaponFighting,
     "Lucky": GenericEnrichers.Lucky,
     "Polearm Master - Bonus Attack": FeatEnrichers.PolearmMasterBonusAttack,
     "Squire of Solamnia: Precise Strike": FeatEnrichers.SquireOfSolamniaPreciseStrike,

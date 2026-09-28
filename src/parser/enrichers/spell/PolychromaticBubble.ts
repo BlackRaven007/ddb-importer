@@ -6,17 +6,17 @@ import DDBEnricherData from "../data/DDBEnricherData";
  */
 export default class PolychromaticBubble extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Create Bubble",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -24,6 +24,8 @@ export default class PolychromaticBubble extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
           generateSave: true,
           generateTarget: true,
           generateRange: true,
@@ -50,24 +52,21 @@ export default class PolychromaticBubble extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Polychromatic Bubble",
         activityMatch: "Create Bubble",
         options: {
           durationSeconds: 60,
-          durationRounds: 10,
         },
       },
       {
         name: "Polychromatic Bubble: Charmed",
         activityMatch: "Save",
         options: {
-          durationSeconds: 12,
-          durationRounds: 2,
+          expiry: "targetStart",
         },
-        daeSpecialDurations: ["turnStart"],
         statuses: ["Charmed"],
       },
     ];

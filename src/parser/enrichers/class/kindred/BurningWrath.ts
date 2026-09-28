@@ -2,21 +2,21 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BurningWrath extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "bonus",
       addItemConsume: true,
-      itemConsumeTargetName: "Blood Potency",
+      itemConsumeTargetName: "feat:blood-potency",
       itemConsumeValue: "2",
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Burning Wrath",
@@ -25,7 +25,7 @@ export default class BurningWrath extends DDBEnricherData {
           description: "Unarmed Strikes deal an extra 2d8 Necrotic damage. Ends after 1 minute or when you fail to attack an enemy on your turn.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("2d8[necrotic]", 20, "system.bonuses.mwak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("2d8[necrotic]", 20, "system.rolls.damage.mwak.bonus"),
         ],
       },
     ];

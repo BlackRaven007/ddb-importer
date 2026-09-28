@@ -1,11 +1,11 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class HexWarrior extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.ENCHANT;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       activationType: "special",
       data: {
@@ -18,14 +18,16 @@ export default class HexWarrior extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         type: "enchant",
         ignoreTransfer: true,
         changes: [
           DDBEnricherData.ChangeHelper.overrideChange(`{} [Hex Weapon]`, 20, "name"),
-          DDBEnricherData.ChangeHelper.overrideChange("cha", 20, "system.ability"),
+          // the attack activity's own ability, which makes the weapon roll with Charisma. The legacy
+          // "system.ability" key only adds to the candidate abilities through a dnd5e shim
+          DDBEnricherData.ChangeHelper.overrideChange("cha", 20, "activities[attack].attack.ability"),
         ],
       },
     ];

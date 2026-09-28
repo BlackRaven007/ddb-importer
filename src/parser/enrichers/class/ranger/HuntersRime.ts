@@ -1,11 +1,11 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class HuntersRime extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.HEAL;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       data: {
@@ -16,6 +16,19 @@ export default class HuntersRime extends DDBEnricherData {
         }),
       },
     };
+  }
+
+  override get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Rimed Hunter's Mark",
+        statuses: ["Marked"],
+        options: {
+          durationSeconds: 3600,
+          description: "Can't take the Disengage action while marked by your Hunter's Mark.",
+        },
+      },
+    ];
   }
 
 }

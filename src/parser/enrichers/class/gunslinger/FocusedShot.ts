@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class FocusedShot extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "special",
@@ -14,17 +14,18 @@ export default class FocusedShot extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Focused Shot",
         ac5eOnly: true,
         ac5eChanges: [
           // automated-conditions-5e: advantage on the next attack roll only
-          DDBEnricherData.ChangeHelper.customChange("once; 1", 20, "flags.automated-conditions-5e.attack.advantage"),
+          DDBEnricherData.ChangeHelper.ac5eChange("once; 1", 20, "flags.automated-conditions-5e.attack.advantage"),
         ],
         options: {
-          durationRounds: 1,
+          // the single attack this turn
+          expiry: "turnEnd",
         },
       },
     ];

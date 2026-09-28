@@ -70,6 +70,11 @@ interface IDDBSetupContext extends DDBAppV2Context {
   enhancementConfig?: ISettingsPolicyExpandedItem[];
 }
 
+// the configured FilePicker class; named so the constructor type does not depend on
+// resolving the generic class cold
+const FilePickerClass = foundry.applications.apps.FilePicker.implementation as unknown as
+  new (options: Record<string, unknown>) => foundry.applications.apps.FilePicker & { render: (force?: boolean) => unknown };
+
 export default class DDBSetup extends DDBAppV2 {
   static patreonKey: string;
   static patreonTier: string;
@@ -187,7 +192,7 @@ export default class DDBSetup extends DDBAppV2 {
 
     // PROXY
     this.useCustomProxy = DDBProxy.isCustom();
-    this.defaultAddress = SETTINGS.DEFAULT_SETTINGS.READY.PROXY["api-endpoint"].default as string;
+    this.defaultAddress = SETTINGS.URLS.PROXY;
     this.proxyAddress = utils.getSetting<string>("api-endpoint");
 
     // enhancements
@@ -200,7 +205,7 @@ export default class DDBSetup extends DDBAppV2 {
   }
 
   /** @inheritDoc */
-  static DEFAULT_OPTIONS = {
+  static override DEFAULT_OPTIONS = {
     id: "ddb-importer-settings",
     classes: ["standard-form", "dnd5e2"],
     actions: {
@@ -276,17 +281,17 @@ export default class DDBSetup extends DDBAppV2 {
     });
   }
 
-  get id() {
+  override get id() {
     return `ddb-importer-settings-${this.actor?.id ?? "core"}`;
   }
 
-  get title() {
+  override get title() {
     // improve localisation
     // game.i18n.localize("")
     return "DDB Importer Settings";
   }
 
-  static PARTS = {
+  static override PARTS = {
     header: { template: "modules/ddb-importer/handlebars/settings/header.hbs" },
     tabs: { template: "templates/generic/tab-navigation.hbs" },
 
@@ -324,7 +329,7 @@ export default class DDBSetup extends DDBAppV2 {
     footer: { template: "modules/ddb-importer/handlebars/settings/footer.hbs" },
   };
 
-  tabGroups: Record<string, string> = {
+  override tabGroups: Record<string, string> = {
     sheet: "info",
     info: "intro",
     core: "cobalt",
@@ -381,11 +386,11 @@ export default class DDBSetup extends DDBAppV2 {
   /* -------------------------------------------- */
 
   /** @inheritDoc */
-  async _onRender(context: any, options: any): Promise<void> {
+  override async _onRender(context: any, options: any): Promise<void> {
     await super._onRender(context, options);
   }
 
-  async _prepareContext(options: any): Promise<IDDBSetupContext> {
+  override async _prepareContext(options: any): Promise<IDDBSetupContext> {
 
     let context: IDDBSetupContext = {
       // core
@@ -511,7 +516,7 @@ export default class DDBSetup extends DDBAppV2 {
 
   /** @override */
 
-  async _preparePartContext(partId: string, context: IDDBSetupContext): Promise<IDDBSetupContext> {
+  override async _preparePartContext(partId: string, context: IDDBSetupContext): Promise<IDDBSetupContext> {
     switch (partId) {
       case "core": {
         context = await this._prepareCoreContext(context);
@@ -772,13 +777,13 @@ export default class DDBSetup extends DDBAppV2 {
     const currentDir = utils.getSetting<string>(targetDirSetting);
     const current = await FileHelper.getFileUrl(currentDir, "");
 
-    const filePicker = new foundry.applications.apps.FilePicker.implementation({
+    const filePicker = new FilePickerClass({
       type: "folder",
       current: current,
       // source: parsedDir.activeSource,
       // activeSource: parsedDir.activeSource,
       // bucket: parsedDir.bucket,
-      callback: async (path, picker) => {
+      callback: async (path: string, picker: foundry.applications.apps.FilePicker) => {
         const activeSource = picker.activeSource;
         const bucket = activeSource === "s3" && picker.sources.s3?.bucket && picker.sources.s3.bucket !== ""
           ? picker.sources.s3.bucket
@@ -842,7 +847,7 @@ export default class DDBSetup extends DDBAppV2 {
       ui.notifications.error("To use DDB Importer you need to set a Cobalt Cookie value!");
       // throw new Error(`To use Muncher you need to set a Cobalt Cookie value!`);
     } else if (this.callMuncher) {
-      new DDBMuncher().render({ force: true });
+      DDBMuncher.open();
     } else if (this.actor) {
       const characterImport = new DDBCharacterManager(this.actor);
       characterImport.render({ force: true });

@@ -2,55 +2,31 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Silence extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
-    return [
-      {
-        name: "Within Zone of Silence",
-        statuses: ["Deafened"],
-        changes: [
-          DDBEnricherData.ChangeHelper.overrideChange(
-            "thunder",
-            50,
-            "system.traits.di.value",
-          ),
-        ],
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.overrideChange(
-            "1",
-            50,
-            "flags.midi-qol.fail.spell.vocal",
-          ),
-        ],
-        options: {
-          durationSeconds: 600,
-        },
-        data: {
-          flags: {
-            ActiveAuras: {
-              isAura: true,
-              aura: "All",
-              radius: "20",
-              alignment: "",
-              type: "",
-              ignoreSelf: false,
-              height: false,
-              hidden: false,
-              onlyOnce: false,
-              displayTemp: true,
-            },
-          },
-        },
-      },
-    ];
+  override get type(): IDDBActivityType | null {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get override(): IDDBOverrideData {
+  override get activity(): IDDBActivityData {
+    // the Silenced effect carries the silenced + deafened statuses and thunder immunity
+    return {
+      name: "Cast",
+      data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.applyEffect({
+            effects: DDBEnricherData.SRDEffects.spell("silenced"),
+          }),
+        ],
+      },
+    };
+  }
+
+  override get override(): IDDBOverrideData {
     return {
       data: {
         flags: {
           limits: {
             sight: {
-              hearing: { enabled: true, range: 0 }, // Hearing
+              hearing: { enabled: true, range: 0 },
             },
             sound: { enabled: true, range: 0 },
           },
@@ -60,21 +36,6 @@ export default class Silence extends DDBEnricherData {
           },
         },
       },
-    };
-  }
-
-  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
-    return {
-      type: "generic",
-      name: "activeAuraOnly.js",
-      triggerPoints: ["preActiveEffects"],
-    };
-  }
-
-  get itemMacro(): IDDBItemMacro {
-    return {
-      type: "generic",
-      name: "activeAuraOnly.js",
     };
   }
 

@@ -2,17 +2,17 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class SupremeDisciplineAuspex extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "action",
       activationCondition: "Cast True Seeing on yourself",
       addItemConsume: true,
-      itemConsumeTargetName: "Blood Potency",
+      itemConsumeTargetName: "feat:blood-potency",
       itemConsumeValue: "2",
     };
   }

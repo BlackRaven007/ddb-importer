@@ -3,11 +3,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ElementalEpitome extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Elemental Attunement Effects",
       activationType: "special",
@@ -17,7 +17,7 @@ export default class ElementalEpitome extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -31,7 +31,7 @@ export default class ElementalEpitome extends DDBEnricherData {
           generateTarget: false,
           generateRange: false,
           damageParts: [
-            DDBEnricherData.basicDamagePart({ customFormula: "@scale.monk.die.die", types: ["acid", "cold", "fire", "lightning", "thunder"] }),
+            DDBEnricherData.basicDamagePart({ customFormula: "@scale.monk.die", types: ["acid", "cold", "fire", "lightning", "thunder"] }),
           ],
         },
         overrides: {
@@ -51,7 +51,7 @@ export default class ElementalEpitome extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const resistance = ["acid", "cold", "fire", "lightning", "thunder"].map((element) => {
       return {
         name: `${utils.capitalize(element)} Resistance`,
@@ -64,7 +64,7 @@ export default class ElementalEpitome extends DDBEnricherData {
     const speed = {
       name: "Step of the Wind Bonus",
       changes: [
-        DDBEnricherData.ChangeHelper.unsignedAddChange("20", 20, "system.attributes.movement.walk"),
+        DDBEnricherData.ChangeHelper.unsignedAddChange("20", 20, "system.attributes.movement.speeds.walk"),
       ],
       activityMatch: "Elemental Attunement Effects",
     };

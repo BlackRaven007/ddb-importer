@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class Plaguebringer extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Activate",
       type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
@@ -12,8 +12,45 @@ export default class Plaguebringer extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
+      {
+        init: {
+          name: "Place Aura",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateActivation: true,
+          generateTarget: true,
+          generateConsumption: false,
+          activationOverride: {
+            type: "special",
+            condition: "While the aura is active",
+          },
+          targetOverride: {
+            override: true,
+            affects: {
+              type: "enemy",
+            },
+            template: {
+              contiguous: false,
+              type: "radius",
+              size: "@scale.paladin.aura-of-protection",
+              units: "ft",
+            },
+          },
+        },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.activity({
+                events: ["tokenTurnStart"],
+                activityName: "Entropic Radiance Damage",
+              }),
+            ],
+          },
+        },
+      },
       {
         init: {
           name: "Entropic Radiance Damage",
@@ -83,7 +120,7 @@ export default class Plaguebringer extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       name: "Plaguebringer",
       activitiesMatch: ["Activate"],
@@ -92,8 +129,8 @@ export default class Plaguebringer extends DDBEnricherData {
         description: "One with Plague: Immunity to Poison damage and the Poisoned condition, and Resistance to Necrotic damage. Bolstered by Rot: Hit Point maximum can't be reduced. Entropic Radiance: enemies starting their turn in the Aura of Protection take Necrotic damage equal to Charisma modifier plus Proficiency Bonus.",
       },
       changes: [
-        DDBEnricherData.ChangeHelper.unsignedAddChange("poison", 20, "system.traits.di.value"),
-        DDBEnricherData.ChangeHelper.unsignedAddChange("poisoned", 20, "system.traits.ci.value"),
+        DDBEnricherData.ChangeHelper.damageImmunityChange("poison"),
+        DDBEnricherData.ChangeHelper.conditionImmunityChange("poisoned"),
         DDBEnricherData.ChangeHelper.damageResistanceChange("necrotic"),
       ],
     }];

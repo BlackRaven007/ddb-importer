@@ -1,22 +1,31 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
+/**
+ * Supreme Discipline Acquisition (Potence): spend 2 Blood Points for Advantage on Strength attack
+ * rolls for a minute, and reroll one of the d20s once whenever such an attack has Advantage.
+ *
+ * The reroll is a d20 reroll, not a damage die, so `DamageData.modifiers` does not apply. It reads
+ * like Elven Accuracy, but dnd5e only honours `flags.dnd5e.elvenAccuracy` for the abilities listed
+ * in `CONFIG.DND5E.characterFlags.elvenAccuracy.abilities`, which excludes Strength, and an active
+ * effect cannot widen that list. The reroll stays manual and is described on the effect.
+ */
 export default class SupremeDisciplinePotence extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "bonus",
       addItemConsume: true,
-      itemConsumeTargetName: "Blood Potency",
+      itemConsumeTargetName: "feat:blood-potency",
       itemConsumeValue: "2",
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Potence: Overwhelming Might",
@@ -24,11 +33,8 @@ export default class SupremeDisciplinePotence extends DDBEnricherData {
           durationSeconds: 60,
           description: "You have Advantage on attack rolls using Strength; while you have that Advantage you can reroll one of the dice once.",
         },
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.str"),
-        ],
-        ac5eChanges: [
-          DDBEnricherData.ChangeHelper.customChange("ability.str", 20, "flags.automated-conditions-5e.attack.advantage"),
+        changes: [
+          DDBEnricherData.ChangeHelper.advantageAbilityAttackChange("str"),
         ],
       },
     ];

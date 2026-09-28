@@ -3,11 +3,11 @@ import Maneuver from "./Maneuver";
 
 export default class ManeuverPrecisionAttack extends Maneuver {
 
-  get type() {
+  override get type(): IDDBActivityType {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Precision Attack",
       activationType: "reaction",
@@ -24,11 +24,11 @@ export default class ManeuverPrecisionAttack extends Maneuver {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Precision Attack Bonus",
-        daeSpecialDurations: ["1Attack" as const],
+        daeSpecialDurations: ["1Attack"],
         data: {
           duration: {
             value: 6,
@@ -37,8 +37,8 @@ export default class ManeuverPrecisionAttack extends Maneuver {
           },
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.mwak.attack"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.rwak.attack"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.rolls.attack.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.rolls.attack.rwak.bonus"),
         ],
       },
     ];

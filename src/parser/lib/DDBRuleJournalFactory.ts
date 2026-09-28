@@ -10,7 +10,20 @@ const JOURNAL_INDEX_FIELDS = [
   "flags.ddbimporter",
 ];
 
-const ITEM_INDEX_FIELDS = ["name", "type", "flags.ddbimporter", "system.source.book"];
+const ITEM_INDEX_FIELDS = [
+  "name",
+  "type",
+  "flags.ddbimporter",
+  "system.source.book",
+];
+
+const AMMUNITION_INDEX_FIELDS = [
+  "name",
+  "type",
+  "system.type.value",
+  "system.source.book",
+  "flags.ddbimporter",
+];
 
 const BASE_RULE_PAGE: I5eRuleJournalPageData = {
   sort: 1,
@@ -137,6 +150,7 @@ const WEAPON_PROPERTIES: Record<string, number[]> = {
   // 57, // Pull
 };
 
+// const PHYSICAL_WEAPON_PROPERTIES = [
 //   43, // armor piercing
 // ];
 
@@ -285,7 +299,7 @@ export default class DDBRuleJournalFactory {
 
   async _getJournalRulePage(journal: JournalEntry, rulePageName: string, source: IRuleFactorySource) {
     const ruleIdentifier = DDBDataUtils.classIdentifierName(rulePageName);
-    const page = journal.pages.find((p: JournalEntryPage.Implementation) => DDBDataUtils.classIdentifierName(p.name) === ruleIdentifier);
+    const page = journal.pages?.find((p) => DDBDataUtils.classIdentifierName(p.name) === ruleIdentifier);
     if (page) return page;
 
     const pageData: I5eRuleJournalPageData = foundry.utils.deepClone(BASE_RULE_PAGE);
@@ -295,7 +309,7 @@ export default class DDBRuleJournalFactory {
 
     logger.debug(`Creating Rule Journal Page ${pageData.name}`);
     await journal.createEmbeddedDocuments("JournalEntryPage", [pageData] as any, { keepId: true });
-    const newPage = journal.pages.find((p: JournalEntryPage.Implementation) => DDBDataUtils.classIdentifierName(p.name) === ruleIdentifier);
+    const newPage = journal.pages?.find((p) => DDBDataUtils.classIdentifierName(p.name) === ruleIdentifier);
     return newPage;
   }
 
@@ -308,6 +322,10 @@ export default class DDBRuleJournalFactory {
     }
 
     const page = await this._getJournalRulePage(journal, ruleName, source);
+    if (!page) {
+      logger.error(`Rule page ${ruleName} could not be created for ${source.label}`);
+      return;
+    }
     const update = {
       _id: page._id,
       text: {
@@ -337,12 +355,12 @@ export default class DDBRuleJournalFactory {
     );
 
     for (const journal of ruleJournals) {
-      logger.debug(`Processing journal ${journal.name} with ID ${journal._id} for rule injection`);
+      logger.debug(`Processing journal ${(journal as unknown as INameMatchIndexEntry).name} with ID ${journal._id} for rule injection`);
       const journalEntry = await this.journalCompendium.getDocument(journal._id) as JournalEntry.Implementation;
       const sourceId = foundry.utils.getProperty(journalEntry, "flags.ddbimporter.sourceId") as number;
       const allowedSourceIds = getAllowedSourceIds();
       if (!allowedSourceIds.includes(sourceId)) continue;
-      const rulePages = journalEntry.pages.filter((p: JournalEntryPage.Implementation) => p.type === "rule") as unknown as JournalEntryPage.Implementation[];
+      const rulePages = (journalEntry.pages?.filter((p) => p.type === "rule") ?? []) as unknown as JournalEntryPage.Implementation[];
       switch (this.flagTag) {
         case "weapon-masteries": {
           for (const page of rulePages) {
@@ -469,7 +487,7 @@ export default class DDBRuleJournalFactory {
       logger.warn("registerWeaponIds: unable to load items compendium");
       return;
     }
-    await itemCompendium.getIndex({ fields: ITEM_INDEX_FIELDS });
+    await itemCompendium.getIndex({ fields: CompendiumHelper.safeIndexFields(itemCompendium, ITEM_INDEX_FIELDS) });
     for (const weapon of CONFIG.DDB.weapons) {
       logger.verbose(`Processing DDB weapon: ${weapon.name}`);
       const handledCase = DICTIONARY.actor.proficiencies
@@ -491,6 +509,7 @@ export default class DDBRuleJournalFactory {
         continue;
       }
       const itemSource = itemHit.system?.source?.book;
+      // console.warn({
       //   itemHit,
       //   allowedSources,
       //   dnd5eName,
@@ -503,6 +522,48 @@ export default class DDBRuleJournalFactory {
       }
       logger.debug(`Adding weapon ${weapon.name} from ${itemSource} as ${dnd5eName} with UUID ${itemHit.uuid}`);
       CONFIG.DND5E.weaponIds[dnd5eName] = itemHit.uuid;
+    }
+  }
+
+  /**
+   * dnd5e only ships six ammunition subtypes, so publisher specific ones (Mage
+   * Hand Press: Shells, Cannonballs, Flares, Shot) have no label and no entry in
+   * the weapon sheet's ammunition dropdown, which reads
+   * CONFIG.DND5E.consumableTypes.ammo.subtypes directly.
+   *
+   * Only inject the ones the user actually has content for, decided by scanning
+   * the item compendium for that publisher's ammunition. Note the parser sets
+   * these subtypes on items regardless -- this only governs registration.
+   */
+  static async registerAmmunitionTypes() {
+    const itemCompendium = CompendiumHelper.getCompendiumType("items", false);
+    if (!itemCompendium) {
+      logger.warn("registerAmmunitionTypes: unable to load items compendium");
+      return;
+    }
+    await itemCompendium.getIndex({ fields: CompendiumHelper.safeIndexFields(itemCompendium, AMMUNITION_INDEX_FIELDS) });
+
+    const ammunitionEntries = itemCompendium.index.filter((i) =>
+      foundry.utils.getProperty(i, "type") === "consumable"
+      && foundry.utils.getProperty(i, "system.type.value") === "ammo",
+    );
+
+    for (const ammunition of DICTIONARY.ammunition.mageHandPress) {
+      if (CONFIG.DND5E.consumableTypes["ammo"]?.subtypes?.[ammunition.key]) continue;
+      const hit = ammunitionEntries.find((entry) => {
+        // index entries carry the flag/source fields the source helpers read
+        const categoryId = DDBSources.getDocumentSourceCategoryId(entry as unknown as TAll5eDocuments);
+        if (categoryId !== DICTIONARY.sourceCategories.mageHandPress) return false;
+        const name = (foundry.utils.getProperty(entry, "name") as string | undefined)?.toLowerCase();
+        if (!name) return false;
+        return ammunition.itemNames.some((itemName) => new RegExp(`\\b${itemName}\\b`, "i").test(name));
+      });
+      if (!hit) {
+        logger.debug(`Not adding ammunition type ${ammunition.key}, no matching item in compendium`);
+        continue;
+      }
+      logger.debug(`Adding ammunition type ${ammunition.key} from ${foundry.utils.getProperty(hit, "name")}`);
+      foundry.utils.setProperty(CONFIG.DND5E, `consumableTypes.ammo.subtypes.${ammunition.key}`, ammunition.label);
     }
   }
 
@@ -524,6 +585,7 @@ export default class DDBRuleJournalFactory {
     await DDBRuleJournalFactory.createWeaponMasteryJournals();
     await DDBRuleJournalFactory.createWeaponPropertyJournals();
     await DDBRuleJournalFactory.registerWeaponIds();
+    await DDBRuleJournalFactory.registerAmmunitionTypes();
   }
 
 }

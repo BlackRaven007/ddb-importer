@@ -28,6 +28,7 @@ export function replaceRollLinks(text: string): string {
   const damageRegex = new RegExp(/([.>( ^]|^|regains +)?(\d*d\d+(?:\s*[+-]\s*\d*d*\d*)*)([.,<)]|$| +) *([a-z,A-Z]*) *(damage|points)?/, "g");
   text = text.replace(damageRegex, diceRollMatcher);
 
+  // const Regex
   // to hit rolls
   const toHitRegex = new RegExp(/ ([+-]) *(\d+) to hit/, "g");
   text = text.replace(toHitRegex, " [[/r 1d20 $1 $2]] to hit");
@@ -224,6 +225,7 @@ export function buildTable({ parsedTable, keys, diceKeys, tableName, parentName,
       const low = range[0];
       const high = range[1];
       if (low > high) {
+        // console.warn(`Low ${low} is greater than high ${high}`, {
         //   low,
         //   high,
         //   a,

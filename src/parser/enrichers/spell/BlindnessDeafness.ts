@@ -2,17 +2,17 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class BlindnessDeafness extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Blindness",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -23,11 +23,11 @@ export default class BlindnessDeafness extends DDBEnricherData {
     ];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const midiChanges = [
       DDBEnricherData.ChangeHelper.overrideChange(
         `label=${this.data.name} (End of Turn),turn=end,saveDC=@attributes.spell.dc,saveAbility=con,savingThrow=true,saveMagic=true,killAnim=true`,
@@ -39,14 +39,10 @@ export default class BlindnessDeafness extends DDBEnricherData {
       {
         name: "Blindness",
         activityMatch: "Blindness",
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.overrideChange("0", 99, "ATL.sight.range"),
-        ],
         statuses: ["Blinded"],
         midiChanges,
         options: {
           durationSeconds: 60,
-          durationRounds: 10,
         },
       },
       {
@@ -56,7 +52,6 @@ export default class BlindnessDeafness extends DDBEnricherData {
         midiChanges,
         options: {
           durationSeconds: 60,
-          durationRounds: 10,
         },
       },
     ];

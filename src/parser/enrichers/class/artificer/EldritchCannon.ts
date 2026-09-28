@@ -1,21 +1,21 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class EldritchCannon extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SUMMON;
   }
 
-  get generateSummons() {
+  override get generateSummons(): boolean {
     return true;
   }
 
-  get summonsFunction() {
+  override get summonsFunction(): ((data: ICompanionData) => Promise<ICompanionResult>) | null {
     return this.is2014
       ? DDBImporter.lib.DDBSummonsInterface.getEldritchCannons2014
       : DDBImporter.lib.DDBSummonsInterface.getEldritchCannons2024;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       id: "summonEldriComp1",
       targetType: "creature",
@@ -51,7 +51,7 @@ export default class EldritchCannon extends DDBEnricherData {
   }
 
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         action: {
@@ -109,7 +109,7 @@ export default class EldritchCannon extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     const uses = this.is2014
       ? this._getUsesWithSpent({
         type: "class",

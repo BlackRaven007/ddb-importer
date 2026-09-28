@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class CompoundCreatorAllsenseInjection extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Allsense Injection",
@@ -15,10 +15,7 @@ export default class CompoundCreatorAllsenseInjection extends DDBEnricherData {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("30", 20, "system.attributes.senses.blindsight"),
-        ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.upgradeChange("30", 20, "ATL.detectionModes.blindsight.range"),
+          DDBEnricherData.ChangeHelper.upgradeChange("30", 20, "system.attributes.senses.ranges.blindsight"),
         ],
       },
     ];

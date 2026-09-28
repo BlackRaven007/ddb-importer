@@ -9,8 +9,8 @@ export default class DDBAttackAction extends DDBAction {
 
   static FORCE_WEAPON_FEATURE_IF_ACTION = DICTIONARY.parsing.attackActions.FORCE_WEAPON_FEATURE_IF_ACTION;
 
-  _init() {
-    this.isAction = true;
+  override _init() {
+    super._init();
     this.documentType = DDBAttackAction.FORCE_WEAPON_FEATURES.includes(this.originalName)
       || DDBAttackAction.FORCE_WEAPON_FEATURE_IF_ACTION.includes(this.originalName)
       ? "weapon" as const
@@ -18,7 +18,7 @@ export default class DDBAttackAction extends DDBAction {
     logger.debug(`Generating Attack Action ${this.ddbDefinition.name} as ${this.documentType}`);
   }
 
-  async build() {
+  override async build() {
     try {
       if (this.ddbDefinition.isMartialArts) {
         foundry.utils.setProperty(this.data, "flags.ddbimporter.dndbeyond.type", "Martial Arts");
@@ -32,12 +32,15 @@ export default class DDBAttackAction extends DDBAction {
         this.data.system.proficient = this.ddbDefinition.isProficient as boolean;
       }
       this._generateDescription();
-      if ("equipped" in this.data.system)
+      if ("equipped" in this.data.system) {
         this.data.system.equipped = true;
-      if ("rarity" in this.data.system)
-        this.data.system.rarity = "";
-      if ("identified" in this.data.system)
+      }
+      if ("rarities" in this.data.system) {
+        this.data.system.rarities = [];
+      }
+      if ("identified" in this.data.system) {
         this.data.system.identified = true;
+      }
       this._generateRange();
       this._generateLimitedUse();
       this._generateProperties();
@@ -48,8 +51,9 @@ export default class DDBAttackAction extends DDBAction {
       }
       await this._generateSummons();
       await this._generateCompanions();
-      if (!this.enricher.stopDefaultActivity)
+      if (!this.enricher.stopDefaultActivity) {
         await this._generateActivity();
+      }
       await this.enricher.addAdditionalActivities(this);
 
       this._generateResourceFlags();
@@ -67,7 +71,7 @@ export default class DDBAttackAction extends DDBAction {
         `Unable to Generate Attack Action: ${this.name}, please log a bug report. Err: ${utils.errorMessage(err)}`,
         "extension",
       );
-      logger.error("Error", err);
+      logger.error(`Unable to Generate Attack Action: ${this.name}`, err);
     }
   }
 

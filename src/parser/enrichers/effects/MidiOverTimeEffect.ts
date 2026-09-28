@@ -1,8 +1,9 @@
-import DDBEffectHelper from "../../../effects/DDBEffectHelper";
-import { logger } from "../../../lib/_module";
+import DDBEffectHelperText from "../../../effects/DDBEffectHelperText";
+import logger from "../../../lib/Logger";
 import DDBDescriptions from "../../lib/DDBDescriptions";
 import AutoEffects from "./AutoEffects";
 import ChangeHelper from "./ChangeHelper";
+import { expirySupportsDuration } from "./EffectExpiryHelpers";
 
 interface IGenerateDamageOverTimeEffectOptions {
   startTurn?: boolean;
@@ -22,6 +23,29 @@ interface IMidiOverTimeEffectOptions {
   otherDescription?: string | null;
   flags?: Record<string, any>;
   addToMonster?: boolean;
+}
+
+// the calendar multipliers mirror DDBDescriptions.getDuration (30-day month, 365-day year)
+const SECONDS_PER_UNIT: Record<string, number> = {
+  seconds: 1,
+  minutes: 60,
+  hours: 3600,
+  days: 86400,
+  months: 86400 * 30,
+  years: 86400 * 365,
+};
+
+/**
+ * Elapsed seconds for a parsed condition duration. Over-time effects always carry seconds:
+ * rounds and turns normalise through AutoEffects.toEffectDuration and calendar units multiply
+ * out; anything else (special, instantaneous, no value) yields null.
+ */
+function durationSeconds(duration: { value?: number | string | null; units?: string | null } | undefined): number | null {
+  if (!duration?.units || !duration.value) return null;
+  const normalised = AutoEffects.toEffectDuration(duration.value, duration.units);
+  const multiplier = normalised.units ? SECONDS_PER_UNIT[normalised.units] : undefined;
+  if (!normalised.value || !multiplier) return null;
+  return normalised.value * multiplier;
 }
 
 export default class MidiOverTimeEffect {
@@ -47,6 +71,7 @@ export default class MidiOverTimeEffect {
     this.parsedDescription = DDBDescriptions.featureBasics({ text: this.description });
     this.flags = flags;
     this.addToMonster = addToMonster;
+    // console.warn(`MidiOvertimeEffect for ${this.document.name} on ${this.actor.name}`, {
     //   this: this,
     //   conditionStatus: deepClone(this.conditionStatus),
     //   conditionEffect: deepClone(this.conditionEffect),
@@ -118,6 +143,7 @@ export default class MidiOverTimeEffect {
         : [];
       overTimeFlags.push(this.document.name);
       foundry.utils.setProperty(this.actor, "flags.monsterMunch.overTime", overTimeFlags);
+      // console.warn(`ITEM OVER TIME EFFECT: ${actor.name}, ${document.name}`);
       if (foundry.utils.getProperty(this.document, "system.duration.units") === "inst") {
         foundry.utils.setProperty(
           this.document,
@@ -127,6 +153,17 @@ export default class MidiOverTimeEffect {
       }
       logger.debug(`Cleanup of over time effect for ${this.actor.name}, ${this.actor.name} for ${this.document.name}`, this.effect);
     }
+  }
+
+  /**
+   * Carry the condition effect's native `duration.expiry` onto the built effect.
+   */
+  applyConditionExpiry() {
+    const expiry = this.conditionEffect?.duration?.expiry;
+    if (!expiry) return;
+    foundry.utils.setProperty(this.effect, "duration.expiry", expiry);
+    // pseudo expiries cannot carry a counted duration
+    if (!expirySupportsDuration(expiry)) foundry.utils.setProperty(this.effect, "duration.value", null);
   }
 
   generateOverTimeEffect() {
@@ -141,28 +178,16 @@ export default class MidiOverTimeEffect {
       foundry.utils.setProperty(this.document, "flags.midiProperties.fulldam", true);
       const change = MidiOverTimeEffect.getOverTimeSaveEndChange({ document: this.document, save: this.conditionStatus.save, text: this.description });
       if (change) this.effect.system.changes.push(change);
+      this.applyConditionExpiry();
     }
 
-    const duration = this.conditionStatus.duration;
-    if (duration.units === "rounds" && duration.value) {
-      foundry.utils.setProperty(this.effect, "duration.value", duration.value);
-      foundry.utils.setProperty(this.effect, "duration.units", "rounds");
-    } else if (duration.units === "seconds" && duration.value) {
-      foundry.utils.setProperty(this.effect, "duration.value", duration.value);
+    // the parsed condition duration, else the description's own (which defaults to a minute);
+    // a pseudo expiry stamped above owns the lifetime and carries no counted value
+    const seconds = durationSeconds(this.conditionStatus.duration)
+      ?? DDBDescriptions.getDuration(this.description).seconds;
+    if (seconds && expirySupportsDuration(this.effect.duration?.expiry)) {
+      foundry.utils.setProperty(this.effect, "duration.value", seconds);
       foundry.utils.setProperty(this.effect, "duration.units", "seconds");
-    } else if (duration.value && duration.units && ["minutes", "hours", "days"].includes(duration.units)) {
-      const multipliers: Record<string, number> = { minutes: 60, hours: 3600, days: 86400 };
-      foundry.utils.setProperty(this.effect, "duration.value", Number(duration.value) * multipliers[duration.units]);
-      foundry.utils.setProperty(this.effect, "duration.units", "seconds");
-    } else {
-      const duration = DDBDescriptions.getDuration(this.description);
-      if (duration.rounds) {
-        foundry.utils.setProperty(this.effect, "duration.value", duration.rounds);
-        foundry.utils.setProperty(this.effect, "duration.units", "rounds");
-      } else if (duration.seconds) {
-        foundry.utils.setProperty(this.effect, "duration.value", duration.seconds);
-        foundry.utils.setProperty(this.effect, "duration.units", "seconds");
-      }
     }
 
     const turn = DDBDescriptions.startOrEnd(this.description);
@@ -181,7 +206,7 @@ export default class MidiOverTimeEffect {
 
     const saveAbility = save.ability;
 
-    const dmg = DDBEffectHelper.getOvertimeDamage(this.description, this.document);
+    const dmg = DDBEffectHelperText.getOvertimeDamage(this.description, this.document);
     if (!dmg) {
       logger.debug(`Adding non damage Overtime effect for ${this.document.name} on ${this.actor.name}`);
       this.effectCleanup();
@@ -241,17 +266,11 @@ export default class MidiOverTimeEffect {
     this.effect.statuses.push(...this.conditionEffect.statuses);
     if (this.conditionEffect.name && this.conditionEffect.name !== "") this.effect.name = this.conditionEffect.name;
     this.effect.flags = foundry.utils.mergeObject(this.effect.flags, this.conditionEffect.flags);
+    this.applyConditionExpiry();
 
-    const duration = this.conditionEffect.duration;
-    if (duration.units === "rounds") {
-      foundry.utils.setProperty(this.effect, "duration.value", duration.value);
-      foundry.utils.setProperty(this.effect, "duration.units", "rounds");
-    } else if (duration.units === "seconds") {
-      foundry.utils.setProperty(this.effect, "duration.value", duration.value);
-      foundry.utils.setProperty(this.effect, "duration.units", "seconds");
-    } else if (duration.value && duration.units && ["minutes", "hours", "days"].includes(duration.units)) {
-      const multipliers: Record<string, number> = { minutes: 60, hours: 3600, days: 86400 };
-      foundry.utils.setProperty(this.effect, "duration.value", Number(duration.value) * multipliers[duration.units]);
+    const seconds = durationSeconds(this.conditionEffect.duration);
+    if (seconds && expirySupportsDuration(this.effect.duration?.expiry)) {
+      foundry.utils.setProperty(this.effect, "duration.value", seconds);
       foundry.utils.setProperty(this.effect, "duration.units", "seconds");
     }
 

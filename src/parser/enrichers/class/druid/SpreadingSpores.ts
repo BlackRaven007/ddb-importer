@@ -2,14 +2,21 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class SpreadingSpores extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
       data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter", "tokenTurnStart"],
+            enterOn: "movement",
+            activityName: "Save vs Spore Damage",
+          }),
+        ],
         target: {
           affects: {
             type: "creature",
@@ -23,14 +30,14 @@ export default class SpreadingSpores extends DDBEnricherData {
           prompt: false,
         },
         duration: {
-          value: "10",
+          value: "1",
           units: "minute",
         },
       },
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         action: {
@@ -46,7 +53,7 @@ export default class SpreadingSpores extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Within Spreading Spores",

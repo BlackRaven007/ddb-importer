@@ -1,84 +1,48 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class CreateBonfire extends DDBEnricherData {
-  get activity(): IDDBActivityData {
+
+  override get activity(): IDDBActivityData {
     return {
+      name: "Cast",
       id: "ddbBonfirSpellSa",
-      noeffect: this.useMidiAutomations,
+      data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter", "tokenTurnEnd"],
+            activityId: "ddbBonfirZoneSa1",
+          }),
+        ],
+      },
     };
   }
 
-  get clearAutoEffects() {
-    return this.useMidiAutomations;
-  }
-
-  get effects(): IDDBEffectHint[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
-        name: "Standing in a Bonfire",
-        activeAurasOnly: true,
-        midiOnly: true,
-        options: {
-          durationSeconds: 60,
-          durationRounds: 10,
-        },
-        macroChanges: [
-          {
-            functionCall: "DDBImporter.effects.AuraAutomations.DamageOnEntry",
-          },
-        ],
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.customChange(
-            `turn=end,label=${this.data.name} (End of Turn),damageRoll=(@cantripDice)d8,damageType=fire,saveRemove=false,saveDC=@attributes.spell.dc,saveAbility=dex,saveDamage=nodamage,killAnim=true`,
-            20,
-            "flags.midi-qol.OverTime",
-          ),
-        ],
-        data: {
-          duration: {
-            value: 60,
-            units: "seconds",
-          },
-          flags: {
-            ActiveAuras: {
-              isAura: true,
-              aura: "All",
-              radius: undefined,
-              alignment: "",
-              type: "",
-              ignoreSelf: false,
-              height: false,
-              hidden: false,
-              onlyOnce: false,
-              displayTemp: true,
+        duplicate: true,
+        id: "ddbBonfirZoneSa1",
+        overrides: {
+          name: "Ongoing Save",
+          activationType: "special",
+          activationCondition: "Enters the bonfire's space or ends its turn there",
+          removeSpellSlotConsume: true,
+          noConsumeTargets: true,
+          noTemplate: true,
+          data: {
+            duration: { override: true, units: "inst", concentration: false },
+            range: {
+              override: true,
+              units: "spec",
             },
+            target: {
+              override: true,
+            },
+            behaviors: [],
           },
         },
       },
     ];
   }
 
-  get override(): IDDBOverrideData {
-    return {
-      data: {
-        flags: {
-          ddbimporter: {
-            effect: {
-              isCantrip: true,
-              saveOnEntry: true,
-              sequencerFile: "jb2a.flames.01.orange",
-              activityIds: ["ddbBonfirSpellSa"],
-            },
-          },
-        },
-      },
-    };
-  }
-
-  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
-    return {
-      functionCall: "DDBImporter.effects.AuraAutomations.DamageOnEntry",
-      triggerPoints: ["preActiveEffects"],
-    };
-  }
 }

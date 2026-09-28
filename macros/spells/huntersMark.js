@@ -39,6 +39,7 @@ try {
     if (!concentrationEffect) return true;
     const currentDuration = foundry.utils.duplicate(concentrationEffect.duration);
     const useHookId = Hooks.on("dnd5e.preUseActivity", (hookItem, config, options) => {
+      // console.warn("Use Hook", { hookItem, config, options, item });
       if (hookItem.parent.parent.uuid !== item.uuid) return;
       options.configureDialog = false;
       options.configure = false;

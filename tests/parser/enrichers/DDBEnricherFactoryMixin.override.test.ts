@@ -5,7 +5,7 @@
 
 // Mutable module-state for the enricher effects barrel mock; the midi branches
 // in _applyActivityDataOverride gate on AutoEffects.effectModules().
-const effectModulesState = vi.hoisted(() => ({ midiQolInstalled: false }));
+const effectModulesState = vi.hoisted(() => ({ midiQolInstalled: false, auraeffectsInstalled: false }));
 
 // Heavy companion/summons machinery is irrelevant to the override surface.
 vi.mock("../../../src/parser/companions/DDBSummonsManager", () => ({
@@ -16,7 +16,7 @@ vi.mock("../../../src/parser/companions/types/TransformProfiles", () => ({
 }));
 vi.mock("../../../src/parser/enrichers/effects/_module", () => ({
   AutoEffects: {
-    effectModules: () => ({ midiQolInstalled: effectModulesState.midiQolInstalled }),
+    effectModules: () => ({ midiQolInstalled: effectModulesState.midiQolInstalled, auraeffectsInstalled: effectModulesState.auraeffectsInstalled }),
     forceDocumentEffect: (data: any) => data,
     addVision5eStub: (data: any) => data,
   },
@@ -48,9 +48,13 @@ vi.mock("../../../src/parser/enrichers/_module", () => ({
 
 import { resolveTransformProfileUuids } from "../../../src/parser/companions/types/TransformProfiles";
 import DDBEnricherFactoryMixin from "../../../src/parser/enrichers/mixins/DDBEnricherFactoryMixin";
+import { setMockSettings } from "../../_setup/foundryMocks";
+
+beforeEach(() => setMockSettings({ "enable-ddb-macro-region-behaviors": true }));
 
 afterEach(() => {
   effectModulesState.midiQolInstalled = false;
+  effectModulesState.auraeffectsInstalled = false;
   vi.mocked(resolveTransformProfileUuids).mockClear();
 });
 
@@ -109,7 +113,9 @@ function makeActivity(overrides: Record<string, any> = {}): any {
   return foundry.utils.mergeObject(base, overrides);
 }
 
+// =============================================================================
 // _applyActivityDataOverride
+// =============================================================================
 describe("DDBEnricherFactoryMixin._applyActivityDataOverride", () => {
   it("passes an activity through untouched for an empty override", async () => {
     const e = makeEnricher();
@@ -120,12 +126,468 @@ describe("DDBEnricherFactoryMixin._applyActivityDataOverride", () => {
     expect(result).toEqual(before);
   });
 
+  it.each([
+    [true, true, true], [true, false, false], [false, true, false], [false, false, false],
+  ])("filters DDB imports with master=%s and add=%s, leaving native behaviors (emit=%s)", async (master, add, emit) => {
+    setMockSettings({ "enable-ddb-macro-region-behaviors": master, "add-ddb-macro-region-behaviors": add });
+    const e = makeEnricher();
+    const behaviors = [
+      { _id: "a", type: "difficultTerrain", config: { types: [] } },
+      { _id: "b", type: "ddbMacro", config: { function: "useActivity", events: ["tokenEnter"], args: {} } },
+    ];
+
+    const activity = makeActivity();
+    await e._applyActivityDataOverride(activity, { data: { behaviors: foundry.utils.deepClone(behaviors) } });
+    expect(activity.behaviors.map((b: any) => b.type)).toEqual(emit ? ["difficultTerrain", "ddbMacro"] : ["difficultTerrain"]);
+  });
+
+  it("evaluates and strips auraeffects gates on behaviors", async () => {
+    const e = makeEnricher();
+    const behaviors = [
+      { _id: "a", type: "applyActiveEffect", ddbimporter: { auraeffectsNever: true }, config: { effects: ["X"] } },
+      { _id: "b", type: "applyActiveEffect", ddbimporter: { auraeffectsOnly: true }, config: { effects: ["Y"] } },
+    ];
+
+    // the effects barrel mock reports no auraeffects module
+    const activity = makeActivity();
+    await e._applyActivityDataOverride(activity, { data: { behaviors: foundry.utils.deepClone(behaviors) } });
+    expect(activity.behaviors.map((b: any) => b._id)).toEqual(["a"]);
+    expect(activity.behaviors[0].ddbimporter).toBeUndefined();
+
+    effectModulesState.auraeffectsInstalled = true;
+    const withModule = makeActivity();
+    await e._applyActivityDataOverride(withModule, { data: { behaviors: foundry.utils.deepClone(behaviors) } });
+    expect(withModule.behaviors.map((b: any) => b._id)).toEqual(["b"]);
+  });
+
+  it("sets the region display from a profile id or a profile with overrides, replacing any merged one", async () => {
+    const e = makeEnricher();
+    const terrain = { _id: "a", type: "difficultTerrain", config: { types: [] } };
+    const merged = { _id: "b", type: "ddbDisplay", config: { profile: "minimal" } };
+
+    const byId = makeActivity();
+    await e._applyActivityDataOverride(byId, {
+      display: "status-restrained",
+      data: { behaviors: foundry.utils.deepClone([terrain, merged]) },
+    });
+    expect(byId.behaviors.map((b: any) => b.type)).toEqual(["difficultTerrain", "ddbDisplay"]);
+    expect(byId.behaviors[1].config).toMatchObject({ profile: "status-restrained", color: null });
+
+    const tuned = makeActivity();
+    await e._applyActivityDataOverride(tuned, { display: { profile: "damage-fire", color: "#ff0000", border: false } });
+    expect(tuned.behaviors).toHaveLength(1);
+    expect(tuned.behaviors[0].config).toMatchObject({ profile: "damage-fire", color: "#ff0000", border: "none" });
+
+    setMockSettings({ "enable-region-display-profiles": false });
+    const off = makeActivity();
+    await e._applyActivityDataOverride(off, { display: "status-restrained" });
+    expect(off.behaviors).toBeUndefined();
+  });
+
   it("applies name and id overrides", async () => {
     const e = makeEnricher();
     const activity = makeActivity();
     await e._applyActivityDataOverride(activity, { name: "Renamed", id: "newIdAbcdef12345" });
     expect(activity.name).toBe("Renamed");
     expect(activity._id).toBe("newIdAbcdef12345");
+  });
+
+  describe("activity snippets", () => {
+    function withActions(actions: IDDBAction[]) {
+      const getActions = vi.fn().mockReturnValue(actions);
+      const enricher = makeEnricher({
+        ddbParser: {
+          originalName: "Test Feature",
+          type: "class",
+          ddbData: {
+            character: {
+              options: { race: [], class: [], feat: [] },
+            },
+          },
+          rawCharacter: {
+            type: "character",
+            flags: { ddbimporter: { dndbeyond: { templateStrings: [] } } },
+          },
+          ddbCharacter: {
+            _characterFeatureFactory: { getActions },
+          },
+        },
+      });
+      return { enricher, getActions };
+    }
+
+    function action(fields: Partial<IDDBAction> = {}): IDDBAction {
+      return {
+        id: 1,
+        name: "Matched Action",
+        description: "The action description.",
+        snippet: "The action snippet.",
+        entityTypeId: 1,
+        actionType: 1,
+        attackTypeRange: null,
+        attackSubtype: null,
+        dice: null,
+        value: null,
+        damageTypeId: null,
+        isMartialArts: false,
+        isProficient: true,
+        displayAsAttack: false,
+        abilityModifierStatId: null,
+        saveStatId: null,
+        fixedSaveDc: null,
+        fixedToHit: null,
+        saveFailDescription: null,
+        saveSuccessDescription: null,
+        onMissDescription: null,
+        numberOfTargets: null,
+        spellRangeType: null,
+        ammunition: null,
+        componentId: 1,
+        componentTypeId: 1,
+        activation: { activationTime: 1, activationType: 1 },
+        range: {
+          range: null,
+          longRange: null,
+          aoeType: null,
+          aoeSize: null,
+          hasAoeSpecialDescription: false,
+          minimumRange: null,
+        },
+        limitedUse: null,
+        ...fields,
+      };
+    }
+
+    it("keeps useActivitySnippet inert while the setting is disabled", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": false });
+      const { enricher, getActions } = withActions([action()]);
+      const activity = makeActivity({ description: { value: "Existing activity text." } });
+
+      await enricher._applyActivityDataOverride(activity, {
+        useActivitySnippet: { name: "Matched Action", type: "class" },
+      });
+
+      expect(getActions).not.toHaveBeenCalled();
+      expect(activity.description.value).toBe("Existing activity text.");
+    });
+
+    it("uses the shared action lookup and prefers its snippet", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const { enricher, getActions } = withActions([action({
+        snippet: "The action snippet has {{fixedvalue:7}} parts.",
+      })]);
+      const activity = makeActivity();
+
+      await enricher._applyActivityDataOverride(activity, {
+        useActivitySnippet: { name: "Matched Action", type: "class" },
+      });
+
+      expect(getActions).toHaveBeenCalledWith({ name: "Matched Action", type: "class" });
+      expect(activity.description.value).toBe("<p>The action snippet has [[7]] parts.</p>");
+    });
+
+    it("falls back to the matched action description", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const { enricher } = withActions([action({
+        snippet: null,
+        description: "The action description has {{fixedvalue:3}} parts.",
+      })]);
+      const activity = makeActivity();
+
+      await enricher._applyActivityDataOverride(activity, {
+        useActivitySnippet: { name: "Matched Action", type: "class" },
+      });
+
+      expect(activity.description.value).toBe("<p>The action description has [[3]] parts.</p>");
+    });
+
+    it("leaves the activity unchanged when the action is missing", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const { enricher } = withActions([]);
+      const activity = makeActivity({ description: { value: "Existing activity text." } });
+
+      await enricher._applyActivityDataOverride(activity, {
+        useActivitySnippet: { name: "Missing Action", type: "feat" },
+      });
+
+      expect(activity.description.value).toBe("Existing activity text.");
+    });
+
+    it("derives the lookup from the activity name and parser type for the true shorthand", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const { enricher, getActions } = withActions([action()]);
+      const activity = makeActivity();
+
+      await enricher._applyActivityDataOverride(activity, {
+        name: "Matched Action",
+        useActivitySnippet: true,
+      });
+
+      expect(getActions).toHaveBeenCalledWith({ name: "Matched Action", type: "class" });
+      expect(activity.description.value).toBe("<p>The action snippet.</p>");
+    });
+
+    it("derives the parser type for a name-only lookup", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const { enricher, getActions } = withActions([action()]);
+      const activity = makeActivity({ name: "Some Other Name" });
+
+      await enricher._applyActivityDataOverride(activity, {
+        useActivitySnippet: { name: "Matched Action" },
+      });
+
+      expect(getActions).toHaveBeenCalledWith({ name: "Matched Action", type: "class" });
+      expect(activity.description.value).toBe("<p>The action snippet.</p>");
+    });
+
+    it("lets explicit data override the selected action snippet while retaining chat flavor", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const { enricher } = withActions([action()]);
+      const activity = makeActivity({ description: { chatFlavor: "Trigger text" } });
+
+      await enricher._applyActivityDataOverride(activity, {
+        useActivitySnippet: { name: "Matched Action", type: "class" },
+        data: { description: { value: "Explicit activity instructions." } },
+      });
+
+      expect(activity.description).toEqual({
+        chatFlavor: "Trigger text",
+        value: "Explicit activity instructions.",
+      });
+    });
+
+    it("narrows an inherited feature snippet to the activity-named description section", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const description = [
+        "<p><strong>Replenishing Meal.</strong> As part of a Short Rest, prepare food for",
+        "{{fixedvalue:4}} + your Proficiency Bonus creatures. A creature that spends Hit Dice",
+        "regains an extra 1d8 HP.</p>",
+        "<p><strong>Bolstering Treats.</strong> Prepare special treats.</p>",
+      ].join(" ");
+      const enricher = makeEnricher({
+        ddbParser: {
+          originalName: "Chef",
+          isAction: false,
+          ddbDefinition: { name: "Chef", snippet: "The complete Chef ability.", description },
+          ddbData: { character: { options: { race: [], class: [], feat: [] } } },
+          rawCharacter: {
+            type: "character",
+            flags: { ddbimporter: { dndbeyond: { templateStrings: [] } } },
+          },
+        },
+      });
+      const activity = makeActivity({
+        name: "Replenishing Meal",
+        description: { value: "The complete Chef ability." },
+      });
+
+      await enricher._applyActivityDataOverride(activity, {});
+
+      expect(activity.description.value).toBe([
+        "<p>As part of a Short Rest, prepare food for [[4]] + your Proficiency Bonus creatures.",
+        "A creature that spends Hit Dice regains an extra 1d8 HP.</p>",
+      ].join(" "));
+    });
+
+    // DDB snippets are inline html whose paragraph breaks are literal blank lines, so a
+    // snippet section is reachable and is shorter than the description's equivalent.
+    const CHEF_SNIPPET = [
+      "You have taken up cooking as a hobby.",
+      "<strong>Ability Score Increase.</strong> Increase your Con. or Wis. by 1.",
+      "<strong>Bolstering Treats.</strong> Cook {{fixedvalue:2}} special treats.",
+    ].join("\r\n\r\n");
+
+    function makeChefEnricher() {
+      return makeEnricher({
+        ddbParser: {
+          originalName: "Chef",
+          isAction: false,
+          ddbDefinition: { name: "Chef", snippet: CHEF_SNIPPET, description: "<p>The full Chef rules.</p>" },
+          ddbData: { character: { options: { race: [], class: [], feat: [] } } },
+          rawCharacter: {
+            type: "character",
+            flags: { ddbimporter: { dndbeyond: { templateStrings: [] } } },
+          },
+        },
+      });
+    }
+
+    it("narrows an inherited snippet to a section whose label the activity name contains", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const activity = makeActivity({
+        name: "Create Bolstering Treats",
+        description: { value: CHEF_SNIPPET },
+      });
+
+      await makeChefEnricher()._applyActivityDataOverride(activity, {});
+
+      expect(activity.description.value).toBe("<p>Cook [[2]] special treats.</p>");
+    });
+
+    it("uses an explicitly named section for an activity named nothing like it", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const activity = makeActivity({ name: "Eat Treat", description: { value: CHEF_SNIPPET } });
+
+      await makeChefEnricher()._applyActivityDataOverride(activity, {
+        useActivitySnippet: { section: "Bolstering Treats" },
+      });
+
+      expect(activity.description.value).toBe("<p>Cook [[2]] special treats.</p>");
+    });
+
+    it("leaves the inherited text alone when a named section is missing", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const activity = makeActivity({ name: "Eat Treat", description: { value: CHEF_SNIPPET } });
+
+      await makeChefEnricher()._applyActivityDataOverride(activity, {
+        useActivitySnippet: { section: "Replenishing Meal" },
+      });
+
+      expect(activity.description.value).toBe(CHEF_SNIPPET);
+    });
+
+    it("does not replace an activity-builder description with an extracted section", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const enricher = makeEnricher({
+        ddbParser: {
+          originalName: "Test Feature",
+          isAction: false,
+          ddbDefinition: {
+            name: "Test Feature",
+            snippet: "Parent snippet.",
+            description: "<p><strong>Use Feature.</strong> Extracted rules.</p>",
+          },
+          ddbData: { character: { options: { race: [], class: [], feat: [] } } },
+          rawCharacter: {
+            type: "character",
+            flags: { ddbimporter: { dndbeyond: { templateStrings: [] } } },
+          },
+        },
+      });
+      const activity = makeActivity({
+        name: "Use Feature",
+        description: { value: "Explicit activity-builder rules." },
+      });
+
+      await enricher._applyActivityDataOverride(activity, {});
+
+      expect(activity.description.value).toBe("Explicit activity-builder rules.");
+    });
+
+    // A race trait that is also a DDB action (Fey Step) ships as the ACTION document, so
+    // narrowing has to work there too - it is only the activity representing the action
+    // itself that must keep the action's own snippet.
+    const FEY_STEP_DESCRIPTION = [
+      "<p>As a bonus action, you can magically teleport up to 30 feet.</p>",
+      "<p><strong>Autumn.</strong> Up to two creatures must succeed on a save or be charmed.</p>",
+      "<p><strong>Summer.</strong> Each creature takes {{fixedvalue:1}} fire damage.</p>",
+    ].join("\r\n");
+    const FEY_STEP_SNIPPET = "As a bonus action, you can teleport up to 30 ft.";
+
+    function makeFeyStepEnricher() {
+      return makeEnricher({
+        ddbParser: {
+          originalName: "Fey Step",
+          isAction: true,
+          ddbDefinition: { name: "Fey Step", snippet: FEY_STEP_SNIPPET, description: FEY_STEP_DESCRIPTION },
+          ddbData: { character: { options: { race: [], class: [], feat: [] } } },
+          rawCharacter: {
+            type: "character",
+            flags: { ddbimporter: { dndbeyond: { templateStrings: [] } } },
+          },
+        },
+      });
+    }
+
+    it("narrows a secondary activity of an action document to its own section", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const activity = makeActivity({ name: "Autumn (Save)", description: { value: FEY_STEP_SNIPPET } });
+
+      await makeFeyStepEnricher()._applyActivityDataOverride(activity, {});
+
+      expect(activity.description.value)
+        .toBe("<p>Up to two creatures must succeed on a save or be charmed.</p>");
+    });
+
+    it("keeps the action snippet on the activity that represents the action itself", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const activity = makeActivity({ name: "Fey Step (Teleport)", description: { value: FEY_STEP_SNIPPET } });
+
+      await makeFeyStepEnricher()._applyActivityDataOverride(activity, {});
+
+      expect(activity.description.value).toBe(FEY_STEP_SNIPPET);
+    });
+
+    it("does not use the section fallback for action-derived activities", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const enricher = makeEnricher({
+        ddbParser: {
+          originalName: "Use Feature",
+          isAction: true,
+          ddbDefinition: {
+            name: "Use Feature",
+            snippet: "Unique action snippet.",
+            description: "<p><strong>Use Feature.</strong> Extracted feature rules.</p>",
+          },
+          rawCharacter: { type: "character" },
+        },
+      });
+      const activity = makeActivity({
+        name: "Use Feature",
+        description: { value: "Unique action snippet." },
+      });
+
+      await enricher._applyActivityDataOverride(activity, {});
+
+      expect(activity.description.value).toBe("Unique action snippet.");
+    });
+
+    it("checks synthesized additional activities even when they have no overrides", async () => {
+      setMockSettings({ "add-ddb-snippets-to-activities": true });
+      const data = makeDocument({ system: { activities: {}, description: { value: "Feature rules." } } });
+      const ddbParser: any = {
+        data,
+        originalName: "Test Feature",
+        isAction: false,
+        ddbDefinition: {
+          name: "Test Feature",
+          snippet: "Complete feature snippet.",
+          description: [
+            "<p><strong>Primary Activity.</strong> Primary rules.</p>",
+            "<p><strong>Additional Activity.</strong> Additional rules.</p>",
+          ].join(""),
+        },
+        rawCharacter: { type: "character" },
+      };
+      class ActivityGenerator {
+        data: any;
+
+        constructor({ name }: { name: string }) {
+          this.data = makeActivity({
+            _id: "additionalAct123",
+            name,
+            description: { value: "Complete feature snippet." },
+          });
+        }
+
+        build(): void {}
+      }
+      const enricher = makeEnricher({
+        activityGenerator: ActivityGenerator,
+        ddbParser,
+        document: data,
+        loadedEnricher: {
+          additionalActivities: [{
+            init: { name: "Additional Activity", type: "utility" },
+            build: {},
+          }],
+        },
+      });
+
+      await enricher._addActivityHintAdditionalActivities(ddbParser);
+
+      expect(data.system.activities.additionalAct123.description.value).toBe("<p>Additional rules.</p>");
+    });
   });
 
   describe("parent overrides", () => {
@@ -543,7 +1005,9 @@ describe("DDBEnricherFactoryMixin._applyActivityDataOverride", () => {
   });
 });
 
+// =============================================================================
 // applyActivityOverride
+// =============================================================================
 describe("DDBEnricherFactoryMixin.applyActivityOverride", () => {
   it("returns the activity untouched and records originalActivity when no hint is loaded", async () => {
     const e = makeEnricher({ loadedEnricher: null });
@@ -567,7 +1031,9 @@ describe("DDBEnricherFactoryMixin.applyActivityOverride", () => {
   });
 });
 
+// =============================================================================
 // addDocumentAdvancements
+// =============================================================================
 describe("DDBEnricherFactoryMixin.addDocumentAdvancements", () => {
   it("keys advancements by _id, flattening nested arrays and skipping id-less entries", async () => {
     const e = makeEnricher({
@@ -597,9 +1063,27 @@ describe("DDBEnricherFactoryMixin.addDocumentAdvancements", () => {
     const result = await e.addDocumentAdvancements();
     expect(result.system.advancement).toEqual({ advC: adv });
   });
+
+  it("converts an array-shaped advancement field to an id-keyed object before adding", async () => {
+    const existing = { _id: "advOld", type: "ItemGrant" };
+    const adv = { _id: "advNew", type: "ScaleValue" };
+    const e = makeEnricher({ document: makeDocument({ system: { advancement: [existing] } }) });
+    const result = await e.addDocumentAdvancements([adv] as any);
+    expect(Array.isArray(result.system.advancement)).toBe(false);
+    expect(result.system.advancement).toEqual({ advOld: existing, advNew: adv });
+  });
+
+  it("leaves the advancement field untouched when there is nothing to add", async () => {
+    const advancement: any[] = [];
+    const e = makeEnricher({ document: makeDocument({ system: { advancement } }) });
+    const result = await e.addDocumentAdvancements([] as any);
+    expect(result.system.advancement).toBe(advancement);
+  });
 });
 
+// =============================================================================
 // addDocumentOverride
+// =============================================================================
 describe("DDBEnricherFactoryMixin.addDocumentOverride", () => {
   function makeOverrideEnricher(override: Record<string, any>, docFields: Record<string, any> = {}): any {
     return makeEnricher({
@@ -638,23 +1122,29 @@ describe("DDBEnricherFactoryMixin.addDocumentOverride", () => {
   it("sets the ddbimporter flag family from the retain/replace hints", async () => {
     const e = makeOverrideEnricher({
       replaceActivityUses: true,
-      forceSpellAdvancement: true,
       retainResourceConsumption: true,
       retainOriginalConsumption: true,
       retainChildUses: true,
       retainUseSpent: true,
+      retainActivityUseSpent: true,
       ignoredConsumptionActivities: ["Second Wind"],
     });
     const result = await e.addDocumentOverride();
     expect(result.flags.ddbimporter).toMatchObject({
       replaceActivityUses: true,
-      forceSpellAdvancement: true,
       retainResourceConsumption: true,
       retainOriginalConsumption: true,
       retainChildUses: true,
       retainUseSpent: true,
+      retainActivityUseSpent: true,
       ignoredConsumptionActivities: ["Second Wind"],
     });
+  });
+
+  it("keeps the activity name list form of retainActivityUseSpent", async () => {
+    const e = makeOverrideEnricher({ retainActivityUseSpent: ["Concoct Elixir"] });
+    const result = await e.addDocumentOverride();
+    expect(result.flags.ddbimporter.retainActivityUseSpent).toEqual(["Concoct Elixir"]);
   });
 
   it("applies rangeSelf and noTemplate to the document system", async () => {
@@ -724,5 +1214,125 @@ describe("DDBEnricherFactoryMixin.addDocumentOverride", () => {
     const result = await e.addDocumentOverride();
     expect(func).toHaveBeenCalledTimes(1);
     expect(result.name).toBe("Renamed By Func");
+  });
+});
+
+// =============================================================================
+// _getActivityDataFromAction
+// =============================================================================
+
+/**
+ * An action hint that matches nothing used to return silently, so a feature came through
+ * an activity short with nothing in the log to say why. DDB drops an action from the payload
+ * whenever it hangs off a builder toggle the character has switched off, and renames them
+ * without notice ("Remove Grotesque Growth" became "Restore Grotesque Growth"), so this is
+ * the only signal for a hint that has gone stale against a live character.
+ */
+describe("DDBEnricherFactoryMixin._getActivityDataFromAction", () => {
+  function makeActionEnricher(actions: any[]): any {
+    return makeEnricher({
+      ddbParser: {
+        originalName: "Grotesque Growth",
+        ddbCharacter: {
+          _characterFeatureFactory: {
+            getActions: () => actions,
+            getFeatureFromAction: async () => ({ system: { activities: {} }, effects: [] }),
+          },
+        },
+      },
+    });
+  }
+
+  it("warns and yields nothing when no action matches the hint", async () => {
+    const { logger } = await import("../../../src/lib/_module");
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const e = makeActionEnricher([]);
+
+    const result = await e._getActivityDataFromAction({ name: "Remove Grotesque Growth", type: "class" }, 0);
+
+    expect(result).toEqual({ activities: {}, effects: [], advancements: [] });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("Remove Grotesque Growth");
+    expect(warn.mock.calls[0][0]).toContain("Grotesque Growth");
+    warn.mockRestore();
+  });
+
+  it("stays quiet when the action is there", async () => {
+    const { logger } = await import("../../../src/lib/_module");
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const e = makeActionEnricher([{ name: "Grotesque Growth" }]);
+
+    await e._getActivityDataFromAction({ name: "Grotesque Growth", type: "class" }, 0);
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("preserves a generated action activity's snippet description when copying it", async () => {
+    const source = makeActivity({
+      _id: "utilitySource123",
+      name: "Grotesque Growth",
+      description: { value: "The parsed DDB action snippet." },
+    });
+    const e = makeEnricher({
+      ddbParser: {
+        originalName: "Grotesque Growth",
+        ddbCharacter: {
+          _characterFeatureFactory: {
+            getActions: () => [{ name: "Grotesque Growth" }],
+            getFeatureFromAction: async () => ({
+              system: { activities: { utilitySource123: source } },
+              effects: [],
+            }),
+          },
+        },
+      },
+    });
+
+    const result = await e._getActivityDataFromAction({ name: "Grotesque Growth", type: "class" }, 0);
+    const [copied] = Object.values(result.activities) as any[];
+
+    expect(copied.description.value).toBe("The parsed DDB action snippet.");
+    expect(copied).not.toBe(source);
+  });
+});
+
+// =============================================================================
+// _keepRegionPlacingDocument
+// =============================================================================
+describe("DDBEnricherFactoryMixin._keepRegionPlacingDocument", () => {
+  // Seen live: a potion with one use deleted itself as it was drunk, dnd5e's createRegion hook then
+  // found no activity behind the region's uuid, and the region was placed with no behaviors.
+  const placer = { behaviors: [{ type: "difficultTerrain", config: { types: [] } }] };
+
+  it("stops a consumable that places region behaviors from destroying itself", async () => {
+    const e = makeEnricher({
+      document: makeDocument({ system: { uses: { max: "1", spent: 0, autoDestroy: true }, activities: { a1: placer } } }),
+    });
+    await e.addDocumentOverride();
+    expect(e.document.system.uses.autoDestroy).toBe(false);
+  });
+
+  it("leaves a consumable with no region behaviors to destroy itself as before", async () => {
+    const e = makeEnricher({
+      document: makeDocument({ system: { uses: { max: "1", spent: 0, autoDestroy: true }, activities: { a1: { behaviors: [] }, a2: {} } } }),
+    });
+    await e.addDocumentOverride();
+    expect(e.document.system.uses.autoDestroy).toBe(true);
+  });
+
+  it("does not count a region display, which is read before the region exists", async () => {
+    const display = { behaviors: [{ type: "ddbDisplay", config: { profile: "damage-fire" } }] };
+    const e = makeEnricher({
+      document: makeDocument({ system: { uses: { max: "1", spent: 0, autoDestroy: true }, activities: { a1: display } } }),
+    });
+    await e.addDocumentOverride();
+    expect(e.document.system.uses.autoDestroy).toBe(true);
+  });
+
+  it("does not switch auto-destroy on, or add uses, where there were none", async () => {
+    const e = makeEnricher({ document: makeDocument({ system: { activities: { a1: placer } } }) });
+    await e.addDocumentOverride();
+    expect(e.document.system.uses?.autoDestroy).toBeUndefined();
   });
 });

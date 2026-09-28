@@ -2,15 +2,23 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class WallOfIce extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Place Panels",
       splitDamage: true,
       data: {
+        // approximation: the frigid air sheet exists only where a panel is breached;
+        // the region covers the whole wall, so the GM ignores saves at intact panels
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter"],
+            activityName: "Frigid Air Save",
+          }),
+        ],
         img: "icons/magic/water/barrier-ice-wall-snow.webp",
         target: {
           override: true,
@@ -28,7 +36,7 @@ export default class WallOfIce extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -61,9 +69,11 @@ export default class WallOfIce extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
+          generateDuration: true,
           generateDamage: true,
           generateConsumption: false,
           generateSave: true,
+          saveOverride: { ability: ["con"], dc: { calculation: "spellcasting", formula: "" } },
           img: "icons/magic/water/snowflake-ice-blue-white.webp",
           generateTarget: true,
           partialDamageParts: [1],
@@ -82,7 +92,7 @@ export default class WallOfIce extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       noTemplate: true,
     };

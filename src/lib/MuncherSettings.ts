@@ -8,6 +8,17 @@ import DDBProxy from "./DDBProxy";
 import { DICTIONARY, SETTINGS } from "../config/_module";
 import SystemHelpers from "./SystemHelpers";
 import DDBMuleHandler from "../muncher/DDBMuleHandler";
+import { speciesKey, speciesRulesVersion } from "./SpeciesIdentity";
+
+function getActivitySnippetSetting(): ISettingsPolicyExpandedItem {
+  return {
+    name: "add-ddb-snippets-to-activities",
+    isChecked: utils.getSetting<boolean>("add-ddb-snippets-to-activities"),
+    enabled: true,
+    hint: "Adds D&D Beyond's short snippet to newly imported activity cards. Activities derived from actions use the matching action's snippet or description. Re-import to add or remove snippets.",
+    label: "Add DDB Snippets to Activities?",
+  };
+}
 
 const MuncherSettings = {
 
@@ -117,7 +128,7 @@ const MuncherSettings = {
     const installedModulesText = `
 <p>Some Active Effects do not require any external modules, many of these will be created regardless of what settings are checked here, some will need these options checked.</p>
 <p>Some Active Effects need DAE${MuncherSettings.getInstalledIcon("daeInstalled")}, and although not required, it is <em>strongly recommended</em> if generating active effects with DDB Importer.</p>
-<p>The following modules are entirely optional but offer pretty animations for your spells and attacks (Automated Animations${MuncherSettings.getInstalledIcon("autoAnimationsInstalled")}). DAE${MuncherSettings.getInstalledIcon("daeInstalled")} offers several effect options that are useful but not provided by the core system. Aura Effects${MuncherSettings.getInstalledIcon("auraeffectsInstalled")} offers support for things like Paladin auras, as well as more automated effects for spells such as Spike Growth. Active Token Effects${MuncherSettings.getInstalledIcon("atlInstalled")} allows for effects to change tokens size and vision.</p>
+<p>The following modules are entirely optional but offer pretty animations for your spells and attacks (Automated Animations${MuncherSettings.getInstalledIcon("autoAnimationsInstalled")}). DAE${MuncherSettings.getInstalledIcon("daeInstalled")} offers several effect options that are useful but not provided by the core system. Automated Conditions 5e${MuncherSettings.getInstalledIcon("ac5eInstalled")} can help with those weird situational advantages and similar. Aura Effects${MuncherSettings.getInstalledIcon("auraeffectsInstalled")} offers support for things like Paladin auras, as well as more automated effects for spells such as Spike Growth.</p>
 <p>For games looking for high levels of automation, particularly around spells and more complex character features such as Battle Master Manoeuvres, then the "Midi-QOL" suite is required. This will allow varying degrees of automation from auto-calculating hit rolls, advantage damage, and even applying it for you (if desired).</p>
 <p>For high automation games you will need some additional modules, but are otherwise not required: Midi-QOL${MuncherSettings.getInstalledIcon("midiQolInstalled")}.</p>
 `;
@@ -171,6 +182,7 @@ const MuncherSettings = {
         hint: "Use the short description for the chat card? (otherwise will use normal description).",
         enabled: true,
       },
+      getActivitySnippetSetting(),
       // {
       //   name: "use-actions-as-features",
       //   isChecked: utils.getSetting<boolean>("character-update-policy-use-actions-as-features"),
@@ -295,7 +307,7 @@ const MuncherSettings = {
         isChecked: utils.getSetting<boolean>("character-update-policy-active-effect-copy"),
         label: "Retain Active Effects?",
         hint:
-          "Retain existing Active Effects, this will try and transfer any existing effects on the actor such as custom effects, effects from conditions or existing spells. Untick this option if you experience <i>odd</i> behaviour.",
+          "Retain existing Active Effects, this will try and transfer any existing effects on the actor such as custom effects, effects from conditions or existing spells. An item's retained effects are matched to the newly imported ones by name and replace them, keeping their links to the item's activities, so your edits win over the importer's version. Effects the importer generates that you had deleted are added back, and custom effects are kept. Untick this option if you experience <i>odd</i> behaviour.",
         enabled: true,
       },
     ];
@@ -473,7 +485,7 @@ const MuncherSettings = {
 <i>This is not recommended for new Foundry users.</i><br>
 This applies some automation to the items, but do require the use of a number of external modules, including "Midi-QOL", which potentially introduces a much higher level of automation and complexity above the base Foundry system.<br>
 These require the following modules: DAE${MuncherSettings.getInstalledIcon("daeInstalled")} and Midi-QOL${MuncherSettings.getInstalledIcon("midiQolInstalled")}} as a minimum.<br>
-Effects can also be created to use Active Auras${MuncherSettings.getInstalledIcon("activeAurasInstalled")} or Aura Effects${MuncherSettings.getInstalledIcon("auraeffectsInstalled")}, and Active Token Effects${MuncherSettings.getInstalledIcon("atlInstalled")}.
+Effects can also be created to use Aura Effects${MuncherSettings.getInstalledIcon("auraeffectsInstalled")}.
 `;
 
     const generateMidiEffects = utils.getSetting<boolean>("munching-policy-add-midi-effects");
@@ -481,11 +493,10 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
       game.settings.set(SETTINGS.MODULE_ID, "munching-policy-add-midi-effects", false);
     }
 
-    const enableSources = utils.getSetting<boolean>("munching-policy-use-source-filter");
-    const sourceArray = enableSources
-      ? DDBSources.getSelectedSourceIds()
-      : [];
-    const sourcesSelected = enableSources && sourceArray.length > 0;
+    const bookFilter = DDBSources.getBookFilter();
+    const enableSources = bookFilter.enabled;
+    // only books inside the included categories actually restrict an import
+    const sourcesSelected = bookFilter.effective.length > 0;
     const sourceNames = MuncherSettings.getSourcesLookups().filter((source) => source.selected).map((source) => source.label);
     const homebrewDescription = sourcesSelected
       ? "Include homebrew? SOURCES SELECTED! You can't import homebrew with a source filter selected"
@@ -782,6 +793,7 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
         hint: "Append (Legacy) to Legacy names? These are replaced by newer versions e.g. in Monsters of the Multiverse, 2024 PHB.",
         enabled: true,
       },
+      getActivitySnippetSetting(),
     ];
 
     const sourceConfig = [
@@ -813,7 +825,7 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
 
     const includedCategories = MuncherSettings.getIncludedCategoriesLookup();
     const excludedCategories = MuncherSettings.getExcludedCategoriesLookup();
-    const categoryBooks = MuncherSettings.getCategoryBookMapping();
+    const includedCategoryBooks = MuncherSettings.getIncludedCategoryBookMapping();
     const bookSources = MuncherSettings.getSourcesLookups();
 
     const selectedSources = MuncherSettings.getSourcesLookups().map((source) => ({
@@ -875,7 +887,7 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
       game.settings.set(SETTINGS.MODULE_ID, "adventure-policy-use2024-monsters", false);
     }
 
-    const characterMunch = Boolean(cobalt);
+    const characterMunch = (tiers.god || tiers.undying || tiers.experimentalMid) && cobalt;
 
     const resultData = {
       characterMunch,
@@ -888,7 +900,8 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
       monsterTypes,
       includedCategories,
       excludedCategories,
-      categoryBooks,
+      includedCategoryBooks,
+      showSourceBookCovers: utils.getSetting<boolean>("muncher-show-source-book-covers"),
       basicMonsterConfig,
       filterMonsterConfig,
       filterSpellConfig,
@@ -1051,20 +1064,72 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
     });
   },
 
-  getCategoryBookMapping: (): { categoryName: string; books: { name: string; description: string }[] }[] => {
-    const categories = DDBSources.getDisplaySourceCategories();
-    return categories
-      .map((cat) => {
-        const books = DDBSources.getBooksInCategories([cat.id])
+  /**
+   * The released books enabled by the included source categories. This intentionally ignores the
+   * deprecated per-book filter: the summary describes the category selection immediately above it.
+   * An included category with no released books is kept, with an empty book list, so that the
+   * summary always accounts for every category selected above rather than silently dropping one.
+   */
+  getIncludedCategoryBookMapping: (): IMuncherSourceCategoryBooks[] => {
+    const includedCategoryIds = new Set(DDBSources.getIncludedCategoryIds());
+    return DDBSources.getDisplaySourceCategories()
+      .filter((category) => includedCategoryIds.has(category.id))
+      .map((category) => {
+        const books = DDBSources.getBooksInCategories([category.id])
           .filter((book) => book.isReleased)
+          .map((book) => ({
+            id: book.id,
+            code: book.name,
+            name: book.description || book.name,
+            avatarURL: DDBSources.getSourceCoverURL(book),
+          }))
           .sort((a, b) => a.name.localeCompare(b.name));
         return {
-          categoryName: cat.name,
-          books: books.map((b) => ({ name: b.name, description: b.description })),
+          id: category.id,
+          name: category.name,
+          books,
         };
       })
-      .filter((entry) => entry.books.length > 0)
-      .sort((a, b) => a.categoryName.localeCompare(b.categoryName));
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  /**
+   * The source selection an import will actually run with: the included categories, narrowed by
+   * the deprecated per-book filter when that filter names at least one book inside them. This
+   * calls the same helper the import paths do, so the preview cannot drift from what is sent to
+   * the proxy - unlike getIncludedCategoryBookMapping, which describes the category picker alone.
+   */
+  getEffectiveSourceSelection: (): IMuncherEffectiveSources => {
+    const bookFilter = DDBSources.getBookFilter();
+    const categoriesById = new Map(CONFIG.DDB.sourceCategories.map((category) => [category.id, category]));
+    const booksById = new Map(CONFIG.DDB.sources.map((book) => [book.id, book]));
+
+    const categories = DDBSources.getChosenCategoriesAndBooks()
+      .map((entry) => ({
+        id: entry.categoryId,
+        name: categoriesById.get(entry.categoryId)?.name ?? `Category ${entry.categoryId}`,
+        books: entry.sourceIds
+          .map((sourceId) => booksById.get(sourceId))
+          // unreleased books are part of the request but can never come back with content, so
+          // listing them would only pad the preview with books that import nothing
+          .filter((book): book is IDDBConfigSource => book !== undefined && book.isReleased)
+          .map((book) => ({ id: book.id, code: book.name, name: book.description || book.name }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .filter((category) => category.books.length > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return {
+      categories,
+      bookCount: categories.reduce((count, category) => count + category.books.length, 0),
+      bookFilterActive: bookFilter.enabled && bookFilter.effective.length > 0,
+      ignoredBooks: bookFilter.ignored
+        .map((sourceId) => {
+          const book = booksById.get(sourceId);
+          return book ? book.description || book.name : `book ${sourceId}`;
+        })
+        .sort((a, b) => a.localeCompare(b)),
+    };
   },
 
   updateMuncherSettings: async (event: Event) => {
@@ -1208,13 +1273,43 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
         hint: "Automates Warding Bond damage sharing and tracking",
         label: "Allow Warding Bond Automation?",
       },
+      {
+        name: "allow-divine-power-recovery-enhancer",
+        isChecked: utils.getSetting<boolean>("allow-divine-power-recovery-enhancer"),
+        enabled: true,
+        hint: "Resets Divine Power uses on summoned Vestige Companions when a Vestige Patron warlock finishes a Short or Long Rest",
+        label: "Allow Vestige Divine Power Recovery?",
+      },
+      {
+        name: "allow-rider-enchantment-link-enhancer",
+        isChecked: utils.getSetting<boolean>("allow-rider-enchantment-link-enhancer"),
+        enabled: true,
+        hint: "When an activity granted by an enchantment enchants another item (Alter Self's Natural Weapons on an Unarmed Strike), removes that enchantment when the granting one ends. Needs an active GM.",
+        label: "Remove Enchantments Applied by Enchantment-Granted Activities?",
+      },
+      {
+        name: "add-ddb-macro-region-behaviors",
+        isChecked: utils.getSetting<boolean>("add-ddb-macro-region-behaviors"),
+        enabled: true,
+        hint: "Add DDB Importer region triggers to spells and features (Moonbeam, Spike Growth, Stench...). Re-import to add or remove them. Existing regions keep running when this option is off. Requires Enable DDB Importer Region Automation in Configure Settings; disable that setting to stop all DDB region triggers.",
+        label: "Add Region Triggers for Damage/Saves on Entry or per Turn?",
+      },
+      {
+        name: "enable-region-expiry-cleanup",
+        isChecked: utils.getSetting<boolean>("enable-region-expiry-cleanup"),
+        enabled: true,
+        hint: "When a spell or feature effect expires, is deleted, or its concentration ends, prompt the GM to remove the area template it placed. Works around the 5e system leaving templates behind when their governing effect ends.",
+        label: "Prompt to Remove Expired Area Templates?",
+      },
     ];
 
     return enhancementConfig;
   },
 
-  async getCharacterMuncherSettings(app?: { subClassMap?: Record<number, any[]> }) {
-    const disableUse = Secrets.getCobalt() === "";
+  async getCharacterMuncherSettings(app?: { subClassMap?: Record<number, any[]>; characterId?: string | null }) {
+    const tier = PatreonHelper.getPatreonTier();
+    const tiers = PatreonHelper.calculateAccessMatrix(tier);
+    const disableUse = !tiers.experimentalMid;
 
     const muleURL = utils.getSetting<string>("munching-policy-character-url");
     let rulesVersion = utils.getSetting<T5eRulesVersion | "">("munching-policy-character-class-rules-version") ?? "";
@@ -1231,7 +1326,7 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
     const result: {
       selectedClasses: any[];
       subclassSelection: any[];
-      selectedSpecies: any[];
+      selectedSpecies: { id: string; label: string; selected: string }[];
       rulesVersion: T5eRulesVersion;
       otherRulesVersion: T5eRulesVersion;
       classFilterEnabled: boolean;
@@ -1254,150 +1349,129 @@ Effects can also be created to use Active Auras${MuncherSettings.getInstalledIco
 
     if (disableUse) return result;
 
-    const mule = await DDBMuleHandler.getMuleAvailability();
-    if (!mule.available) {
-      logger.warn(`Character munch endpoints unavailable: ${mule.message}`);
-      result.classFilterEnabled = false;
-      result.classMunchEnabled = false;
-      result.speciesFilterEnabled = false;
-      result.speciesMunchEnabled = false;
-      // This also disables feat/background munch buttons in templates.
-      foundry.utils.setProperty(result, "characterMunch", false);
-      return result;
-    }
+    const chosenSourceIds = DDBSources.getChosenSourceIdSet();
+    const klassInChosenSources = (klass: any) =>
+      klass.sources.some((s: any) => chosenSourceIds.has(s.sourceId));
 
-    try {
+    const classes = await DDBMuleHandler.getList<IDDBMuleClassDefinition>("class", Array.from(chosenSourceIds));
+    const selectedClassIds = utils.getSetting<number[]>("munching-policy-character-classes")
+      .map((id) => parseInt(String(id)));
+    const subclassSelections = utils.getSetting<Record<string, number[]>>("munching-policy-character-subclasses") ?? {};
 
-      const chosenSourceIds = DDBSources.getChosenSourceIdSet();
-      const klassInChosenSources = (klass: any) =>
-        klass.sources.some((s: any) => chosenSourceIds.has(s.sourceId));
+    const dontGrabExisting = utils.getSetting<boolean>("munching-policy-character-dont-grab-existing");
+    const existingSubclassIds = dontGrabExisting
+      ? await DDBMuleHandler.getExistingSubclassIds(rulesVersion)
+      : new Set<number>();
 
-      const classes = await DDBMuleHandler.getList<IDDBMuleClassDefinition>("class", Array.from(chosenSourceIds));
-      const selectedClassIds = utils.getSetting<number[]>("munching-policy-character-classes")
-        .map((id) => parseInt(String(id)));
-      const subclassSelections = utils.getSetting<Record<string, number[]>>("munching-policy-character-subclasses") ?? {};
+    const isKlass2014 = (klass: IDDBMuleClassDefinition) => klass.sources.every((s) => DDBSources.is2014Source(s));
 
-      const dontGrabExisting = utils.getSetting<boolean>("munching-policy-character-dont-grab-existing");
-      const existingSubclassIds = dontGrabExisting
-        ? await DDBMuleHandler.getExistingSubclassIds(rulesVersion)
-        : new Set<number>();
-      const existingSpeciesIds = dontGrabExisting
-        ? await DDBMuleHandler.getExistingSpeciesIds(rulesVersion)
-        : new Set<number>();
+    result.selectedClasses = classes
+      .filter((klass) => (rulesVersion === "2014" ? isKlass2014(klass) : !isKlass2014(klass)))
+      .filter((klass) => klassInChosenSources(klass))
+      .map((klass) => {
+        const sourceId = klass.sources.find((s: any) => s.sourceType === 1)?.sourceId;
+        const source = CONFIG.DDB.sources.find((s: any) => s.id === sourceId);
+        const label = `${klass.name} (${source ? source.name : "Unknown Source"})`;
+        return {
+          id: klass.id,
+          label,
+          selected: selectedClassIds.includes(klass.id) ? "selected" : "",
+        };
+      })
+      .sort((a: any, b: any) => ((a.label > b.label) ? 1 : ((b.label > a.label) ? -1 : 0)));
 
-      const isKlass2014 = (klass: IDDBMuleClassDefinition) => klass.sources.every((s) => DDBSources.is2014Source(s));
+    // fetched through the session memo on every render (keyed on account and campaign), never
+    // reused from the app's last render, and with the mule character's campaign as the munch uses
+    const subClassMap: Record<number, any[]> = {};
+    const campaignId = await DDBMuleHandler.getMuleCampaignId(app?.characterId);
 
-      result.selectedClasses = classes
-        .filter((klass) => (rulesVersion === "2014" ? isKlass2014(klass) : !isKlass2014(klass)))
-        .filter((klass) => klassInChosenSources(klass))
-        .map((klass) => {
-          const sourceId = klass.sources.find((s: any) => s.sourceType === 1)?.sourceId;
-          const source = CONFIG.DDB.sources.find((s: any) => s.id === sourceId);
-          const label = `${klass.name} (${source ? source.name : "Unknown Source"})`;
-          return {
-            id: klass.id,
-            label,
-            selected: selectedClassIds.includes(klass.id) ? "selected" : "",
-          };
+    const relevantClasses = selectedClassIds
+      .map((classId) => classes.find((c) => c.id === classId))
+      .filter((klass): klass is any => !!klass)
+      .filter((klass) => (isKlass2014(klass) ? "2014" : "2024") === rulesVersion);
+
+    await Promise.all(
+      relevantClasses.map(async (klass) => {
+        try {
+          subClassMap[klass.id] = await DDBMuleHandler.getSubclassesCached({
+            className: klass.name,
+            classId: klass.id,
+            rulesVersion,
+            includeHomebrew: true,
+            campaignId,
+          });
+        } catch (err) {
+          // left out of the map, so the next render asks again rather than showing none
+          logger.error(`Failed fetching subclasses for ${klass.name}`, err);
+        }
+      }),
+    );
+
+    const subclassSelection: any[] = [];
+    for (const klass of relevantClasses) {
+      const classId = klass.id;
+      const selectedSubIds = (subclassSelections[String(classId)] ?? []).map((id) => parseInt(String(id)));
+      const subclasses = (subClassMap[classId] ?? [])
+        .filter((sc: any) => {
+          if (onlyHomebrew) return sc.isHomebrew;
+          if (sc.isHomebrew) return allowHomebrew;
+          return DDBSources.isDefinitionInSourceIds(sc, chosenSourceIds);
         })
+        .filter((sc: any) => !(dontGrabExisting && existingSubclassIds.has(parseInt(sc.id))))
+        .map((sc: any) => ({
+          id: sc.id,
+          label: sc.isHomebrew ? `${sc.name} (Homebrew)` : sc.name,
+          selected: selectedSubIds.includes(parseInt(sc.id)) ? "selected" : "",
+        }))
         .sort((a: any, b: any) => ((a.label > b.label) ? 1 : ((b.label > a.label) ? -1 : 0)));
-
-      const cache = app?.subClassMap ?? {};
-
-      const relevantClasses = selectedClassIds
-        .map((classId) => classes.find((c) => c.id === classId))
-        .filter((klass): klass is any => !!klass)
-        .filter((klass) => (isKlass2014(klass) ? "2014" : "2024") === rulesVersion);
-
-      await Promise.all(
-        relevantClasses
-          .filter((klass) => !cache[klass.id])
-          .map(async (klass) => {
-            try {
-              cache[klass.id] = await DDBMuleHandler.getSubclassesCached({
-                className: klass.name,
-                classId: klass.id,
-                rulesVersion,
-                includeHomebrew: true,
-                campaignId: null,
-              });
-            } catch (err) {
-              logger.error(`Failed fetching subclasses for ${klass.name}`, err);
-              cache[klass.id] = [];
-            }
-          }),
-      );
-
-      const subclassSelection: any[] = [];
-      for (const klass of relevantClasses) {
-        const classId = klass.id;
-        const selectedSubIds = (subclassSelections[String(classId)] ?? []).map((id) => parseInt(String(id)));
-        const subclasses = (cache[classId] ?? [])
-          .filter((sc: any) => {
-            if (onlyHomebrew) return sc.isHomebrew;
-            if (sc.isHomebrew) return allowHomebrew;
-            return DDBSources.isDefinitionInSourceIds(sc, chosenSourceIds);
-          })
-          .filter((sc: any) => !(dontGrabExisting && existingSubclassIds.has(parseInt(sc.id))))
-          .map((sc: any) => ({
-            id: sc.id,
-            label: sc.isHomebrew ? `${sc.name} (Homebrew)` : sc.name,
-            selected: selectedSubIds.includes(parseInt(sc.id)) ? "selected" : "",
-          }))
-          .sort((a: any, b: any) => ((a.label > b.label) ? 1 : ((b.label > a.label) ? -1 : 0)));
-        // subclass-level dedupe: hide a class whose subclasses are all already present
-        if (dontGrabExisting && subclasses.length === 0) continue;
-        subclassSelection.push({
-          classId,
-          className: klass.name,
-          subclasses,
-          allSelected: selectedSubIds.length === 0,
-        });
-      }
-      if (app) app.subClassMap = cache;
-      result.subclassSelection = subclassSelection;
-      result.classMunchEnabled = relevantClasses.length > 0;
-
-      // Species selection (no sub-entities; empty selection = munch all)
-      const species = await DDBMuleHandler.getList<IDDBMuleSpeciesDefinition>("species", Array.from(chosenSourceIds));
-      const selectedSpeciesIds = utils.getSetting<number[]>("munching-policy-character-species")
-        .map((id) => parseInt(String(id)));
-      const isSpecies2014 = (sp: IDDBMuleSpeciesDefinition) => sp.sources.every((s) => DDBSources.is2014Source(s));
-
-      result.selectedSpecies = species
-        .filter((sp) => (rulesVersion === "2014" ? isSpecies2014(sp) : !isSpecies2014(sp)))
-        .filter((sp) => {
-          if (onlyHomebrew) return sp.isHomebrew;
-          if (sp.isHomebrew) return allowHomebrew;
-          return sp.sources.some((s) => chosenSourceIds.has(s.sourceId));
-        })
-        .filter((sp) => !(dontGrabExisting && existingSpeciesIds.has(sp.entityRaceId)))
-        .map((sp) => {
-          const sourceId = sp.sources.find((s) => s.sourceType === 1)?.sourceId;
-          const source = CONFIG.DDB.sources.find((s: any) => s.id === sourceId);
-          const label = sp.isHomebrew
-            ? `${sp.fullName} (Homebrew)`
-            : `${sp.fullName} (${source ? source.name : "Unknown Source"})`;
-          return {
-            id: sp.entityRaceId,
-            label,
-            selected: selectedSpeciesIds.includes(sp.entityRaceId) ? "selected" : "",
-          };
-        })
-        .sort((a: any, b: any) => ((a.label > b.label) ? 1 : ((b.label > a.label) ? -1 : 0)));
-
-      return result;
-    } catch (error) {
-      logger.warn("Character munch list endpoints unavailable on configured proxy; disabling class/species pickers.", { error });
-      result.selectedClasses = [];
-      result.subclassSelection = [];
-      result.selectedSpecies = [];
-      result.classFilterEnabled = false;
-      result.classMunchEnabled = false;
-      result.speciesFilterEnabled = false;
-      result.speciesMunchEnabled = false;
-      return result;
+      // subclass-level dedupe: hide a class whose subclasses are all already present
+      if (dontGrabExisting && subclasses.length === 0) continue;
+      subclassSelection.push({
+        classId,
+        className: klass.name,
+        subclasses,
+        allSelected: selectedSubIds.length === 0,
+      });
     }
+    if (app) app.subClassMap = subClassMap;
+    result.subclassSelection = subclassSelection;
+    result.classMunchEnabled = relevantClasses.length > 0;
+
+    // Species selection (no sub-entities; empty selection = munch all)
+    const species = await DDBMuleHandler.getList<IDDBMuleSpeciesDefinition>("species", null);
+    const selectedSpeciesKeys = utils.getSetting<string[]>("munching-policy-character-species");
+    const existingSpeciesKeys = dontGrabExisting
+      ? await DDBMuleHandler.getExistingSpeciesKeys(rulesVersion, species)
+      : new Set<string>();
+    result.selectedSpecies = species
+      .filter((sp) => speciesRulesVersion(sp) === rulesVersion)
+      .filter((sp) => {
+        if (onlyHomebrew) return sp.isHomebrew;
+        if (sp.isHomebrew) return allowHomebrew;
+        return sp.sources.some((s) => chosenSourceIds.has(s.sourceId));
+      })
+      .filter((sp) => speciesKey(sp) !== null)
+      .filter((sp) => !(dontGrabExisting && existingSpeciesKeys.has(speciesKey(sp)!)))
+      .map((sp) => {
+        const sourceId = sp.sources.find((s) => s.sourceType === 1)?.sourceId;
+        const source = CONFIG.DDB.sources.find((s: any) => s.id === sourceId);
+        const label = sp.isHomebrew
+          ? `${sp.fullName} (Homebrew)`
+          : `${sp.fullName} (${source ? source.name : "Unknown Source"})`;
+        return {
+          id: speciesKey(sp)!,
+          label,
+          selected: selectedSpeciesKeys.includes(speciesKey(sp)!) ? "selected" : "",
+        };
+      })
+      .sort((a: any, b: any) => ((a.label > b.label) ? 1 : ((b.label > a.label) ? -1 : 0)));
+
+    const catalogKeys = new Set(species.map(speciesKey));
+    result.selectedSpecies.push(...selectedSpeciesKeys.filter((id) => !catalogKeys.has(id)).map((id) => ({
+      id, label: `Unavailable species (${id})`, selected: "selected",
+    })));
+
+    return result;
   },
 };
 

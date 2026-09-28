@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class CompoundCreatorElfsightOil extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Elfsight Oil",
@@ -15,11 +15,7 @@ export default class CompoundCreatorElfsightOil extends DDBEnricherData {
           durationSeconds: 28800,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("120", 20, "system.attributes.senses.darkvision"),
-        ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.atlChange("ATL.sight.range", "upgrade", 120, 5),
-          DDBEnricherData.ChangeHelper.atlChange("ATL.sight.visionMode", "override", "darkvision", 5),
+          DDBEnricherData.ChangeHelper.upgradeChange("120", 20, "system.attributes.senses.ranges.darkvision"),
         ],
       },
     ];

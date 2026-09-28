@@ -1,8 +1,8 @@
-import { logger, utils } from "../../lib/_module";
+import logger from "../../lib/Logger";
+import utils from "../../lib/Utils";
 import { DICTIONARY } from "../../config/_module";
 import SystemHelpers from "../../lib/SystemHelpers";
-import DDBClass from "../classes/DDBClass";
-import DDBSubClass from "../classes/DDBSubClass";
+import { findSpecialAdvancement } from "./SpecialAdvancements";
 import { IResetType } from "../../config/dictionary/actor/resets";
 
 interface IDDBDataUtilsLimitedUses {
@@ -116,8 +116,10 @@ export default class DDBDataUtils {
 
   static addCustomValues<T extends I5ePCConsumptionItems>(ddb: IDDBData, foundryItem: T): T {
     // to hit override requires a lot of crunching
+    // const toHitOverride = DDBDataUtils.getCustomValue(item, character, 13);
     const toHitBonus = DDBDataUtils.getCustomValue(foundryItem, ddb, 12);
     const damageBonus = DDBDataUtils.getCustomValue(foundryItem, ddb, 10);
+    // const displayAsAttack = DDBDataUtils.getCustomValue(item, character, 16);
     const costOverride = DDBDataUtils.getCustomValue(foundryItem, ddb, 19);
     const weightOverride = DDBDataUtils.getCustomValue(foundryItem, ddb, 22);
     // dual wield 18
@@ -126,6 +128,7 @@ export default class DDBDataUtils {
     // adamantine
     const adamantine = DDBDataUtils.getCustomValue(foundryItem, ddb, 21);
     // off-hand
+    // const offHand = DDBDataUtils.getCustomValue(ddbItem, character, 18);
     const dcOverride = DDBDataUtils.getCustomValue(foundryItem, ddb, 15);
     const dcBonus = DDBDataUtils.getCustomValue(foundryItem, ddb, 14);
 
@@ -173,10 +176,12 @@ export default class DDBDataUtils {
       });
     }
 
-    if ("cost" in foundryItem.system && costOverride)
+    if ("cost" in foundryItem.system && costOverride) {
       foundryItem.system.cost = costOverride;
-    if ("weight" in foundryItem.system && weightOverride)
+    }
+    if ("weight" in foundryItem.system && weightOverride) {
       foundryItem.system.weight.value = parseInt(String(weightOverride));
+    }
     if (silvered) {
       foundryItem.system.properties = utils.addToProperties(foundryItem.system.properties, "sil");
     }
@@ -206,6 +211,45 @@ export default class DDBDataUtils {
       ...(ddb.character.options.feat ?? []),
     ].some((option) => option.definition.name === optionName);
     return hasClassOptions;
+  }
+
+  /**
+   * Whether the character has taken a feat by name. 2024 Fighting Style choices land here as feats,
+   * not in `character.options`, so `hasChosenCharacterOption` does not see them.
+   * @param {IDDBData} ddb the DDB character data
+   * @param {string} featName the feat definition name
+   * @returns {boolean} true if a feat with that name is present
+   */
+  static hasCharacterFeat(ddb: IDDBData, featName: string): boolean {
+    return (ddb.character.feats ?? []).some((feat) => feat.definition?.name === featName);
+  }
+
+  static ELEMENTAL_ADEPT_TYPES = ["acid", "cold", "fire", "lightning", "thunder"];
+
+  /**
+   * The damage types the character has taken Elemental Adept for. The feat is repeatable, and DDB
+   * records each pick as a feat option named for the damage type ("Fire"). Some feat definitions
+   * carry the type in the name instead ("Elemental Adept (Fire)"), so both are read.
+   * @param {IDDBData} ddb the DDB character data
+   * @returns {string[]} lowercase dnd5e damage types, empty without the feat
+   */
+  static getElementalAdeptTypes(ddb: IDDBData): string[] {
+    const types = new Set<string>();
+    const featIds = new Set<number>();
+    for (const feat of ddb.character.feats ?? []) {
+      const name = feat.definition?.name ?? "";
+      if (!name.startsWith("Elemental Adept")) continue;
+      featIds.add(feat.definition.id);
+      const named = name.match(/\((\w+)\)/)?.[1]?.toLowerCase();
+      if (named && DDBDataUtils.ELEMENTAL_ADEPT_TYPES.includes(named)) types.add(named);
+    }
+    if (featIds.size === 0) return [];
+    for (const option of ddb.character.options?.feat ?? []) {
+      if (!featIds.has(option.componentId)) continue;
+      const chosen = (option.definition?.name ?? "").toLowerCase();
+      if (DDBDataUtils.ELEMENTAL_ADEPT_TYPES.includes(chosen)) types.add(chosen);
+    }
+    return [...types];
   }
 
   static getClassFromOptionID(ddb: IDDBData, optionId: number): IDDBClass | undefined {
@@ -294,6 +338,36 @@ export default class DDBDataUtils {
   }
 
   /**
+   * Is this modifier granted by a class feature or class option with this name?
+   * DDB points a modifier at its granting component with componentId/componentTypeId,
+   * which may be a class feature (2014 subclass features), a chosen class option
+   * (the 2024 Blessed Strikes choice), or an optional class feature definition.
+   */
+  static isModifierFromNamedFeature(ddb: IDDBData, mod: IModifiersMod, featureName: string): boolean {
+    const classFeatureMatch = ddb.character.classes.some((klass) =>
+      klass.classFeatures.some((feature) =>
+        feature.definition.id === mod.componentId
+        && feature.definition.entityTypeId === mod.componentTypeId
+        && feature.definition.name === featureName,
+      ),
+    );
+    if (classFeatureMatch) return true;
+
+    const optionMatch = (ddb.character.options.class ?? []).some((option) =>
+      option.definition.name === featureName
+      && ((option.definition.id === mod.componentId && option.definition.entityTypeId === mod.componentTypeId)
+        || (option.componentId === mod.componentId && option.componentTypeId === mod.componentTypeId)),
+    );
+    if (optionMatch) return true;
+
+    return (ddb.classOptions ?? []).some((option) =>
+      option.id === mod.componentId
+      && option.entityTypeId === mod.componentTypeId
+      && option.name === featureName,
+    );
+  }
+
+  /**
    * Gets the levelscaling value for a feature
    * @param {*} feature
    * @returns {string}
@@ -323,8 +397,7 @@ export default class DDBDataUtils {
     if (klass) {
       let featureName = utils.referenceNameString(featDefinition.name);
 
-      const special = DDBClass.SPECIAL_ADVANCEMENTS[featDefinition.name]
-        ?? DDBSubClass.SPECIAL_ADVANCEMENTS[featDefinition.name];
+      const special = findSpecialAdvancement(featDefinition.name);
 
       if (special && special.fixFunction?.name === "rename") {
         if (special.functionArgs?.identifier) {
@@ -352,8 +425,16 @@ export default class DDBDataUtils {
       ...(ddb.character.options.feat ?? []),
     ].find((option) => option.definition.id === componentId);
 
-    let feat = "levelScale" in feature && feature.levelScale && componentId
-      ? feature
+    // A class feature arrives as its own { definition, levelScale } wrapper and carries no
+    // componentId (only DDB actions do), so it is the scale source itself whenever it has a
+    // current levelScale or any levelScales on the definition. Actions go through their
+    // componentId to the feature they belong to.
+    const definition = "definition" in feature ? feature.definition : undefined;
+    const definitionScales = definition && "levelScales" in definition ? definition.levelScales : undefined;
+    const isScaleSource = ("levelScale" in feature && Boolean(feature.levelScale))
+      || (definitionScales?.length ?? 0) > 0;
+    let feat: IDDBClassFeature | IDDBRacialTrait | undefined = isScaleSource
+      ? feature as IDDBClassFeature
       : componentId != null
         ? DDBDataUtils.findComponentByComponentId(ddb, componentId)
         : undefined;
@@ -402,6 +483,7 @@ export default class DDBDataUtils {
       }
     }
 
+    // console.warn(`classIdentifierName: ${className} -> ${result}`);
 
     return result;
   }
@@ -476,7 +558,10 @@ export default class DDBDataUtils {
 
     const featDefinition: IDDBFeatureDefinitionKindFields
       = "definition" in feat ? feat.definition : feat;
+    // const id = feat.id ? feat.id : feat.definition.id ? feat.definition.id : null;
+    //  const featDefinition = feat.definition ? feat.definition : feat;
 
+    // console.warn("getChoices", {
     //   id,
     //   type,
     //   feat,
@@ -504,6 +589,7 @@ export default class DDBDataUtils {
               return validOption;
             });
 
+        // console.warn("choices", {
         //   validChoices,
         //   choiceDefinitions,
         //   choices,
@@ -536,6 +622,7 @@ export default class DDBDataUtils {
                 }) as unknown as IDDBChoiceResult;
                 return choiceOption;
               });
+            // console.warn("validChoice Options", {
             //   choice,
             //   optionChoice,
             //   options,
@@ -577,6 +664,7 @@ export default class DDBDataUtils {
         }
 
         if (options.length > 0) {
+          // console.warn("returning options", {
           //   options,
           // });
           return options;
@@ -620,6 +708,7 @@ export default class DDBDataUtils {
               return result;
             });
 
+          // console.warn("optionMatch", {
           //   optionMatch,
           // });
           if (optionMatch.length > 0) return optionMatch;
@@ -658,6 +747,7 @@ export default class DDBDataUtils {
       : [];
 
 
+    // console.warn("determineActualFeatureId", {
     //   featureId,
     //   optionalFeatureReplacement,
     //   choiceFeature,

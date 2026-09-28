@@ -2,14 +2,16 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class WallOfStone extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Place Square Panels",
       data: {
+        // the spell data carries no save; a creature the wall would enclose saves to escape
+        save: { ability: ["dex"], dc: { calculation: "spellcasting", formula: "" } },
         target: {
           override: true,
           template: {
@@ -26,7 +28,7 @@ export default class WallOfStone extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -37,6 +39,7 @@ export default class WallOfStone extends DDBEnricherData {
           generateDamage: false,
           generateConsumption: true,
           generateSave: true,
+          saveOverride: { ability: ["dex"], dc: { calculation: "spellcasting", formula: "" } },
           generateTarget: true,
           targetOverride: {
             override: true,
@@ -56,7 +59,7 @@ export default class WallOfStone extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       noTemplate: true,
     };

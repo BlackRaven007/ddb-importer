@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class AvengingAngel extends DDBEnricherData {
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (this.ddbParser.isAction) {
       return null;
     }
@@ -14,11 +14,51 @@ export default class AvengingAngel extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     if (this.ddbParser.isAction) {
       return [];
     }
     return [
+      {
+        init: {
+          name: "Place Aura",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateActivation: true,
+          generateTarget: true,
+          generateConsumption: false,
+          activationOverride: {
+            type: "special",
+            condition: "While the aura is active",
+          },
+          targetOverride: {
+            override: true,
+            affects: {
+              type: "enemy",
+            },
+            template: {
+              contiguous: false,
+              type: "radius",
+              size: "30",
+              units: "ft",
+            },
+          },
+        },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.activity({
+                // 2014 "enters the aura for the first time on a turn or starts its turn there";
+                // 2024 "starts its turn in your Aura of Protection"
+                events: this.is2014 ? ["tokenEnter", "tokenTurnStart"] : ["tokenTurnStart"],
+                enterOn: "movement",
+                activityName: "Avenging Angel",
+              }),
+            ],
+          },
+        },
+      },
       { action: { name: "Avenging Angel", type: "class" } },
       {
         init: {
@@ -56,7 +96,7 @@ export default class AvengingAngel extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (this.ddbParser.isAction) {
       return [];
     }
@@ -67,12 +107,12 @@ export default class AvengingAngel extends DDBEnricherData {
       },
       activitiesMatch: ["Activate"],
       changes: [
-        DDBEnricherData.ChangeHelper.upgradeChange("60", 2, "system.attributes.movement.fly"),
+        DDBEnricherData.ChangeHelper.upgradeChange("60", 2, "system.attributes.movement.speeds.fly"),
       ],
     }];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     const uses = this._getUsesWithSpent({ type: "class", name: "Avenging Angel", max: "1", period: "lr" });
     return {
       uses,
@@ -82,7 +122,7 @@ export default class AvengingAngel extends DDBEnricherData {
     };
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 

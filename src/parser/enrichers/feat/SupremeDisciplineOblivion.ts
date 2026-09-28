@@ -2,17 +2,17 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class SupremeDisciplineOblivion extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       activationType: "reaction",
       activationCondition: "When a creature you can see within 10 feet of you misses an attack roll",
       addItemConsume: true,
-      itemConsumeTargetName: "Blood Potency",
+      itemConsumeTargetName: "feat:blood-potency",
       data: {
         range: {
           units: "ft",

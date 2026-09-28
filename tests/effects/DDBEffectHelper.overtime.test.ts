@@ -1,15 +1,10 @@
 // Characterization tests for the over-time effect builders on DDBEffectHelper:
 // overTimeDamage, overTimeSave, overTimeSaveEnd, damageOverTimeEffect,
 // generateOverTimeEffect and generateConditionOnlyEffect.
-// Unlike the pure test, the parser/enrichers/effects barrel is NOT mocked here:
-// these methods delegate to the real MidiOverTimeEffect and ChangeHelper, and
-// the DDBEffectHelper <-> MidiOverTimeEffect import cycle resolves at runtime
-// because both sides only reference each other inside method bodies. Only the
-// config barrel, the effects barrel and DDBMonsterFeature are stubbed.
+//
+// These methods delegate to the real MidiOverTimeEffect and ChangeHelper;
+// nothing is mocked, the global foundry stubs carry the import chain.
 
-vi.mock("../../src/parser/monster/features/DDBMonsterFeature", () => ({
-  default: class {},
-}));
 
 import DDBEffectHelper from "../../src/effects/DDBEffectHelper";
 
@@ -283,6 +278,18 @@ describe("DDBEffectHelper.generateConditionOnlyEffect", () => {
     expect(actor.flags.monsterMunch.overTime).toEqual(["Toxic Spores"]);
     // the effect's 60s is translated to a valid dnd5e minute item duration
     expect(doc.system.duration).toEqual({ units: "minute", value: 1 });
+  });
+
+  it("keeps a month-long condition counted instead of leaving it indefinite", () => {
+    const doc = makeFeatureDoc({ system: {
+      description: { value: conditionText.replace("for 1 minute", "for 1 month") },
+      duration: { units: "inst" },
+      activities: {},
+    } });
+    DDBEffectHelper.generateConditionOnlyEffect(makeActor(), doc);
+    const [effect] = doc.effects;
+    // 30-day month, mirroring DDBDescriptions.getDuration
+    expect(effect.duration).toMatchObject({ value: 86400 * 30, units: "seconds" });
   });
 });
 

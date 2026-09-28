@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class PluckingAtThreads extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (!this.isAction) return null;
     return {
       addItemConsume: true,
@@ -25,20 +25,19 @@ export default class PluckingAtThreads extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (!this.isAction) return [];
     return [
       {
         name: "Plucking at Threads: Fate's Favor",
         options: {
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description: "Advantage on attack rolls and saving throws until the end of the cleric's next turn.",
         },
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.all"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.ability.save.all"),
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("save"),
         ],
-        daeSpecialDurations: ["turnEndSource"],
       },
     ];
   }

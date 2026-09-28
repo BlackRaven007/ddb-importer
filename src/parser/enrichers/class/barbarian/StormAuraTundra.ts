@@ -1,11 +1,22 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
+import _StormAura from "./_StormAura";
 
-export default class StormAuraTundra extends DDBEnricherData {
-  get type() {
+export default class StormAuraTundra extends _StormAura {
+
+  override get element(): string {
+    return "cold";
+  }
+
+  override get tundra(): string {
+    return "Tundra";
+  }
+
+
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.HEAL;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       activationType: "bonus",
       rangeSelf: true,
@@ -22,15 +33,16 @@ export default class StormAuraTundra extends DDBEnricherData {
           },
         },
         healing: DDBEnricherData.basicDamagePart({
-          customFormula: "@scale.path-of-the-storm-herald.storm-aura-tundra",
+          customFormula: "@scale.storm-herald.storm-aura-tundra",
           types: ["temphp"],
         }),
       },
     };
   }
 
-  get effects(): IDDBEffectHint[] {
-    return [
+  override get effects(): IDDBEffectHint[] {
+    const results = super.effects;
+    results.push(
       {
         midiOnly: true,
         onUseMacroChanges: [
@@ -41,11 +53,12 @@ export default class StormAuraTundra extends DDBEnricherData {
             document: this.data,
           },
         ],
-      },
-    ];
+      } as IDDBEffectHint,
+    );
+    return results;
   }
 
-  get itemMacro(): IDDBItemMacro {
+  override get itemMacro(): IDDBItemMacro {
     return {
       type: "feat",
       name: "stormAuraTundra.js",

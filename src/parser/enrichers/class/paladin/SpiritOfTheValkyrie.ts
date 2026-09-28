@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class SpiritOfTheValkyrie extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Activate",
       type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
@@ -12,8 +12,45 @@ export default class SpiritOfTheValkyrie extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
+      {
+        init: {
+          name: "Place Aura",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateActivation: true,
+          generateTarget: true,
+          generateConsumption: false,
+          activationOverride: {
+            type: "special",
+            condition: "While the aura is active",
+          },
+          targetOverride: {
+            override: true,
+            affects: {
+              type: "enemy",
+            },
+            template: {
+              contiguous: false,
+              type: "radius",
+              size: "@scale.paladin.aura-of-protection",
+              units: "ft",
+            },
+          },
+        },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.activity({
+                events: ["tokenTurnStart"],
+                activityName: "Thunderstruck",
+              }),
+            ],
+          },
+        },
+      },
       {
         init: {
           name: "Thunderstruck",
@@ -91,11 +128,11 @@ export default class SpiritOfTheValkyrie extends DDBEnricherData {
     ];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Spirit of the Valkyrie",
@@ -105,7 +142,7 @@ export default class SpiritOfTheValkyrie extends DDBEnricherData {
           description: "Flight: Fly Speed of 60 feet. Magic Resistance: Advantage on saving throws against spells and other magical effects. Restful Dead: creatures in your Aura of Protection attempting to create or summon Undead must succeed on a Charisma save or fail. Thunderstruck: you can cast Smite spells as though using a level 5 spell slot; enemies starting their turn in your Aura of Protection take Thunder damage equal to your Charisma modifier plus Proficiency Bonus and must save against being Stunned.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("60", 20, "system.attributes.movement.fly"),
+          DDBEnricherData.ChangeHelper.upgradeChange("60", 20, "system.attributes.movement.speeds.fly"),
         ],
         midiChanges: [
           DDBEnricherData.ChangeHelper.customChange("1", 5, "flags.midi-qol.magicResistance.all"),
@@ -116,7 +153,7 @@ export default class SpiritOfTheValkyrie extends DDBEnricherData {
         activitiesMatch: ["Thunderstruck"],
         statuses: ["stunned"],
         options: {
-          durationRounds: 1,
+          expiry: "targetEnd",
           description: "Stunned until the end of its next turn.",
         },
       },

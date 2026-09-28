@@ -1,5 +1,5 @@
-import { logger } from "../../../lib/_module";
-import { DDBModifiers } from "../../lib/_module";
+import logger from "../../../lib/Logger";
+import DDBModifiers from "../../lib/DDBModifiers";
 import ChangeHelper from "./ChangeHelper";
 
 const BASE_RESTRICTIONS = [
@@ -33,6 +33,7 @@ export default class ACBonusEffects {
 
   static addAddBonusChanges(modifiers: IModifiersMod[], name: string, type: string, key: string): IActiveEffectChangeData[] {
     const changes: IActiveEffectChangeData[] = [];
+    // const bonus = DDBModifiers.filterModifiersOld(modifiers, "bonus", type).reduce((a, b) => a + b.value, 0);
     const bonus = DDBModifiers.getValueFromModifiers(modifiers, name, type, "bonus");
     if (bonus) {
       logger.debug(`Generating ${type} bonus for ${name}`, bonus);
@@ -67,34 +68,23 @@ export default class ACBonusEffects {
   }
 
   /**
-   *
-   * Generate an effect given inputs for AC
-   * This is a high priority set effect that will typically override all other AE.
-   * @param {string} formula
-   * @param {string} label
-   * @param {boolean} alwaysActive
-   * @param {number} priority
-   * @param {TActiveEffectChangeType} type
-   * @returns {object} effect
+   * Generate an effect that adds one AC formula; the effect name becomes the
+   * formula label on the sheet.
    */
-  static generateFixedACEffect(formula: string, label: string, alwaysActive = false, priority = 30, type: TActiveEffectChangeType = "override"): I5eEffectData {
+  static generateACFormulaEffect(formula: string, label: string, alwaysActive = false, priority = 20): I5eEffectData {
     const effect = ACBonusEffects.ACEffect(label);
 
     effect.flags = {
       dae: { transfer: true, armorEffect: true },
       ddbimporter: { disabled: !alwaysActive, itemId: null, entityTypeId: null, characterEffect: true },
     };
-    // effect.disabled = !alwaysActive;
     effect.disabled = false;
     effect.origin = "AC";
 
-    const formulaChange: IActiveEffectChangeData = { key: "system.attributes.ac.formula", value: formula, type, priority };
-    const calcChange: IActiveEffectChangeData = { key: "system.attributes.ac.calc", value: "custom", type, priority };
     const system = (effect.system ??= {});
-    (system.changes ??= []).push(calcChange, formulaChange);
+    (system.changes ??= []).push(ChangeHelper.acFormulaAddChange(formula, priority));
 
     return effect;
   }
-
 
 }

@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class AuraOfClarity extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       name: "Aura of Clarity",
       options: {
@@ -10,7 +10,7 @@ export default class AuraOfClarity extends DDBEnricherData {
         description: "You and your allies have Immunity to the Blinded condition while in your Aura of Protection, and you can see Invisible creatures within the aura.",
       },
       changes: [
-        DDBEnricherData.ChangeHelper.unsignedAddChange("blinded", 20, "system.traits.ci.value"),
+        DDBEnricherData.ChangeHelper.conditionImmunityChange("blinded"),
       ],
     }];
   }

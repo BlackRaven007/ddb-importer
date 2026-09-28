@@ -1,11 +1,11 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Shapechange extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.TRANSFORM;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "willing",
       name: "Cast",
@@ -83,15 +83,18 @@ export default class Shapechange extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
         overrides: {
-          name: "Follow Up Animal Shape",
+          name: "Change Form",
           noConsumeTargets: true,
+          removeSpellSlotConsume: true,
           activationType: "action",
           data: {
+            // a later change of form must not begin concentration again, ending the spell's
+            duration: this.followUpDuration,
             settings: {
               tempFormula: "",
             },
@@ -101,7 +104,7 @@ export default class Shapechange extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         system: {

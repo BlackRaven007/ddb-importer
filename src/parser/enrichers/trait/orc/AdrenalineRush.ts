@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class AdrenalineRush extends DDBEnricherData {
 
-  get addAutoAdditionalActivities() {
+  override get addAutoAdditionalActivities(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetSelf: true,
     };

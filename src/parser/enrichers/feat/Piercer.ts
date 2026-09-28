@@ -2,7 +2,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Piercer extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
@@ -12,14 +12,14 @@ export default class Piercer extends DDBEnricherData {
   //   };
   // }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         midiOnly: true,
         options: {
           transfer: true,
           durationSeconds: undefined,
-          durationRounds: undefined,
+          expiry: null,
         },
         damageBonusMacroChanges: [
           { macroType: "feat", macroName: "piercer.js", document: this.data },
@@ -30,24 +30,22 @@ export default class Piercer extends DDBEnricherData {
         data: {
           duration: {
             value: null,
-            expiry: null,
             expired: undefined,
           },
         },
-        daeSpecialDurations: [],
       },
     ];
 
   }
 
-  get itemMacro(): IDDBItemMacro {
+  override get itemMacro(): IDDBItemMacro {
     return {
       type: "feat",
       name: "piercer.js",
     };
   }
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 

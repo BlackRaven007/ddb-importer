@@ -1,0 +1,256 @@
+import DDBEnricherData from "../../data/DDBEnricherData";
+import { regionPlacer, regionPlacerData, regionTrigger } from "../../data/RegionBuilders";
+import { parseTrigger } from "./_ZoneText";
+
+interface IParsedAura {
+  strippedHtml?: string;
+  html?: string;
+  isSave?: boolean;
+  isAttack?: boolean;
+  actionData?: { damageParts?: unknown[]; target?: { template?: { size?: string | number | null } } };
+}
+
+const BUILT_TRIGGER = "Aura Damage";
+const PLACE_AURA = "Place Aura";
+
+/**
+ * Aura traits whose rules text is "any creature that starts (or ends) its turn
+ * within X feet / in an X-foot Emanation must save..." (Stench, Fear Aura, Lordly
+ * Presence...). The monster feature parser already extracts the radius
+ * template, save and rider status; this wires the region trigger so the save
+ * fires for tokens that start or end their turn inside, excluding the monster the
+ * emanation originates from. Owner-turn auras (Fire Aura
+ * and friends, "at the start/end of each of the MONSTER's turns") are NOT
+ * registered here as region events cannot express them.
+ *
+ * The aura rolls nothing as it is switched on: the text only acts on a creature's turn (or as it
+ * walks in). So the emanation is placed by a utility of its own, "Place Aura", and the parser's roll
+ * is the activity the region fires, with no template of its own. Using the parsed roll directly
+ * would roll it for everything already within range.
+ *
+ * The parser stops reading damage at the first "At the start of", so an aura that says something
+ * about the monster's own turn before it gets to the creature's (the Ice Troll's Cold Aura puts out
+ * flames first) reaches here with no activity at all. For those the aura is built whole: a utility
+ * that places the emanation, and the roll it fires read from the turn sentence.
+ */
+export default class TurnStartAuraSave extends DDBEnricherData {
+
+  /**
+   * Size/creature-type filters for auras whose text exempts a type ("to which demons are
+   * immune", "other than a devil"). Creature types are top level only, so demon/devil exemptions
+   * are approximated at the fiend type. Each filter applies only when the trait carries the
+   * exemption (`requires`): the same name on an unrelated monster (the Gigant's Drone) has none.
+   */
+  static NAME_FILTERS: Record<string, { requires: RegExp; filter: { sizes?: string[]; types?: string[]; excludeTypes?: string[] } }> = (() => {
+    const notDemonOrDevil = /isn['’]t a demon|other than a (?:devil|demon|fiend)|demons (?:are immune|automatically succeed)/i;
+    const notUndeadOrConstruct = /isn['’]t (?:an? )?undead or a construct|not a construct or undead|isn['’]t a construct or undead/i;
+    return {
+      // Chasme: "a horrid droning sound to which demons are immune" / "demons automatically succeed"
+      "Drone": { requires: /demons are immune|demons automatically succeed/i, filter: { excludeTypes: ["fiend"] } },
+      // Nupperibo: "Any creature, other than a devil..."
+      "Cloud of Vermin": { requires: /other than a devil/i, filter: { excludeTypes: ["fiend"] } },
+      // Far Realm zealot: "Any non-Aberration creature..."
+      "Aberrant Form": { requires: /non-Aberration/i, filter: { excludeTypes: ["aberration"] } },
+      // rutterkin, alkilith, Bael: "a creature that isn't a demon" / "other than a devil"
+      "Immobilizing Fear": { requires: notDemonOrDevil, filter: { excludeTypes: ["fiend"] } },
+      "Crippling Fear": { requires: notDemonOrDevil, filter: { excludeTypes: ["fiend"] } },
+      "Foment Confusion": { requires: notDemonOrDevil, filter: { excludeTypes: ["fiend"] } },
+      "Foment Madness": { requires: notDemonOrDevil, filter: { excludeTypes: ["fiend"] } },
+      "Dread": { requires: notDemonOrDevil, filter: { excludeTypes: ["fiend"] } },
+      "Dreadful": { requires: notDemonOrDevil, filter: { excludeTypes: ["fiend"] } },
+      // swarm of ravens: "any creature (other than a Fiend) with a Fly Speed"
+      "Wing Bind": { requires: /other than a Fiend/i, filter: { excludeTypes: ["fiend"] } },
+      // hag: "Any Humanoid that starts its turn within 60 feet"
+      "Confounding Ugliness": { requires: /Any Humanoid that starts/i, filter: { types: ["humanoid"] } },
+      // priest of Osybus: "Any non-Undead creature..."
+      "Boon of Dread": { requires: /non-Undead/i, filter: { excludeTypes: ["undead"] } },
+      // nightmare shepherd, nihileth, Ygorl: "that isn't undead or a construct"
+      "Aura of Nightmares": { requires: notUndeadOrConstruct, filter: { excludeTypes: ["undead", "construct"] } },
+      "Void Aura": { requires: notUndeadOrConstruct, filter: { excludeTypes: ["undead", "construct"] } },
+      "Entropic Aura": { requires: notUndeadOrConstruct, filter: { excludeTypes: ["undead", "construct"] } },
+      // bodak: "Undead and fiends ignore this effect"
+      "Aura of Annihilation": { requires: /Undead and fiends ignore/i, filter: { excludeTypes: ["undead", "fiend"] } },
+    };
+  })();
+
+  get behaviorFilters(): { sizes?: string[]; types?: string[]; excludeTypes?: string[] } {
+    const entry = TurnStartAuraSave.NAME_FILTERS[this.name];
+    return entry && entry.requires.test(this.traitText) ? entry.filter : {};
+  }
+
+  /**
+   * The monster feature parser's raw trait text. The document description is
+   * not built when the activity hook runs, so `this.document` is not usable here.
+   */
+  get traitText(): string {
+    const parser = this.ddbParser as { strippedHtml?: string; html?: string } | undefined;
+    return parser?.strippedHtml
+      ?? parser?.html
+      ?? ((this.document?.system?.description?.value ?? "") as string);
+  }
+
+  /**
+   * Some feature names are shared between target-turn auras and owner-turn or
+   * flavour-only variants on other monsters (Cold Aura, Drone). Only emit the
+   * region trigger when this monster's wording is the target-turn shape.
+   */
+  get isTargetTurnAura(): boolean {
+    return this.turnEvents.length > 0;
+  }
+
+  /**
+   * "ends its turn within 30 feet" (Aura of Annihilation, Brambleskin) fires at the end of
+   * the target's turn; a trait can name both ends.
+   */
+  get turnEvents(): string[] {
+    const events: string[] = [];
+    if ((/starts? (?:its|their|each) turn (?:within|in\b)/i).test(this.traitText)) events.push("tokenTurnStart");
+    if ((/ends? (?:its|their|each) turn (?:within|in\b)/i).test(this.traitText)) events.push("tokenTurnEnd");
+    return events;
+  }
+
+  /**
+   * "...or enters that area for the first time on a turn" (Arcane Leak): the aura
+   * also fires on entry, which the once-per-turn default keeps to one trigger.
+   */
+  get firesOnEntry(): boolean {
+    return (/enters (?:that|the) (?:area|emanation|[\w'’ ]{1,30} space)/i).test(this.traitText);
+  }
+
+  /**
+   * The aura radius when the text names the monster ("within 30 feet of Rakdos",
+   * "within 10 feet of Bael"): the parser's area regex only recognises a generic
+   * referent ("of it", "of the mouther"), so those traits parse with no template
+   * and the emanation would have no size. Null when the parser already found one.
+   */
+  get missingTemplateRadius(): string | null {
+    const parser = this.ddbParser as { actionData?: { target?: { template?: { size?: string | number | null } } } } | undefined;
+    if (parser?.actionData?.target?.template?.size) return null;
+    // "starts its turn in the swarm's space": a 1 ft emanation is the monster's own footprint,
+    // so a token sharing the space is inside and an adjacent one is not
+    if ((/(?:starts?|ends?) (?:its|their|each) turn in [\w'’ ]{1,40} space\b/i).test(this.traitText)) return "1";
+    const match = this.traitText.match(/(?:starts?|ends?) (?:its|their|each) turn (?:within|in an?) (\d+)[ -](?:feet|foot|ft)/i)
+      // the size is stated before the turn clause, which then says only "in the aura"
+      ?? this.traitText.match(/(\d+)-foot(?: Emanation|-radius)/i)
+      ?? this.traitText.match(/(?:radius of|aura of \w+) (\d+) feet/i);
+    return match ? match[1] : null;
+  }
+
+  /**
+   * "An enemy that starts its turn...", "each hostile creature", "each creature of the high
+   * fae's choice": the region takes its dispositions from the activity's target, so these
+   * card enemies only. A chosen-creatures aura is approximated the same way.
+   */
+  get enemiesOnly(): boolean {
+    return (/\b(?:an|any|each|every) (?:enemy|hostile creature)\b|creature of [\w'’ -]{1,40}choice that (?:starts|ends)/i)
+      .test(this.traitText);
+  }
+
+  /** The aura's ground is also difficult terrain (Contamination, Eye of the Storm, Blighted Aura). */
+  get isDifficultTerrain(): boolean {
+    return (/\bis difficult terrain\b/i).test(this.traitText);
+  }
+
+  get parsed(): IParsedAura {
+    return (this.ddbParser ?? {}) as IParsedAura;
+  }
+
+  /** The turn sentence's own roll, when the parser found nothing for the aura to fire. */
+  get builtTrigger(): ReturnType<typeof parseTrigger> {
+    const parsed = this.parsed;
+    if (parsed.isSave || parsed.isAttack || (parsed.actionData?.damageParts ?? []).length > 0) return null;
+    if (!this.isTargetTurnAura) return null;
+    // only the wording the parser is blind past; anything else it read, or there is nothing to read
+    if (!(/At the (?:start|end) of\b[^.]*\.\s.*(?:starts?|ends?) (?:its|their|each) turn/is).test(this.traitText)) return null;
+    const trigger = parseTrigger(this.traitText);
+    return trigger && (trigger.save || trigger.damageParts.length > 0) ? trigger : null;
+  }
+
+  get radius(): string | null {
+    const size = this.parsed.actionData?.target?.template?.size;
+    return size ? `${size}` : this.missingTemplateRadius;
+  }
+
+  get events(): string[] {
+    return this.firesOnEntry ? ["tokenEnter", ...this.turnEvents] : this.turnEvents;
+  }
+
+  override get type(): IDDBActivityType | null {
+    return this.builtTrigger && this.radius ? DDBEnricherData.ACTIVITY_TYPES.UTILITY : null;
+  }
+
+  get placer(): IDDBActivityData {
+    return regionPlacerData(this.name, {
+      template: { type: "radius", size: this.radius ?? "", count: "1" },
+      affects: this.enemiesOnly ? "enemy" : "creature",
+      activationType: "special",
+      duration: { units: "perm" },
+      behaviors: this.auraBehaviors(BUILT_TRIGGER),
+    });
+  }
+
+  /** When the region fires, for the fired roll's activation text. */
+  get triggerCondition(): string {
+    const when = this.turnEvents.map((event) => (event === "tokenTurnEnd" ? "ends" : "starts")).join(" or ");
+    return `A creature ${this.firesOnEntry ? "enters the area or " : ""}${when} its turn within ${this.radius} feet`;
+  }
+
+  /** The region behaviors, firing the named activity. */
+  auraBehaviors(activityName: string): I5eActivityBehavior[] {
+    return [
+      ...(this.isDifficultTerrain ? [DDBEnricherData.BehaviorHelper.difficultTerrain()] : []),
+      DDBEnricherData.BehaviorHelper.activity({
+        events: this.events,
+        // the emanation originates from the monster, which does not save against its own
+        // stench/presence/thing
+        excludeSelf: true,
+        // "enters that area": the aura following its monster onto a creature does not count
+        enterOn: "movement",
+        activityName,
+        ...this.behaviorFilters,
+      }),
+    ];
+  }
+
+  override get additionalActivities(): IDDBAdditionalActivity[] {
+    if (!this.isTargetTurnAura || !this.radius) return [];
+    const trigger = this.builtTrigger;
+    if (!trigger) {
+      return [regionPlacer(PLACE_AURA, {
+        template: { type: "radius", size: this.radius, count: "1" },
+        affects: this.enemiesOnly ? "enemy" : "creature",
+        activationType: "special",
+        activationCondition: "While the aura is active",
+        duration: { units: "perm" },
+        behaviors: this.auraBehaviors(this.name),
+      })];
+    }
+    const fired = regionTrigger(BUILT_TRIGGER, {
+      affects: this.enemiesOnly ? "enemy" : "creature",
+      condition: this.triggerCondition,
+      ...(trigger.save ? { save: trigger.save, onSave: trigger.onSave } : {}),
+      damageParts: trigger.damageParts,
+    });
+    return [{ ...fired, overrides: { ...fired.overrides, noeffect: true } }];
+  }
+
+  // "Place Aura" sits beside the saves and checks the parser builds from the text, not instead of them
+  override get keepParsedActivities(): boolean {
+    return this.isTargetTurnAura && this.radius !== null && !this.builtTrigger;
+  }
+
+  override get activity(): IDDBActivityData {
+    if (!this.isTargetTurnAura || !this.radius) return {};
+    if (this.builtTrigger) return this.placer;
+    // the parser's roll, with its effects, is what the region fires at one creature
+    return {
+      name: this.name,
+      activationType: "special",
+      activationCondition: this.triggerCondition,
+      targetType: this.enemiesOnly ? "enemy" : "creature",
+      targetCount: "1",
+      noTemplate: true,
+    };
+  }
+
+}

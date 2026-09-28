@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class AdjustDensity extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       activationType: "action",
@@ -20,7 +20,7 @@ export default class AdjustDensity extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Adjust Density: Halved Weight",
@@ -29,15 +29,9 @@ export default class AdjustDensity extends DDBEnricherData {
           description: "Speed +10 ft, jump distance doubled, disadvantage on Strength checks and saving throws.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("10", 30, "system.attributes.movement.walk"),
-        ],
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.disadvantage.ability.check.str"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.disadvantage.ability.save.str"),
-        ],
-        ac5eChanges: [
-          DDBEnricherData.ChangeHelper.customChange("ability.str", 20, "flags.automated-conditions-5e.check.disadvantage"),
-          DDBEnricherData.ChangeHelper.customChange("ability.str", 20, "flags.automated-conditions-5e.save.disadvantage"),
+          DDBEnricherData.ChangeHelper.movementBonusChange("10", 30),
+          DDBEnricherData.ChangeHelper.disadvantageAbilityCheckChange("str"),
+          DDBEnricherData.ChangeHelper.disadvantageAbilitySaveChange("str"),
         ],
       },
       {
@@ -47,15 +41,9 @@ export default class AdjustDensity extends DDBEnricherData {
           description: "Speed -10 ft, advantage on Strength checks and saving throws.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("-10", 30, "system.attributes.movement.walk"),
-        ],
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.ability.check.str"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.ability.save.str"),
-        ],
-        ac5eChanges: [
-          DDBEnricherData.ChangeHelper.customChange("ability.str", 20, "flags.automated-conditions-5e.check.advantage"),
-          DDBEnricherData.ChangeHelper.customChange("ability.str", 20, "flags.automated-conditions-5e.save.advantage"),
+          DDBEnricherData.ChangeHelper.movementBonusChange("-10", 30),
+          DDBEnricherData.ChangeHelper.advantageAbilityCheckChange("str"),
+          DDBEnricherData.ChangeHelper.advantageAbilitySaveChange("str"),
         ],
       },
     ];

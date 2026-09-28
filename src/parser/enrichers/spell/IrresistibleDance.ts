@@ -2,17 +2,17 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class IrresistibleDance extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.is2014 ? DDBEnricherData.ACTIVITY_TYPES.UTILITY : DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -20,6 +20,9 @@ export default class IrresistibleDance extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
+          // in 2014 the save is a follow-up to the cast; in 2024 it is the cast itself and concentrates
+          generateDuration: this.is2014,
+          durationOverride: this.is2014 ? { units: "inst", concentration: false } : null,
           generateSave: true,
           generateDamage: false,
           generateTarget: true,
@@ -38,7 +41,7 @@ export default class IrresistibleDance extends DDBEnricherData {
     ];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
@@ -51,10 +54,10 @@ export default class IrresistibleDance extends DDBEnricherData {
           { macroType: "spell", macroName: "irresistibleDance.js" },
         ],
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE}`, 20, `system.abilities.dex.save.roll.mode`),
+          DDBEnricherData.ChangeHelper.disadvantageAbilitySaveChange("dex"),
+          DDBEnricherData.ChangeHelper.ruleDisadvantageChange("attack"),
         ],
         midiChanges: [
-          DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.midi-qol.disadvantage.attack.all"),
           DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.midi-qol.grants.advantage.attack.all"),
         ],
         data: {
@@ -73,26 +76,22 @@ export default class IrresistibleDance extends DDBEnricherData {
       {
         name: "Comic Dancing",
         options: {
-          durationSeconds: 6,
-        },
-        data: {
-          flags: {
-            dae: {
-              specialDuration: ["turnEnd" as const],
-            },
-          },
+          expiry: "targetEnd",
         },
       },
       {
         name: `Comic Dancing and Charmed`,
+        options: {
+          durationSeconds: 60,
+        },
         macroChanges: [
           { macroType: "spell", macroName: "irresistibleDance.js" },
         ],
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE}`, 20, `system.abilities.dex.save.roll.mode`),
+          DDBEnricherData.ChangeHelper.disadvantageAbilitySaveChange("dex"),
+          DDBEnricherData.ChangeHelper.ruleDisadvantageChange("attack"),
         ],
         midiChanges: [
-          DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.midi-qol.disadvantage.attack.all"),
           DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.midi-qol.grants.advantage.attack.all"),
         ],
         data: {
@@ -106,11 +105,11 @@ export default class IrresistibleDance extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return this.is2014 ? this.effects2014 : this.effects2024;
   }
 
-  get itemMacro(): IDDBItemMacro {
+  override get itemMacro(): IDDBItemMacro {
     return {
       type: "spell",
       name: "irresistibleDance.js",

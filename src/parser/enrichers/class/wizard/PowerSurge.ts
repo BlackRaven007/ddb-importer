@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class PowerSurge extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Gain Power Surge",
       addItemConsume: true,
@@ -13,7 +13,7 @@ export default class PowerSurge extends DDBEnricherData {
     };
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     const uses = this._getUsesWithSpent({
       type: "class",
       name: "Power Surge",
@@ -37,7 +37,27 @@ export default class PowerSurge extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get effects(): IDDBEffectHint[] {
+    return [
+      {
+        name: "Power Surge (Automation)",
+        ac5eOnly: true,
+        options: {
+          transfer: true,
+          description: "Optional once per turn extra damage when you damage a creature with a wizard spell, spending one power surge from this feature's uses.",
+        },
+        ac5eChanges: [
+          DDBEnricherData.ChangeHelper.ac5eChange(
+            "bonus=floor(@classes.wizard.levels / 2)[force]; usesCount=origin; oncePerTurn; optin; isSpell && item.classIdentifier === 'wizard'",
+            20,
+            "flags.automated-conditions-5e.damage.bonus",
+          ),
+        ],
+      },
+    ];
+  }
+
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -58,7 +78,7 @@ export default class PowerSurge extends DDBEnricherData {
           },
           damageParts: [
             DDBEnricherData.basicDamagePart({
-              customFormula: "floor(@classes.wizard.level / 2)",
+              customFormula: "floor(@classes.wizard.levels / 2)",
               types: ["force"],
             }),
           ],

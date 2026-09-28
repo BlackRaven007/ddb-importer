@@ -5,7 +5,9 @@ vi.mock("../../../src/parser/monster/features/DDBMonsterFeature", () => ({
 
 import { DDBMonsterDamage } from "../../../src/parser/monster/features/DDBMonsterDamage";
 
+// =============================================================================
 // DAMAGE_EXPRESSION - regex for matching damage in monster descriptions
+// =============================================================================
 describe("DDBMonsterDamage.DAMAGE_EXPRESSION", () => {
   function firstMatch(text: string) {
     // Reset lastIndex since the regex has the 'g' flag
@@ -74,7 +76,9 @@ describe("DDBMonsterDamage.DAMAGE_EXPRESSION", () => {
   });
 });
 
+// =============================================================================
 // REGAIN_EXPRESSION - regex for matching healing/regain
+// =============================================================================
 describe("DDBMonsterDamage.REGAIN_EXPRESSION", () => {
   it("matches 'regains 10 (2d8 + 1) hit points'", () => {
     const match = "The creature regains 10 (2d8 + 1) hit points".match(DDBMonsterDamage.REGAIN_EXPRESSION);
@@ -107,7 +111,9 @@ describe("DDBMonsterDamage.REGAIN_EXPRESSION", () => {
   });
 });
 
+// =============================================================================
 // damageMatchSave - detects save-based damage from match groups
+// =============================================================================
 describe("DDBMonsterDamage.damageMatchSave", () => {
   it("returns truthy when prefix includes 'saving throw'", () => {
     const dmg = { groups: { prefix: "saving throw or take ", suffix: "" } };
@@ -130,7 +136,9 @@ describe("DDBMonsterDamage.damageMatchSave", () => {
   });
 });
 
+// =============================================================================
 // _getDamageTypes - extracts damage types from match text
+// =============================================================================
 describe("DDBMonsterDamage._getDamageTypes", () => {
   it("extracts single damage type", () => {
     expect(DDBMonsterDamage._getDamageTypes("", "fire")).toEqual(["fire"]);
@@ -159,9 +167,11 @@ describe("DDBMonsterDamage._getDamageTypes", () => {
   });
 });
 
+// =============================================================================
 // generateDamage - produces the { damageString, damageTypes } parts array that
 // DDBMonsterFeature copies into flags.monsterMunch.actionData.damageParts (the
 // shape DDBEffectHelper.getMonsterFeatureDamage / over-time effects consume)
+// =============================================================================
 describe("DDBMonsterDamage.generateDamage (damageParts shape)", () => {
   function makeDamage(hit: string) {
     // DAMAGE_EXPRESSION is a shared static regex with the /g flag; earlier tests in

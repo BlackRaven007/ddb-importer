@@ -2,20 +2,56 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class JallarzisStormOfRadiance extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get activity(): IDDBActivityData {
+    return {
+      name: "Cast",
+      data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter", "tokenTurnEnd"],
+            activityId: "ddbJalStoZoneSa1",
+          }),
+          DDBEnricherData.BehaviorHelper.applyEffect({
+            effects: [
+              DDBEnricherData.SRDEffects.condition("blinded"),
+              DDBEnricherData.SRDEffects.condition("deafened"),
+            ],
+          }),
+        ],
+      },
+    };
+  }
+
+  override get clearAutoEffects(): boolean {
+    return true;
+  }
+
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
-        name: "Within Storm of Radiance",
-        statuses: ["Blinded", "Deafened"],
-        options: {
-          description: "You are unable to cast spells with the verbal component",
+        duplicate: true,
+        id: "ddbJalStoZoneSa1",
+        overrides: {
+          name: "Ongoing Save",
+          activationType: "special",
+          activationCondition: "Enters the storm or ends its turn there",
+          removeSpellSlotConsume: true,
+          noConsumeTargets: true,
+          noTemplate: true,
+          data: {
+            duration: { override: true, units: "inst", concentration: false },
+            range: {
+              override: true,
+              units: "spec",
+            },
+            target: {
+              override: true,
+            },
+            behaviors: [],
+          },
         },
       },
     ];
-  }
-
-  get clearAutoEffects() {
-    return true;
   }
 
 }

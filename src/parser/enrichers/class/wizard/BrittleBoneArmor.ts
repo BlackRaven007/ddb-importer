@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BrittleBoneArmor extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.HEAL;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "action",
@@ -26,7 +26,7 @@ export default class BrittleBoneArmor extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Brittle Bone Armor",
@@ -41,6 +41,18 @@ export default class BrittleBoneArmor extends DDBEnricherData {
         ],
       },
     ];
+  }
+
+  override get override(): IDDBOverrideData {
+    return {
+      uses: this._getUsesWithSpent({
+        type: "class",
+        name: "Brittle Bone Armor",
+        includesName: true,
+        max: "1",
+        period: "lr",
+      }),
+    };
   }
 
 }

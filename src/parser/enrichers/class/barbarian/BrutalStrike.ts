@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BrutalStrike extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       noeffect: true,
@@ -19,7 +19,7 @@ export default class BrutalStrike extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -43,19 +43,19 @@ export default class BrutalStrike extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Hamstrung",
         changes: [
-          DDBEnricherData.ChangeHelper.overrideChange("-15", 90, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.overrideChange("-15", 90, "system.attributes.movement.speeds.walk"),
         ],
         activityMatch: "Hamstrung Blow",
       },
       {
         name: "Reckless Attack: Brutal Strike Damage",
         changes: [
-          DDBEnricherData.ChangeHelper.addChange("@scale.barbarian.brutal-strike", 20, "system.bonuses.mwak.damage"),
+          DDBEnricherData.ChangeHelper.addChange("@scale.barbarian.brutal-strike", 20, "system.rolls.damage.mwak.bonus"),
         ],
         options: {
           transfer: true,
@@ -66,7 +66,7 @@ export default class BrutalStrike extends DDBEnricherData {
   }
 
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       uses: {
         "spent": 0,

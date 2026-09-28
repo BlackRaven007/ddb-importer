@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class PatientDefense extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: this.is2014 ? "Patient Defense: Dodge" : "Patient Defense: Disengage",
       targetType: "self",
@@ -14,7 +14,7 @@ export default class PatientDefense extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     if (this.is2014) return [];
     return [
       {
@@ -27,13 +27,13 @@ export default class PatientDefense extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (this.is2014) {
       return [{
         name: "Patient Defense: Dodging",
         options: {
-          durationRounds: 1,
-          durationSeconds: 6,
+          // the Dodge action lasts until the start of your next turn
+          expiry: "sourceStart",
         },
         statuses: ["dodging"],
         activitiesMatch: ["Patient Defense: Dodge"],
@@ -43,16 +43,16 @@ export default class PatientDefense extends DDBEnricherData {
         {
           name: "Patient Defense: Disengaged",
           options: {
-            durationRounds: 1,
-            durationSeconds: 6,
+            // the Disengage action lasts for the turn it is taken on
+            expiry: "turnEnd",
           },
           activitiesMatch: ["Patient Defense: Disengage"],
         },
         {
           name: "Patient Defense: Disengaged & Dodging",
           options: {
-            durationRounds: 1,
-            durationSeconds: 6,
+            // the Dodge action lasts until the start of your next turn
+            expiry: "sourceStart",
           },
           statuses: ["dodging"],
           activitiesMatch: ["Patient Defense: Disengage & Dodge"],
@@ -61,7 +61,7 @@ export default class PatientDefense extends DDBEnricherData {
     }
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       ignoredConsumptionActivities: ["Patient Defense: Disengage"],
     };

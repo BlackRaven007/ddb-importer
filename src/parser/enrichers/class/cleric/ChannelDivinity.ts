@@ -2,26 +2,20 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ChannelDivinity extends DDBEnricherData {
 
-  get activity(): IDDBActivityData | null {
-    if (this.is2014) {
-      return null;
-    } else if (this.is2024) {
-      return {
-        type: DDBEnricherData.ACTIVITY_TYPES.HEAL,
-        name: "Divine Spark (Healing)",
-        targetType: "creature",
-        data: {
-          healing: DDBEnricherData.basicDamagePart({ customFormula: "(ceil(@classes.cleric.levels/6))d8 + @abilities.wis.mod", types: ["healing"] }),
-          range: {
-            value: "30",
-            units: "ft",
-          },
+  override get activity(): IDDBActivityData | null {
+    if (this.is2014) return null;
+    return {
+      type: DDBEnricherData.ACTIVITY_TYPES.HEAL,
+      name: "Divine Spark (Healing)",
+      targetType: "creature",
+      data: {
+        healing: DDBEnricherData.basicDamagePart({ customFormula: "(@scale.channel-divinity.spark)d8 + @abilities.wis.mod", types: ["healing"] }),
+        range: {
+          value: "30",
+          units: "ft",
         },
-      };
-    }
-
-    return null;
-
+      },
+    };
   }
 
   get _additionalActivitiesCleric2014(): IDDBAdditionalActivity[] {
@@ -75,7 +69,7 @@ export default class ChannelDivinity extends DDBEnricherData {
             dc: { calculation: "wis", formula: "" },
           },
           damageParts: [
-            DDBEnricherData.basicDamagePart({ customFormula: "(ceil(@classes.cleric.levels/6))d8 + @abilities.wis.mod", types: ["radiant", "necrotic"] }),
+            DDBEnricherData.basicDamagePart({ customFormula: "(@scale.channel-divinity.spark)d8 + @abilities.wis.mod", types: ["radiant", "necrotic"] }),
           ],
           onSave: "half",
           rangeOverride: {
@@ -123,17 +117,11 @@ export default class ChannelDivinity extends DDBEnricherData {
     ];
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
-    if (this.is2014) {
-      return this._additionalActivitiesCleric2014;
-    } else if (this.is2024) {
-      return this._additionalActivitiesCleric2024;
-    }
-
-    return [];
+  override get additionalActivities(): IDDBAdditionalActivity[] {
+    return this.is2014 ? this._additionalActivitiesCleric2014 : this._additionalActivitiesCleric2024;
   }
 
-  get _effectCleric2024() {
+  get _effectCleric2024(): IDDBEffectHint {
     return {
       name: "Turned",
       options: {
@@ -145,21 +133,12 @@ export default class ChannelDivinity extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
-    if (this.is2014) {
-      return [];
-    } else if (this.is2024) {
-      return [this._effectCleric2024];
-
-    }
-
-    // unreachable: a feature is always 2014 or 2024; the consumer treats null and [] identically
-    return [];
+  override get effects(): IDDBEffectHint[] {
+    return this.is2014 ? [] : [this._effectCleric2024];
   }
 
-  get override(): IDDBOverrideData | null {
+  override get override(): IDDBOverrideData | null {
     if (this.is2014) return null;
-
     const uses = this._getUsesWithSpent({
       type: "class",
       name: "Channel Divinity",
@@ -174,7 +153,29 @@ export default class ChannelDivinity extends DDBEnricherData {
 
     return {
       uses,
+      // The Channel Divinity scale counts uses; it must not replace activity damage.
+      data: {
+        flags: {
+          ddbimporter: { skipScale: true },
+          ...this.classAdvancementRootFlags("Cleric"),
+        },
+        system: {
+          identifier: "channel-divinity",
+        },
+      },
     };
+  }
+
+  override get additionalAdvancements(): I5eAdvancement[] {
+    if (this.is2014) return [];
+    // backs @scale.channel-divinity.spark in the Divine Spark activities
+    return [
+      DDBEnricherData.AdvancementBuilder.buildNumberScale({
+        name: "Divine Spark Die Count",
+        identifier: "spark",
+        scale: { 2: 1, 7: 2, 13: 3, 18: 4 },
+      }),
+    ];
   }
 
 }

@@ -1,14 +1,28 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
+/**
+ * The 20-foot fog is a placed sphere the caster drifts 10 feet each turn; the
+ * cast-time save is the parsed activity and the "Ongoing Save" duplicate fires
+ * from the region whenever a creature enters the sphere or ends its turn there
+ * (once per turn).
+ */
 export default class Doomtide extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
+      data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter", "tokenTurnEnd"],
+            activityId: "ddbDoomTideAdSa1",
+          }),
+        ],
+      },
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -16,10 +30,12 @@ export default class Doomtide extends DDBEnricherData {
         overrides: {
           name: "Ongoing Save",
           activationType: "special",
+          activationCondition: "Enters the Sphere or ends its turn there (once per turn); or the Sphere moves into its space",
           removeSpellSlotConsume: true,
           noConsumeTargets: true,
           noTemplate: true,
           data: {
+            duration: { override: true, units: "inst", concentration: false },
             range: {
               override: true,
               units: "spec",
@@ -27,24 +43,23 @@ export default class Doomtide extends DDBEnricherData {
             target: {
               override: true,
             },
+            behaviors: [],
           },
         },
       },
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Doomed",
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "targetEnd",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.addChange("-1d6", 20, "system.bonuses.abilities.save"),
+          DDBEnricherData.ChangeHelper.addChange("-1d6", 20, "system.rolls.ability.save.bonus"),
         ],
-        daeSpecialDurations: ["turnEnd" as const],
       },
     ];
   }

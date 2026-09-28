@@ -82,6 +82,14 @@ export function levelsArray(levels: foundry.utils.Collection<I5eSceneLevel> | I5
   }
 }
 
+/** v14 `Scene#initialLevel` resolves to the Level document; raw scene data (and v13 saves) carry the id. */
+function initialLevelId(scene: Scene): string | null {
+  const initial = scene.initialLevel as unknown as string | { id?: string | null; _id?: string | null } | null | undefined;
+  if (!initial) return null;
+  if (typeof initial === "string") return initial;
+  return validSrc(initial.id) ?? validSrc(initial._id);
+}
+
 function getLevel(scene: Scene, id: string | null | undefined): any | null {
   if (!id || !scene.levels) return null;
   if (typeof scene.levels.get === "function") {
@@ -99,7 +107,7 @@ export function resolveSceneGridImageSource(scene: Scene): ISceneGridImageSource
     if (source) return source;
   }
 
-  const initial = levelSource(getLevel(scene, scene.initialLevel), "initial-level");
+  const initial = levelSource(getLevel(scene, initialLevelId(scene)), "initial-level");
   if (initial) return initial;
 
   for (const level of levelsArray(scene.levels)) {
@@ -334,6 +342,7 @@ async function runDetectionOnRoi(
   // run on a crop, the detector multiplies expectedScale by its own (cropped)
   // width to get an absolute pixel target. We rescale so the same painted
   // period in pixels comes out regardless of crop size.
+  //
   // expectedCellPx (user-drawn grid hint) takes priority over tokenScale -
   // when the caller has measured the painted period directly we trust that
   // over DDB's stored prior. cellPx is already the painted period in image
@@ -649,7 +658,7 @@ export async function applyChoiceToScene(
   // some other level already sized.
   const sceneLevels = levelsArray(scene.levels);
   const isDefaultLevel = !!levelId && (
-    levelId === scene.initialLevel
+    levelId === initialLevelId(scene)
     || levelId === DEFAULT_LEVEL_ID
     || sceneLevels.length <= 1
   );

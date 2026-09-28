@@ -1,43 +1,30 @@
-import DDBEnricherData from "../../data/DDBEnricherData";
+import Misfortune from "./Misfortune";
 
-export default class MisfortunesCurseOfThePlagued extends DDBEnricherData {
+export default class MisfortunesCurseOfThePlagued extends Misfortune {
 
-  get type() {
-    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  override get jinxCost(): number {
+    return 1;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
-      name: "Curse of the Plagued",
-      targetType: "creature",
+      ...super.activity,
       activationType: "reaction",
       activationCondition: "A creature cursed by your Evil Eye would regain Hit Points",
-      addItemConsume: true,
-      itemConsumeTargetName: "Misfortunist",
-      itemConsumeValue: "1",
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Curse of the Plagued",
+        statuses: ["Cursed"],
         options: {
-          durationRounds: 1,
+          expiry: "sourceStart",
           description: "Healing halved, then this creature cannot regain Hit Points until the start of the rogue's next turn.",
         },
       },
     ];
-  }
-
-  get override(): IDDBOverrideData {
-    return {
-      data: {
-        system: {
-          uses: { spent: null, max: "", recovery: [] },
-        },
-      },
-    };
   }
 
 }

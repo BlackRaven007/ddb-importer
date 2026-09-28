@@ -2,12 +2,12 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class DurableMagic extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         changes: [
           DDBEnricherData.ChangeHelper.signedAddChange("2", 20, "system.attributes.ac.bonus"),
-          DDBEnricherData.ChangeHelper.signedAddChange("2", 20, "system.bonuses.abilities.save"),
+          DDBEnricherData.ChangeHelper.signedAddChange("2", 20, "system.rolls.ability.save.bonus"),
         ],
         options: {
           description: "Whilst concentrating on a spell.",
@@ -18,7 +18,7 @@ export default class DurableMagic extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       descriptionSuffix: `
 <section class="secret ddbSecret" id="secret-ddbDurableMagic">

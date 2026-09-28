@@ -2,11 +2,19 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class UnarmedStrike extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.ATTACK;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get activity(): IDDBActivityData {
+    return {
+      useActivitySnippet: {
+        section: "Damage",
+      },
+    };
+  }
+
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     const martialArtist = this.hasClassFeature({ featureName: "Martial Arts", className: "Monk" });
 
     const results: IDDBAdditionalActivity[] = martialArtist
@@ -65,11 +73,11 @@ export default class UnarmedStrike extends DDBEnricherData {
     return results;
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Grappled",
@@ -84,7 +92,7 @@ export default class UnarmedStrike extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     const damageTypes = ["bludgeoning"];
     if (this.hasSpeciesTrait({ traitName: "Feral Pounce" })) {
       damageTypes.push("slashing");

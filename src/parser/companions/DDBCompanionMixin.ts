@@ -31,6 +31,7 @@ export default class DDBCompanionMixin {
     addMonsterEffects = false, removeSplitCreatureActions = true, removeCreatureOnlyNames = true,
     addChrisPremades = true, useItemAC = false, legacyName = false,
   }: IDDBCompanionMixinParserOptions = {}) {
+    // console.warn("DDBCompanion", { block });
     this.options = options;
     this.block = typeof block === "string"
       ? new DOMParser().parseFromString(block, "text/html").body
@@ -111,7 +112,13 @@ export default class DDBCompanionMixin {
     if (data.monsterIDs && data.monsterIDs.length > 0) {
       const monsterFactory = new DDBMonsterFactory({ type: "summons" });
 
-      await monsterFactory.fetchDDBMonsterSourceData(DDBMonsterFactory.defaultFetchOptions(data.monsterIDs));
+      // the proxy refuses by-id fetches outside its no-auth list for users without a Patreon key,
+      // so a failed lookup falls back to the static actor/token urls rather than failing the import
+      try {
+        await monsterFactory.fetchDDBMonsterSourceData(DDBMonsterFactory.defaultFetchOptions(data.monsterIDs));
+      } catch (error) {
+        logger.warn(`Unable to fetch enriched summon images for ${document.name}, using fallback images`, error);
+      }
 
       for (const monsterSource of monsterFactory.source) {
         const img = monsterSource.basicAvatarUrl ?? monsterSource.largeAvatarUrl ?? monsterSource.avatarUrl;
@@ -214,6 +221,7 @@ export default class DDBCompanionMixin {
       updateExisting: false,
     });
     await featureFactory.generateActions(text, type);
+    // console.warn("Generating companion feature", { text, type, featureFactory });
     const toHitRegex = /(your spell attack modifier to hit|equals your spell attack modifier)/i;
     if (toHitRegex.test(text)) {
       this.summons.match.attacks = true;
@@ -226,6 +234,7 @@ export default class DDBCompanionMixin {
   }
 
   // async _processFeatureElements(element, featType) {
+  //   let next = element.nextElementSibling;
 
   //   if (!next) return { next, featType };
 
@@ -246,6 +255,7 @@ export default class DDBCompanionMixin {
   //     // no default
   //   }
 
+  //   const result = await this._processFeatureElement(next, featType);
 
   //   return result;
   // }
@@ -275,6 +285,7 @@ export default class DDBCompanionMixin {
   }
 
   async parse() {
+    // console.warn("PARSE COMPANION", { block: this.block, aThis: this });
     const name = this.options.name ?? this.block.querySelector("p.Stat-Block-Styles_Stat-Block-Title")?.innerHTML;
     const namePostfix = this.options.subType
       ? `(${this.options.subType})`
@@ -321,16 +332,31 @@ export default class DDBCompanionMixin {
 
     if (Number.isInteger(ac)) {
       attributes.ac = {
+        calcs: ["natural"],
+        formulas: [],
         flat: ac,
-        calc: "natural",
-        formula: "",
+        override: null,
       };
+
+      // Keep form-specific flat bonuses on the actor so all forms can share
+      // the summon activity's spell-level scaling (e.g. Celestial Defender).
+      for (const match of acString.matchAll(/\+\s*(\d+)\s*\(([^)]+?) only\)/gi)) {
+        if (match[2].trim().toLowerCase() === this.subType?.toLowerCase()) {
+          attributes.ac.flat = (attributes.ac.flat ?? ac) + Number.parseInt(match[1]);
+        }
+      }
 
       const testString = utils.nameString(acString);
       if (testString.includes("plus PB") || acString.includes("+ PB")) {
         this.summons.bonuses.ac = "@prof";
       } else if (testString.includes("+ the level of the spell") || testString.includes("spell's level")) {
         this.summons.bonuses.ac = "@item.level";
+      } else if (acString.match(/half your (\w+) level/i)) {
+        // AU Semblance of Life spirit forms: "AC 11 + half your Warlock level (round down; maximum 9)"
+        const halfMatch = acString.match(/half your (\w+) level(?:.*?maximum (\d+))?/i);
+        const klass = halfMatch![1].toLowerCase();
+        const half = `floor(@classes.${klass}.levels / 2)`;
+        this.summons.bonuses.ac = halfMatch![2] ? `min(${halfMatch![2]}, ${half})` : half;
       } else {
         const modMatch = acString.match(/(?:\+|plus) your (\w+) modifier/i);
         if (modMatch) this.summons.bonuses.ac = `@abilities.${modMatch[1].toLowerCase().substring(0, 3)}.mod`;
@@ -379,7 +405,11 @@ export default class DDBCompanionMixin {
     // class level
     const klassMultiMatch = hpString.match(/(?:\+|plus) (\w+)?( times? )?your (\w+) level/);
     const twiceLevelMatch = hpString.match(/(?:twice|double) your (\w+) level/);
-    if (klassMultiMatch) {
+    const halfLevelMatch = hpString.match(/half your (\w+) level/i);
+    if (halfLevelMatch) {
+      const klass = halfLevelMatch[1].trim().toLowerCase();
+      hpAdjustments.push(`floor(@classes.${klass}.levels / 2)`);
+    } else if (klassMultiMatch) {
       const klass = klassMultiMatch[3].trim().toLowerCase();
       const multiplier = klassMultiMatch[1]
         ? DICTIONARY.numbers.find((d) => d.natural === klassMultiMatch[1].trim().toLowerCase())?.num ?? null
@@ -526,7 +556,8 @@ export default class DDBCompanionMixin {
       const match = speed.match(/(\w+ )*(\d+)/i);
       if (match) {
         const type = (match[1]?.trim() ?? "walk") as I5eMovementType;
-        movement[type] = `${match[2]}`;
+        movement.speeds ??= {};
+        movement.speeds[type] = `${match[2]}`;
         if (speed.includes("hover")) movement.hover = true;
       }
     });
@@ -693,8 +724,8 @@ export default class DDBCompanionMixin {
             logger.warn(`Unable to determine ability modifier for companion skill ${key}`);
           } else if (parseInt(String(mod)) !== parseInt(skillData.value.trim())) {
             skill.bonuses ??= {};
-            skill.bonuses.check = String(parseInt(skillData.value.trim()) - parseInt(String(mod)));
             skill.bonuses.passive = String(parseInt(skillData.value.trim()) - parseInt(String(mod)));
+            skill.roll = { ...(skill.roll ?? {}), bonus: String(parseInt(skillData.value.trim()) - parseInt(String(mod))) };
           }
 
           skills[key] = skill;

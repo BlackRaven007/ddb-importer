@@ -2,7 +2,9 @@ import DDBCharacter from "../../../src/parser/DDBCharacter";
 import "../../../src/parser/character/initiative";
 import { makeMockCharacter } from "../../_fixtures/mockCharacter";
 
+// =============================================================================
 // _generateInitiative
+// =============================================================================
 describe("DDBCharacter._generateInitiative", () => {
   const generateInitiative = DDBCharacter.prototype._generateInitiative;
 
@@ -11,7 +13,7 @@ describe("DDBCharacter._generateInitiative", () => {
     generateInitiative.call(mock);
 
     expect(mock.raw.character.system.attributes.init.ability).toBe("dex");
-    expect(mock.raw.character.system.attributes.init.bonus).toBe("");
+    expect(mock.raw.character.system.attributes.init.roll.bonus).toBe("");
   });
 
   it("initiative bonuses in modifiers are excluded by effect system", () => {
@@ -43,7 +45,7 @@ describe("DDBCharacter._generateInitiative", () => {
     generateInitiative.call(mock);
 
     // Modifier is excluded → bonus remains ""
-    expect(mock.raw.character.system.attributes.init.bonus).toBe("");
+    expect(mock.raw.character.system.attributes.init.roll.bonus).toBe("");
   });
 
   it("writes to correct path on raw character", () => {
@@ -52,7 +54,7 @@ describe("DDBCharacter._generateInitiative", () => {
 
     expect(mock.raw.character.system.attributes.init).toEqual({
       ability: "dex",
-      bonus: "",
+      roll: { bonus: "" },
     });
   });
 
@@ -65,6 +67,6 @@ describe("DDBCharacter._generateInitiative", () => {
     generateInitiative.call(mock);
 
     expect(mock.raw.character.system.attributes.init.ability).toBe("dex");
-    expect(mock.raw.character.system.attributes.init.bonus).toBe("");
+    expect(mock.raw.character.system.attributes.init.roll.bonus).toBe("");
   });
 });

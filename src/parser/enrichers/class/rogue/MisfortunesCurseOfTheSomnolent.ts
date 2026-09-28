@@ -1,32 +1,28 @@
-import DDBEnricherData from "../../data/DDBEnricherData";
+import Misfortune from "./Misfortune";
 
-export default class MisfortunesCurseOfTheSomnolent extends DDBEnricherData {
+export default class MisfortunesCurseOfTheSomnolent extends Misfortune {
 
-  get type() {
-    return DDBEnricherData.ACTIVITY_TYPES.SAVE;
+  override get jinxCost(): number {
+    return 3;
   }
 
-  get activity(): IDDBActivityData {
+  override get type(): IDDBActivityType | null {
+    return Misfortune.ACTIVITY_TYPES.SAVE;
+  }
+
+  override get activity(): IDDBActivityData {
     return {
-      name: "Curse of the Somnolent",
-      targetType: "creature",
+      ...super.activity,
       activationType: "action",
-      addItemConsume: true,
-      itemConsumeTargetName: "Misfortunist",
-      itemConsumeValue: "3",
+      // "someone within 5 feet of it" in the text is not an area; stop the parser building a template
+      noTemplate: true,
       data: {
-        save: {
-          ability: ["wis"],
-          dc: {
-            calculation: "",
-            formula: "8 + max(@abilities.cha.mod, @abilities.int.mod) + @prof",
-          },
-        },
+        ...this.wisdomSave,
       },
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Curse of the Somnolent",
@@ -37,16 +33,6 @@ export default class MisfortunesCurseOfTheSomnolent extends DDBEnricherData {
         },
       },
     ];
-  }
-
-  get override(): IDDBOverrideData {
-    return {
-      data: {
-        system: {
-          uses: { spent: null, max: "", recovery: [] },
-        },
-      },
-    };
   }
 
 }

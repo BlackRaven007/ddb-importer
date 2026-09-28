@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class RevelationInFlesh extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       addItemConsume: true,
@@ -23,7 +23,7 @@ export default class RevelationInFlesh extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Aquatic Adaptation",
@@ -31,7 +31,7 @@ export default class RevelationInFlesh extends DDBEnricherData {
           durationSeconds: 600,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("2 * @attributes.movement.walk", 20, "system.attributes.movement.swim"),
+          DDBEnricherData.ChangeHelper.upgradeChange("2 * @attributes.movement.speeds.walk", 20, "system.attributes.movement.speeds.swim"),
         ],
       },
       {
@@ -40,7 +40,7 @@ export default class RevelationInFlesh extends DDBEnricherData {
           durationSeconds: 600,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("@attributes.movement.walk", 20, "system.attributes.movement.fly"),
+          DDBEnricherData.ChangeHelper.upgradeChange("@attributes.movement.speeds.walk", 20, "system.attributes.movement.speeds.fly"),
           DDBEnricherData.ChangeHelper.customChange("true", 20, "system.attributes.movement.hover"),
         ],
       },
@@ -52,9 +52,7 @@ export default class RevelationInFlesh extends DDBEnricherData {
         changes: [
           DDBEnricherData.ChangeHelper.unsignedAddChange(";See Invisibility (60ft)", 1, "system.attributes.senses.special"),
         ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.upgradeChange("60", 20, "ATL.detectionModes.seeInvisibility.range"),
-        ],
+        tokenChanges: DDBEnricherData.ChangeHelper.detectionModeChanges("seeInvisibility", 60),
       },
       {
         name: "Wormlike Movement",

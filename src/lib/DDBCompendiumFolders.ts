@@ -3,6 +3,7 @@ import utils from "./Utils";
 import logger from "./Logger";
 import CompendiumHelper from "./CompendiumHelper";
 import DDBSources from "./DDBSources";
+import ItemRarity from "./ItemRarity";
 
 interface ICompendiumFolderCreateOptions {
   name?: string;
@@ -526,6 +527,40 @@ export class DDBCompendiumFolders {
     return this._createSourceFolder(details.name, details.flagTag);
   }
 
+  // async createItemTypeSourceFolderFromDocument(document) {
+  //   const sourceFolder = await this.#createSourceFolderFromDocument(document, "item");
+  //   let parentFolder = sourceFolder;
+
+  //   const details = DDBCompendiumFolders.getItemFolderNameForTypeSource(document, "item");
+  //   if (details.parent) {
+  //     const existingFolder = this.getFolder(details.parent.name, details.parent.flagTag);
+  //     if (existingFolder) {
+  //       parentFolder = existingFolder;
+  //     } else {
+  //       const newParentFolder = await this.createCompendiumFolder({
+  //         name: details.parent.name,
+  //         flagTag: details.parent.flagTag,
+  //         parentId: sourceFolder._id,
+  //       });
+  //       parentFolder = newParentFolder;
+  //       this.validFolderIds.push(newParentFolder._id);
+  //     }
+  //   }
+
+  //   logger.debug(`Checking for Item folder '${details.name}'`);
+  //   const existingFolder = this.getFolder(details.name, details.flagTag);
+  //   if (existingFolder) return existingFolder;
+  //   logger.debug(`Not found, creating Item folder '${details.name}'`);
+  //   const newFolder = await this.createCompendiumFolder({
+  //     name: details.name,
+  //     flagTag: details.flagTag,
+  //     color: details.parsed.color,
+  //     parentId: parentFolder._id,
+  //   });
+  //   this.validFolderIds.push(newFolder._id);
+  //   return newFolder;
+  // }
+
   async createItemTypeCompendiumFolder({
     folderName, type, color, bookCode,
     categoryId, categoryFolderId,
@@ -611,17 +646,23 @@ export class DDBCompendiumFolders {
   }
 
   // async createItemTypeFoldersWithSources() {
+  //   const index = await this.compendium.getIndex({ fields: this.#getIndexFields() });
   //   // const sources = new Set(index.filter((s) => s.system?.source.book).map((s) => s.system.source.book));
 
+  //   const sources = new Set();
+  //   const flagList = new Set();
 
   //   for (const i of index) {
+  //     const d = DDBCompendiumFolders.getItemFolderNameForTypeSource(i, "item");
   //     flagList.add(d.flagTag);
   //     sources.add(d.result.bookCode);
   //   }
 
+  //   const sourceFoldersData = DDBCompendiumFolders.getAllSourceFolders("item")
   //     .filter((f) => sources.has(f.bookCode));
 
   //   for (const data of sourceFoldersData) {
+  //     const sourceFolder = await this._createSourceFolder(data.name, data.flagTag);
   //     await this.createItemTypeCompendiumFolders({
   //       sourceFolderKey: data.bookCode,
   //       sourceFolderId: sourceFolder._id,
@@ -632,6 +673,7 @@ export class DDBCompendiumFolders {
 
   async createItemTypeFoldersWithSourceCategories(restrict = false) {
     const index = await this.compendium.getIndex({ fields: this.#getIndexFields() });
+    // const sources = new Set(index.filter((s) => s.system?.source.book).map((s) => s.system.source.book));
 
     const sources = new Set();
     const categories = new Set();
@@ -716,9 +758,31 @@ export class DDBCompendiumFolders {
     }
   }
 
+  /**
+   * "Effect Items" holds documents generated to carry automation other documents grant or
+   * reference (the evolved item property host feats), one sub-folder per generator.
+   */
+  async createEffectFoldersForItemDocuments(documents: T5eCompendiumDocuments[] = []) {
+    const rootFolder = this.getFolder("Effect Items", "effectitems")
+      ?? (await this.createCompendiumFolder({ name: "Effect Items", flagTag: "effectitems" }));
+    for (const doc of documents.filter((d) => foundry.utils.getProperty(d, "flags.ddbimporter.isEffectItem"))) {
+      const effectFolder = DDBCompendiumFolders.getEffectItemFolderNameForType(doc);
+      if (this.getFolder(effectFolder.name, effectFolder.flagTag)) continue;
+      await this.createCompendiumFolder({
+        name: effectFolder.name,
+        parentId: rootFolder._id,
+        color: effectFolder.color ?? "#222222",
+        flagTag: effectFolder.flagTag,
+      });
+    }
+  }
+
   async createItemFoldersForDocuments({ documents = [] }: { documents: I5eInventoryItem[] }) {
     if (documents.filter((d) => foundry.utils.getProperty(d, "flags.ddbImporter.isSpellItem")).length > 0) {
       await this.createSpellFoldersForItemDocuments(documents);
+    }
+    if (documents.some((d) => foundry.utils.getProperty(d, "flags.ddbimporter.isEffectItem"))) {
+      await this.createEffectFoldersForItemDocuments(documents);
     }
     switch (this.compendiumFolderTypeItem) {
       case "TYPE":
@@ -862,6 +926,18 @@ export class DDBCompendiumFolders {
     return `${name} (${version})`;
   }
 
+  /**
+   * DDB appends the source book to a legacy subclass served under the 2024
+   * ruleset, e.g. "Rune Knight (TCoE)". The specialist folder checks are on the
+   * subclass identity rather than the name DDB happens to ship, so they compare
+   * against the base name. The folders themselves keep the full name, so they
+   * still match the flagTag getClassFeatureFolderName builds from the
+   * document's own subClass flag.
+   */
+  static getBaseSubclassName(subclassName: string) {
+    return subclassName.replace(/\s*\([^()]*\)\s*$/, "").trim();
+  }
+
   async createSubClassFeatureFolder(subclassName: string, parentClassName: string, version: string) {
     logger.debug(`Checking for Subclass folder '${subclassName}' with Parent Class '${parentClassName}' (${version})`);
 
@@ -883,11 +959,13 @@ export class DDBCompendiumFolders {
       }));
     this.validFolderIds.push(folder._id);
 
-    if (parentClassName === "Fighter" && subclassName === "Battle Master") {
+    const baseSubclassName = DDBCompendiumFolders.getBaseSubclassName(subclassName);
+
+    if (parentClassName === "Fighter" && baseSubclassName === "Battle Master") {
       await this.createFeatureFolder(subclassName, "Maneuver Options", classFolderId, version);
-    } else if (parentClassName === "Fighter" && subclassName === "Rune Knight") {
+    } else if (parentClassName === "Fighter" && baseSubclassName === "Rune Knight") {
       await this.createFeatureFolder(subclassName, "Runes", classFolderId, version);
-    } else if (parentClassName === "Artificer" && subclassName === "Alchemist") {
+    } else if (parentClassName === "Artificer" && baseSubclassName === "Alchemist") {
       await this.createFeatureFolder(subclassName, "Experimental Elixirs", classFolderId, version);
     }
   }
@@ -937,6 +1015,62 @@ export class DDBCompendiumFolders {
     return newFolder;
   }
 
+  static EFFECT_PARENT_TYPE_FOLDERS: Record<string, string> = {
+    spell: "Spells",
+    classFeature: "Class Features",
+    speciesTrait: "Species Traits",
+    feat: "Feats",
+    background: "Backgrounds",
+    monsterFeature: "Monster Features",
+    item: "Items",
+    other: "Other",
+  };
+
+  /**
+   * Standalone effects sit three deep: Source Category -> parent document type
+   * (Spells, Class Features, Items, Monster Features...) -> parent document name.
+   */
+  static getEffectFolderName(effect: I5eEffectData) {
+    const parent = foundry.utils.getProperty(effect, "flags.ddbimporter.parent") as IDDBStandaloneEffectParent | undefined;
+    const category = DDBCompendiumFolders.getSourceCategoryFolderName({
+      bookCode: parent?.bookCode ?? undefined,
+      isLegacy: parent?.isLegacy ?? false,
+      type: "effects",
+    });
+    const typeKey = parent?.type && parent.type in DDBCompendiumFolders.EFFECT_PARENT_TYPE_FOLDERS ? parent.type : "other";
+    const typeFolder = {
+      name: DDBCompendiumFolders.EFFECT_PARENT_TYPE_FOLDERS[typeKey],
+      flagTag: `${category.flagTag}/${typeKey}`,
+    };
+    const nameFolder = {
+      name: parent?.name ?? "Unknown",
+      flagTag: `${typeFolder.flagTag}/${parent?.name ?? "Unknown"}`,
+    };
+    return { category, typeFolder, name: nameFolder.name, flagTag: nameFolder.flagTag };
+  }
+
+  async createEffectFolder(effect: I5eEffectData) {
+    const details = DDBCompendiumFolders.getEffectFolderName(effect);
+    const categoryFolder = await this._createSourceFolder(details.category.name, details.category.flagTag, details.category.color);
+    const typeFolder = this.getFolder(details.typeFolder.name, details.typeFolder.flagTag)
+      ?? (await this.createCompendiumFolder({
+        name: details.typeFolder.name,
+        flagTag: details.typeFolder.flagTag,
+        parentId: categoryFolder._id,
+      }));
+    this.validFolderIds.push(typeFolder._id);
+    const existingFolder = this.getFolder(details.name, details.flagTag);
+    if (existingFolder) return existingFolder;
+    logger.debug(`Creating effect folder '${details.name}'`, details);
+    const newFolder = await this.createCompendiumFolder({
+      name: details.name,
+      flagTag: details.flagTag,
+      parentId: typeFolder._id,
+    });
+    this.validFolderIds.push(newFolder._id);
+    return newFolder;
+  }
+
   async createBackgroundFolder(document: I5eBackgroundItem) {
     const details = DDBCompendiumFolders.getBackgroundFolderName(document);
     if (this.backgroundFolders[details.name]) return this.backgroundFolders[details.name];
@@ -976,9 +1110,12 @@ export class DDBCompendiumFolders {
   }
 
   // async createSummonsSubFolder(type, subFolderName) {
+  //   const flagTag = `summons/${type}/${subFolderName}`;
   //   logger.debug(`Checking for Summons folder '${subFolderName}' with Base Folder '${subFolderName}'`);
 
+  //   const parentFolder = await this.createSummonsFolder(type);
 
+  //   const folder = this.getFolder(subFolderName, flagTag)
   //     ?? (await this.createCompendiumFolder({
   //       name: subFolderName,
   //       parentId: parentFolder._id,
@@ -1060,9 +1197,22 @@ export class DDBCompendiumFolders {
     return this.compendium.folders;
   }
 
+  /**
+   * Buckets an item by rarity. An item with several rarities is "Varies", as on its sheet. This sees
+   * parsed plain objects and raw compendium index entries alike, so it reads the dnd5e 6.0
+   * `rarities` set first, then the DDB label kept on the dndbeyond flags
+   * (the only trace of "Varies" on a new import; any other label without a key is mundane gear, which
+   * is filed under Unknown), then a pre-6.0 `system.rarity` string, but only from an
+   * un-migrated entry: a re-munched entry keeps a stale string beside its set.
+   */
   static getItemFolderNameForRarity(document: I5eInventoryItem, useSource = false) {
     let name;
-    const rarity = document.system.rarity;
+    const ddbLabel = foundry.utils.getProperty(document, "flags.ddbimporter.dndbeyond.rarity") as string | undefined;
+    const hasSet = document.system?.rarities !== undefined && document.system?.rarities !== null;
+    const keys = ItemRarity.keys(document.system);
+    const rarity = (keys.length > 1 ? "varies" : keys[0])
+      ?? (ddbLabel === "Varies" ? "varies" : undefined)
+      ?? (hasSet ? undefined : ItemRarity.legacyString(document.system));
 
     if (rarity) {
       switch (rarity.toLowerCase().trim()) {
@@ -1089,6 +1239,8 @@ export class DDBCompendiumFolders {
           name = "Varies";
           break;
         case "unknown":
+        case "unknown rarity":
+        case "unknownrarity":
         case "":
         default:
           name = "Unknown";
@@ -1246,6 +1398,18 @@ export class DDBCompendiumFolders {
     };
   }
 
+  static getEffectItemFolderNameForType(document: T5eCompendiumDocuments) {
+    const effectName = foundry.utils.getProperty(document, "flags.ddbimporter.effectName") as string ?? "Unknown";
+    return {
+      name: effectName,
+      type: "effect",
+      suffix: null as string | number | null,
+      color: null as string | null,
+      parentFolderName: "Effect Items",
+      flagTag: `effectitem/${utils.idString(effectName)}`,
+    };
+  }
+
   getItemCompendiumFolderName(document: I5eInventoryItem) {
     let name;
     const isSpellItem = foundry.utils.getProperty(document, "flags.ddbimporter.isSpellItem");
@@ -1253,6 +1417,9 @@ export class DDBCompendiumFolders {
     if (isSpellItem) {
       name = DDBCompendiumFolders.getSpellItemFolderNameForType(document);
       return name;
+    }
+    if (foundry.utils.getProperty(document, "flags.ddbimporter.isEffectItem")) {
+      return DDBCompendiumFolders.getEffectItemFolderNameForType(document);
     }
     switch (this.compendiumFolderTypeItem) {
       case "RARITY": {
@@ -1328,6 +1495,7 @@ export class DDBCompendiumFolders {
       result.name = "Unknown";
     }
 
+    // console.warn(`Folder Name for ${document.name}`, {
     //   result,
     //   subClassName,
     //   className,
@@ -1349,6 +1517,10 @@ export class DDBCompendiumFolders {
     // "flags.ddbimporter.baseName",
     // "flags.ddbimporter.subRaceShortName",
     // "flags.ddbimporter.isSubRace",
+    // const isSubRace = foundry.utils.getProperty(document, "flags.ddbimporter.isSubRace");
+    // const baseRaceName = foundry.utils.getProperty(document, "flags.ddbimporter.baseRaceName");
+    // const baseName = foundry.utils.getProperty(document, "flags.ddbimporter.baseName");
+    // const subRaceShortName = foundry.utils.getProperty(document, "flags.ddbimporter.subRaceShortName");
     const fullRaceName = foundry.utils.getProperty(document, "flags.ddbimporter.fullRaceName") as string;
     const groupName = foundry.utils.getProperty(document, "flags.ddbimporter.groupName") as string;
     const isLineage = foundry.utils.getProperty(document, "flags.ddbimporter.isLineage");
@@ -1636,10 +1808,12 @@ export class DDBCompendiumFolders {
               ? monster.system?.details?.type?.value
               : "Unknown";
             const ddbType = CONFIG.DDB.monsterTypes.find((c) => creatureType.toLowerCase() == c.name.toLowerCase());
-            if (ddbType) data = {
-              name: ddbType.name,
-              flagTag: "",
-            };
+            if (ddbType) {
+              data = {
+                name: ddbType.name,
+                flagTag: "",
+              };
+            }
             break;
           }
           case "SOURCE_CATEGORY_TYPE": {
@@ -1722,6 +1896,11 @@ export class DDBCompendiumFolders {
         data = this.getTableFolderName(document as I5eTableData);
         break;
       }
+      case "effect":
+      case "effects": {
+        data = DDBCompendiumFolders.getEffectFolderName(document as unknown as I5eEffectData);
+        break;
+      }
       // no default
     }
     return data;
@@ -1747,7 +1926,9 @@ export class DDBCompendiumFolders {
   // async addToCompendiumFolder(document: TImporterItem) {
   //   logger.debug(`Checking ${document.name} in ${this.packName}`);
 
+  //   const folderName = this.getCompendiumFolderData(document);
   //   if (folderName) {
+  //     const folder = this.compendium.folders.find((f) => f.name == (folderName.name ?? folderName));
   //     if (folder) {
   //       logger.info(`Moving ${this.type} ${document.name} to folder ${folder.name}`);
   //       await document.update({ folder: folder._id } as any);
@@ -1759,6 +1940,10 @@ export class DDBCompendiumFolders {
 
 
   #getIndexFields() {
+    return CompendiumHelper.safeIndexFields(this.compendium, this.#rawIndexFields());
+  }
+
+  #rawIndexFields() {
     switch (this.type) {
       case "spells":
       case "spell": {
@@ -1784,8 +1969,9 @@ export class DDBCompendiumFolders {
           "flags.ddbimporter.legacy",
           "system.armor.type",
           "system.type.value",
+          "system.rarities",
           "system.rarity",
-          "system.type.value",
+          "flags.ddbimporter.dndbeyond.rarity",
           "system.details.type.value",
           "system.type.subtype",
         ];

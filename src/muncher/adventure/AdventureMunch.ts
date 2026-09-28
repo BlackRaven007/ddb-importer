@@ -1,5 +1,5 @@
 import AdventureMunchHelpers from "./AdventureMunchHelpers";
-import { logger, utils, FileHelper, CompendiumHelper, isGridDetectionEnabled } from "../../lib/_module";
+import { logger, utils, FileHelper, CompendiumHelper, DDBSources, isGridDetectionEnabled } from "../../lib/_module";
 import { generateAdventureConfig } from "../adventure";
 import { SETTINGS } from "../../config/_module";
 import { createDDBCompendium } from "../../hooks/ready/checkCompendiums";
@@ -14,6 +14,7 @@ import {
 } from "../../apps/SceneGridDetector";
 
 import { isGridDetectionCandidate } from "./GridDetectionCandidate";
+
 
 export const DEFAULT_LEVEL_ID = "defaultLevel0000";
 
@@ -280,6 +281,7 @@ export default class AdventureMunch {
 
 
   async importFolder(folders: IAdventureMuncherFolder[], folderList: IAdventureMuncherFolder[]) {
+    // console.warn("Creating Folders", {
     //   folders,
     //   folderList,
     // });
@@ -390,17 +392,17 @@ export default class AdventureMunch {
     if (this.adventure.required?.spells && this.adventure.required.spells.length > 0) {
       logger.debug(`${this.adventure.name} - spells required`, this.adventure.required.spells);
       this._progressNote(`Checking for missing spells from DDB`);
-      await AdventureMunchHelpers.checkForMissingDocuments("spell", this.adventure.required.spells, this.notifierV2);
+      await AdventureMunchHelpers.tryCheckForMissingDocuments("spell", this.adventure.required.spells, this.notifierV2);
     }
     if (this.adventure.required?.items && this.adventure.required.items.length > 0) {
       logger.debug(`${this.adventure.name} - items required`, this.adventure.required.items);
       this._progressNote(`Checking for missing items from DDB`);
-      await AdventureMunchHelpers.checkForMissingDocuments("item", this.adventure.required.items, this.notifierV2);
+      await AdventureMunchHelpers.tryCheckForMissingDocuments("item", this.adventure.required.items, this.notifierV2);
     }
     if (this.adventure.required?.monsters && this.adventure.required.monsters.length > 0) {
       logger.debug(`${this.adventure.name} - monsters required`, this.adventure.required.monsters);
       this._progressNote(`Checking for missing monsters from DDB`);
-      await AdventureMunchHelpers.checkForMissingDocuments("monster", this.adventure.required.monsters, this.notifierV2);
+      await AdventureMunchHelpers.tryCheckForMissingDocuments("monster", this.adventure.required.monsters, this.notifierV2);
     }
     if (parseFloat(this.adventure.version as string) < 4.1 && this.allMonsters) {
       ui.notifications.warn(`Unable to add all monsters from this adventure, please re-munch adventure with Adventure Muncher v1.0.9 or higher`);
@@ -606,21 +608,28 @@ export default class AdventureMunch {
             logger.warn(`Unable to find compendium for item type ${item.type}`, { item, sceneToken });
             continue;
           }
-          const itemRef = compendium.index.find((i) => i.name === item.name && (i as { type?: string }).type === item.type);
+          const itemRef = compendium.index.find((i) => {
+            const entry = i as unknown as INameMatchIndexEntry;
+            return entry.name === item.name && entry.type === item.type;
+          });
           if (itemRef) {
             const compendiumItem = await compendium.getDocument(itemRef._id);
+            if (!compendiumItem) {
+              logger.error(`Unable to load compendium item ${item.name}`, { item, sceneToken, itemRef });
+              continue;
+            }
             const jsonItem = compendiumItem.toObject();
-            delete jsonItem._id;
+            delete (jsonItem as { _id?: string })._id;
             items.push(jsonItem);
           } else {
             logger.error(`Unable to find compendium item ${item.name}`, { item, sceneToken });
           }
         } else {
           // fetch actor item here
-          const actorItem = worldActor.items.find((i: Item.Implementation) => i.name === item.name && i.type === item.type);
+          const actorItem = worldActor.items?.find((i: Item.Implementation) => i.name === item.name && i.type === item.type);
           if (actorItem) {
             const jsonItem = actorItem.toObject();
-            delete jsonItem._id;
+            delete (jsonItem as { _id?: string })._id;
             items.push(jsonItem);
           } else {
             logger.error(`Unable to find monster feature/item ${item.name}`, { item, sceneToken, worldActor });
@@ -687,8 +696,9 @@ export default class AdventureMunch {
     }
 
     const updateData = foundry.utils.mergeObject(tokenStub, sceneToken);
-    if (updateData.name !== worldActor.name && !foundry.utils.hasProperty(updateData, "delta.name")) {
-      foundry.utils.setProperty(updateData, "delta.name", updateData.name);
+    const updateName = foundry.utils.getProperty(updateData, "name") as string | undefined;
+    if (updateName !== worldActor.name && !foundry.utils.hasProperty(updateData, "delta.name")) {
+      foundry.utils.setProperty(updateData, "delta.name", updateName);
     }
 
     let result;
@@ -775,6 +785,7 @@ export default class AdventureMunch {
               loadedDocs.push(this.fetchTemporaryItem(itemUuid));
             }
             for (const document of loadedDocs) {
+              if (!document) continue;
               switch (document.documentName) {
                 case "Scene": {
                   await this._revisitScene(document as Scene);
@@ -1030,7 +1041,9 @@ export default class AdventureMunch {
         logger.info(`Importing actor ${actor.name} with DDB ID ${actor.ddbId} from ${monsterCompendium.metadata.name} with compendium id ${actor.compendiumId}`);
         try {
           const options = { keepId: true, keepEmbeddedIds: true };
-          worldActor = await game.actors.importFromCompendium(monsterCompendium, actor.compendiumId, { _id: actor.actorId, folder: actor.folderId } as any, options);
+          const imported = await game.actors.importFromCompendium(monsterCompendium, actor.compendiumId, { _id: actor.actorId, folder: actor.folderId } as any, options);
+          if (!imported) throw new Error(`Import of ${actor.name} (${actor.compendiumId}) from ${monsterCompendium.metadata.name} returned no actor`);
+          worldActor = imported;
         } catch (err) {
           logger.error(err);
           logger.warn(`Unable to import actor ${actor.name} with id ${actor.compendiumId} from DDB Compendium`);
@@ -1130,7 +1143,7 @@ export default class AdventureMunch {
           }
         }
       }
-      // v13 background.offsetX/Y → v14 root shiftX/Y (only if not already set).
+      // v13 background.offsetX/Y -> v14 root shiftX/Y (only if not already set).
       if (data.shiftX == null && Number.isFinite(stray.offsetX)) data.shiftX = stray.offsetX;
       if (data.shiftY == null && Number.isFinite(stray.offsetY)) data.shiftY = stray.offsetY;
 
@@ -1177,11 +1190,11 @@ export default class AdventureMunch {
     data.levels = [level];
     data.initialLevel = DEFAULT_LEVEL_ID;
 
-    // v13 background.offsetX/Y → v14 top-level shiftX/Y
+    // v13 background.offsetX/Y -> v14 top-level shiftX/Y
     data.shiftX = foundry.utils.getProperty(bg, "offsetX") ?? data.shiftX ?? 0;
     data.shiftY = foundry.utils.getProperty(bg, "offsetY") ?? data.shiftY ?? 0;
 
-    // Fog format: { exploration, overlay, colors } → { mode, colors }
+    // Fog format: { exploration, overlay, colors } -> { mode, colors }
     if (data.fog && !("mode" in data.fog)) {
       data.fog = {
         mode: data.fog.exploration ? 1 : 0,
@@ -1235,10 +1248,12 @@ export default class AdventureMunch {
 
   // this should be the drawing data type but we would need to model old fields for migration
   static _drawingFixes(drawing: any) {
-    if (!foundry.utils.hasProperty(drawing, "interface"))
+    if (!foundry.utils.hasProperty(drawing, "interface")) {
       drawing.interface = true;
-    if (!foundry.utils.hasProperty(drawing, "levels"))
+    }
+    if (!foundry.utils.hasProperty(drawing, "levels")) {
       drawing.levels = [DEFAULT_LEVEL_ID];
+    }
     if (!drawing.shape) {
       // Map legacy (v10/v11) drawing types to v14 ShapeData types. v14 only
       // knows r/c/e/p; the old freehand ("f") and text ("t") types must be
@@ -1262,6 +1277,11 @@ export default class AdventureMunch {
         points,
         radius: drawing.radius ?? null,
       };
+      // delete drawing.type;
+      // delete drawing.height;
+      // delete drawing.width;
+      // delete drawing.points;
+      // delete drawing.radius;
     }
 
     // V14 rejects polygon drawings whose bounding box is degenerate
@@ -1401,13 +1421,12 @@ export default class AdventureMunch {
   async _createAdventure(): Promise<I5eAdventureData> {
     logger.debug("Packing up adventure");
     if (this.allMonsters) await this.importRemainingActors(this.adventure.required.monsterData);
-    const itemData = await AdventureMunchHelpers.getDocuments("items", (this.adventure.required.items ?? []), {}, true) as Item.Implementation[];
-    const spellData = await AdventureMunchHelpers.getDocuments("spells", (this.adventure.required.spells ?? []), {}, true) as Item.Implementation[];
+    const itemData = await AdventureMunchHelpers.getDocuments("item", (this.adventure.required.items ?? []), {}, true) as Item.Implementation[];
+    const spellData = await AdventureMunchHelpers.getDocuments("spell", (this.adventure.required.spells ?? []), {}, true) as Item.Implementation[];
 
     const ddbSource = CONFIG.DDB.sources.find((source) => source.description === this.adventure.name);
-    const image = ddbSource?.avatarURL
-      ? ddbSource.avatarURL
-      : await this.importImage("assets/images/cover.jpg");
+    const cover = DDBSources.getSourceCoverURL(ddbSource);
+    const image = cover ?? await this.importImage("assets/images/cover.jpg");
 
     await this._revisitItems();
 
@@ -1464,6 +1483,7 @@ export default class AdventureMunch {
       this._pack = CompendiumHelper.getCompendiumType("adventure") as unknown as CompendiumCollection<"Adventure">;
       const existingAdventure = await this._getCompendiumAdventure(adventureData);
 
+      // console.warn("Adventure!", {
       //   pack: this._pack,
       //   adventureData: foundry.utils.deepClone(adventureData),
       //   temp: this.temporary,
@@ -1879,7 +1899,7 @@ export default class AdventureMunch {
   /**
    * Replaced ddb links with compendium or world links, or links back to DDB.
    * Thin wrapper over the shared CompendiumLinkReplacer (the zip importer feeds
-   * its instance state: world-actor + 2014→2024 monster-swap branches).
+   * its instance state: world-actor + 2014->2024 monster-swap branches).
    * @param {string} text HTML text to act on
    * @returns {string} HTML with modified links
    */

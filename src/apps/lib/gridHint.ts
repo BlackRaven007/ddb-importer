@@ -3,6 +3,7 @@
 // live 3x3 sub-grid preview) out of SceneGridPickerApp so multiple apps can
 // share one surface implementation. The geometry source of truth is
 // SceneGridPickerApp (left untouched); this is a self-contained port.
+//
 // The host ApplicationV2 owns one GridHintSurface per drawable image. It:
 //   - sets `dims` once the image is probed,
 //   - reads `rect`, `currentViewBox()`, `cellPx()`, `handles()` in

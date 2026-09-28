@@ -4,6 +4,7 @@ import { DDBMonsterFeatureActivity } from "../../activities/_module";
 import { DDBMonsterFeatureEnricher, Effects } from "../../enrichers/_module";
 import { DDBTable, DDBReferenceLinker, DDBDescriptions, SystemHelpers } from "../../lib/_module";
 import { DDBMonsterDamage } from "./DDBMonsterDamage";
+import { monsterDamageAppliedStatuses } from "./MonsterDamageModes";
 import DDBMonster from "../../DDBMonster";
 import { IMonsterWeaponDictionary } from "../../../config/dictionary/actor/monsters";
 import DDBActivityFactoryMixin from "../../activities/mixins/DDBActivityFactoryMixin";
@@ -19,6 +20,9 @@ interface IDDBMonsterFeature {
   updateExisting?: boolean;
   hideDescription?: boolean;
   sort?: number | null;
+  // policy overrides; when undefined the matching game setting supplies the value
+  stripName?: boolean;
+  stripFlagData?: boolean;
 }
 
 type TDDBMonsterFeatureDocumentType = "feat" | "weapon";
@@ -40,6 +44,8 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
   // fields marked with ! are assigned in prepare(), which the constructor always calls
   descriptionParse!: IFeatureBasicsResult;
   descriptionSave!: IFeatureBasicsSave;
+  // memoised by the multiSaveSections getter; [] means "one save, do not reshape"
+  #multiSaveSectionCache?: { slice: ISectionSlice; save: IParsedSave }[];
   name: string;
   isAction = null;
   legacy: boolean;
@@ -84,6 +90,7 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
   useCastActivity: boolean;
   // assigned at the start of generateDamageInfo() before any read
   ddbMonsterDamage!: DDBMonsterDamage;
+  #damageModeQueued = false;
   // assigned by #generateSpellcastingData() before spell activity generation reads it
   spellCastingData!: IMonsterSpellcastingData;
 
@@ -130,8 +137,9 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
       },
     };
     // these templates not good
-    if ("requirements" in this.data.system)
+    if ("requirements" in this.data.system) {
       this.data.system.requirements = "";
+    }
     this.data.sort = this.sort ?? undefined;
     this.levelBonus = false;
     this.profBonus = false;
@@ -197,7 +205,7 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
 
   }
 
-  async loadEnricher() {
+  override async loadEnricher() {
     await this.enricher.init();
     await this.enricher.load({
       ddbParser: this,
@@ -294,7 +302,7 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
     };
   }
 
-  constructor(name: string, { ddbMonster, html, type, titleHTML, fullName, actionCopy, updateExisting, hideDescription, sort }: IDDBMonsterFeature) {
+  constructor(name: string, { ddbMonster, html, type, titleHTML, fullName, actionCopy, updateExisting, hideDescription, sort, stripName, stripFlagData }: IDDBMonsterFeature) {
 
     // a missing monster previously blew up further down with a TypeError; fail loudly instead
     if (!ddbMonster) {
@@ -326,15 +334,16 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
 
     this.hideDescription = hideDescription ?? utils.getSetting<boolean>("munching-policy-hide-description");
     this.updateExisting = updateExisting ?? utils.getSetting<boolean>("munching-policy-update-existing");
-    this.stripName = utils.getSetting<boolean>("munching-policy-monster-strip-name");
-    this.stripFlagData = utils.getSetting<boolean>("munching-policy-monster-strip-flag-data");
+    this.stripName = stripName ?? utils.getSetting<boolean>("munching-policy-monster-strip-name");
+    this.stripFlagData = stripFlagData ?? utils.getSetting<boolean>("munching-policy-monster-strip-flag-data");
 
     this.prepare();
 
     // copy source details from parent
     const oldSource = foundry.utils.getProperty(this, "ddbMonster.npc.system.details.source");
-    if (oldSource)
+    if (oldSource) {
       foundry.utils.setProperty(this, "data.system.source", oldSource);
+    }
 
     const source = foundry.utils.getProperty(this, "data.system.source");
     if (source) foundry.utils.setProperty(this.data, "system.source", source);
@@ -361,30 +370,10 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
     return result;
   }
 
+  /** A bare "escape DC N" names no ability, so the shared outline offers Acrobatics or Athletics. */
   _generateEscapeCheck(hit: string) {
     const escape = hit.match(/escape DC ([0-9]+)/);
-    if (escape) {
-      this.additionalActivities.push({
-        type: "check",
-        name: `Escape Check`,
-        options: {
-          generateCheck: true,
-          generateTarget: false,
-          generateRange: false,
-          checkOverride: {
-            "associated": [
-              "acr",
-              "ath",
-            ],
-            "ability": [],
-            "dc": {
-              "calculation": "",
-              "formula": escape[1],
-            },
-          },
-        },
-      });
-    }
+    if (escape) this.additionalActivities.push(DDBActivityFactoryMixin.escapeCheckOutline(escape[1]));
   }
 
   generateDamageInfo() {
@@ -408,6 +397,13 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
 
     this._generateEscapeCheck(hit);
 
+    if (this.ddbMonsterDamage.damageModeWarnings.length) {
+      foundry.utils.setProperty(this.data, "flags.ddbimporter.monsterDamageWarnings", this.ddbMonsterDamage.damageModeWarnings);
+    }
+
+    // A renamed feat alternative occupies its original slot so later save/check IDs survive.
+    if (this.templateType !== "weapon" && this.ddbMonsterDamage.replacesVersatile) this.#queueDamageModes();
+
     if (this.actionData.damageParts.length > 0 && this.templateType === "weapon") {
       this.actionData.damage.base = this.actionData.damageParts[0].part;
     } else if (this.templateType !== "weapon" && this.actionData.versatileParts.length > 0 && !this.enricher.noVersatile) {
@@ -418,6 +414,30 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
           generateDamage: true,
           damageParts: this.actionData.versatileParts,
           includeBaseDamage: false,
+        },
+      });
+    }
+  }
+
+  /** New modes append after existing outlines; replacements are queued in the old versatile slot. */
+  #queueDamageModes() {
+    if (this.#damageModeQueued || !this.enricher.addAutoAdditionalActivities || this.enricher.noVersatile) return;
+    this.#damageModeQueued = true;
+    for (const mode of this.ddbMonsterDamage.damageModes) {
+      this.additionalActivities.push({
+        name: mode.name,
+        type: "attack",
+        options: {
+          generateDamage: true,
+          includeBaseDamage: false,
+          activationCondition: mode.condition,
+          // Take the id and slot a versatile activity would have, so links to it keep resolving.
+          ...(this.templateType !== "weapon" && this.ddbMonsterDamage.replacesVersatile ? {
+            data: { _id: utils.namedIDStub("Versatile", { prefix: "attack", postfix: this.additionalActivities.length }) },
+          } : {}),
+          damageParts: mode.damageParts.map((part) => SystemHelpers.buildDamagePart({
+            damageString: part.damageString, types: part.damageTypes,
+          })),
         },
       });
     }
@@ -806,7 +826,15 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
   }
 
 
-  getTarget(): I5eActivityTarget {
+  /**
+   * Derive an activity target from rules text, by default the whole feature.
+   *
+   * A multi-mode feature passes one section at a time: an eye ray table's Disintegration Ray
+   * mentions a "10-foot cube" of an object, and read over the whole feature that cube would land
+   * on every ray. `mutateRange` is off for a section so a "within N feet of you" match cannot
+   * rewrite the feature's own range.
+   */
+  getTarget({ text = this.strippedHtml, mutateRange = true }: { text?: string; mutateRange?: boolean } = {}): I5eActivityTarget {
     // fully populated template/affects so the narrowing survives the regex branches below
     const target: I5eActivityTarget & {
       template: NonNullable<I5eActivityTarget["template"]>;
@@ -833,10 +861,14 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
 
     // 90-foot line that is 10 feet wide
     // in a 90-foot cone
-    const matchText = this.strippedHtml.replace(/[­––−-]/gu, "-").replace(/-+/g, "-");
-    const lineSearch = /(\d+)-foot line|line that is (\d+) feet/i;
+    const matchText = text.replace(/[­––−-]/gu, "-").replace(/-+/g, "-");
+    // console.warn(matchText);
+    // 2024 stat blocks: "each creature in a 90-foot-long, 5-foot-wide Line" (DDB sometimes breaks
+    // the hyphenation as "5-foot- wide")
+    const lineSearch = /(\d+)-foot-long,? (\d+)-foot-? ?wide line|(\d+)-foot line|line that is (\d+) feet/i;
     const coneSearch = /(\d+)-foot cone/i;
-    const cubeSearch = /(\d+)-foot cube/i;
+    // "disintegrates a 10-foot cube of it" is how much of an object is destroyed, not an area
+    const cubeSearch = /(\d+)-foot cube(?! of it\b)/i;
     const sphereSearch = /(\d+)-foot-radius sphere/i;
 
     const coneMatch = matchText.match(coneSearch);
@@ -844,12 +876,17 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
     const cubeMatch = matchText.match(cubeSearch);
     const sphereMatch = matchText.match(sphereSearch);
 
+    const creatureTargetCount = (/(each|one|a|the) creature(?: or object)?/ig).exec(matchText);
+    const creatureCountWord = creatureTargetCount?.[1]?.toLowerCase() ?? "";
+    const singleCreatureWord = ["one", "a", "the"].includes(creatureCountWord);
+
     if (coneMatch) {
       target.template.size = coneMatch[1];
       target.template.units = "ft";
       target.template.type = "cone";
     } else if (lineMatch) {
-      target.template.size = lineMatch[1] ?? lineMatch[2];
+      target.template.size = lineMatch[1] ?? lineMatch[3] ?? lineMatch[4];
+      if (lineMatch[2]) target.template.width = lineMatch[2];
       target.template.units = "ft";
       target.template.type = "line";
     } else if (cubeMatch) {
@@ -861,21 +898,31 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
       target.template.units = "ft";
       target.template.type = "sphere";
     } else {
-      const aoeSizeRegex = /(?<!creature (?:it|you) can see |an object (?:it|you) can see |one creature |a creature |the creature |that creature )(?:within|in a|fills a) (\d+)(?: |-)(?:feet|foot|ft|ft\.)(?: |-)(cone|radius|emanation|sphere|line|cube|of it|of an|of the|of you|of yourself)(\w+[. ])?/ig;
+      const aoeSizeRegex = /(?<!creatures? (?:it|you) can see |targets? (?:it|you) can see |objects? (?:it|you) can see |one creature |a creature |the creature |that creature )(?:within|in a|fills a) (\d+)(?: |-)(?:feet|foot|ft|ft\.)(?: |-)(cone|radius|emanation|sphere|line|cube|of it|of an|of the|of you|of yourself)(\w+[. ])?/ig;
 
       // each creature that isn’t an Undead in a 20-foot Emanation originating from the lich.
       const aoeSizeMatch = aoeSizeRegex.exec(matchText);
 
+      // console.warn(`Target generation for ${this.name}`, {
       //   aoeSizeMatch,
       // });
 
+      // A single-target ability (e.g. "one creature ... within 30 feet") must not
+      // gain an area template from a loose positional match like "control while
+      // within 60 feet of it". Emanations ("each creature within X feet of it")
+      // and real named shapes are unaffected.
+      const singleCreatureTarget = singleCreatureWord && !(/each creature/i).test(matchText);
+
       if (aoeSizeMatch) {
         const type = aoeSizeMatch[3]?.trim() ?? aoeSizeMatch[2]?.trim() ?? "radius";
-        target.template.type = ["cone", "radius", "sphere", "line", "cube"].includes(type) ? type as TTemplate : "radius";
-        target.template.size = aoeSizeMatch[1] ?? "";
-        target.template.units = "ft";
-        if (aoeSizeMatch[2] && aoeSizeMatch[2].trim() === "of you") {
+        const realShape = ["cone", "radius", "sphere", "line", "cube"].includes(type);
+        if (mutateRange && aoeSizeMatch[2] && aoeSizeMatch[2].trim() === "of you") {
           this.actionData.range.units = "self";
+        }
+        if (realShape || !singleCreatureTarget) {
+          target.template.type = realShape ? type as TTemplate : "radius";
+          target.template.size = aoeSizeMatch[1] ?? "";
+          target.template.units = "ft";
         }
       }
     }
@@ -885,10 +932,8 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
     }
 
     const targetsCreature = this._targetsCreature();
-    const creatureTargetCount = (/(each|one|a|the) creature(?: or object)?/ig).exec(matchText);
-
     if (targetsCreature || creatureTargetCount) {
-      target.affects.count = creatureTargetCount && ["one", "a", "the"].includes(creatureTargetCount[1]) ? "1" : "";
+      target.affects.count = singleCreatureWord ? "1" : "";
       target.affects.type = creatureTargetCount && creatureTargetCount[2] ? "creatureOrObject" : "creature";
     }
 
@@ -962,6 +1007,7 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
 
     const handleReplaceNames = ((str: string) => {
       const replaceNames = extractActions(str);
+      // console.warn("Replace names", replaceNames);
       for (const name of replaceNames) {
         const listNameRegex = /\(\w\) (.*)/i;
         const listNameMatch = listNameRegex.exec(name);
@@ -1071,6 +1117,7 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
     }
 
 
+    // console.warn(`${this.ddbMonster.name}`,{
     //   orMakesMatch,
     //   basicMAMatch,
     //   multiMatch,
@@ -1097,12 +1144,11 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
     if (this.originalName === "Multiattack") {
       description = this.#processMultiAttack(description);
     }
-    description = DDBReferenceLinker.replaceMonsterALinks(description, this.ddbMonster.npc);
-
-    description = DDBReferenceLinker.parseDamageRolls({ text: description, document: this.data, actor: this.ddbMonster.npc }) ?? description;
-    description = DDBReferenceLinker.parseToHitRoll({ text: description, document: this.data });
-    description = DDBReferenceLinker.parseTags(description);
-    description = await DDBReferenceLinker.replaceMonsterNameBadLinks(description, this.ddbMonster.npc);
+    description = await DDBReferenceLinker.parseMonsterDescription({
+      text: description,
+      document: this.data,
+      actor: this.ddbMonster.npc,
+    });
 
     this.data.system.description.value = await DDBTable.generateTable({
       parentName: this.ddbMonster.npc.name,
@@ -1111,11 +1157,31 @@ export default class DDBMonsterFeature extends DDBActivityFactoryMixin<TDDBMonst
       sourceBook: this.data.system?.source?.book ?? this.ddbMonster.npc.system?.source?.book,
       notifier: this.notifier,
     });
+    await this._linkActivityDescriptions();
     this.data.system.description.value = `<div class="ddb">
 ${this.data.system.description.value}
 </div>`;
 
 
+  }
+
+  /**
+   * Enrichers that split a feature into per-activity chunks (e.g. Eye Rays, and anything else
+   * that carves the description up) set those chunks as raw DDB html. Give them the same
+   * reference linking the feature description gets - DDB anchors, damage and attack rolls,
+   * tags - so a ray's card reads like the feature does.
+   * Tables are deliberately not generated per activity: the journal they create belongs to the feature.
+   */
+  async _linkActivityDescriptions(): Promise<void> {
+    for (const activity of Object.values(this.data.system.activities ?? {})) {
+      const text = activity.description?.value;
+      if (!text?.trim()) continue;
+      activity.description!.value = await DDBReferenceLinker.parseMonsterDescription({
+        text,
+        document: this.data,
+        actor: this.ddbMonster.npc,
+      });
+    }
   }
 
   #buildAction() {
@@ -1218,8 +1284,13 @@ ${this.data.system.description.value}
       }
     } else {
       for (const id of Object.keys(this.data.system.activities)) {
-        this.data.system.activities[id].activation = this.actionData.activation;
-        const consumption = this.data.system.activities[id].consumption;
+        const activity = this.data.system.activities[id];
+        // A copied attack keeps its eligibility condition when it becomes legendary.
+        activity.activation = {
+          ...foundry.utils.deepClone(this.actionData.activation),
+          condition: activity.activation?.condition || this.actionData.activation.condition,
+        };
+        const consumption = activity.consumption;
         if (consumption) consumption.targets = this.actionData.consumptionTargets;
       }
     }
@@ -1241,10 +1312,10 @@ ${this.data.system.description.value}
     }
 
     // legendary resistance check
-    const resistanceMatch = this.name.match(/Legendary Resistance \((\d+)\/Day/i);
-    if (resistanceMatch) {
+    if (this.isLegendaryResistance) {
       this.actionData.activation.type = "special";
       this.actionData.activation.value = null;
+      this.actionData.activation.condition = "Fails a saving throw";
       this.actionData.consumptionTargets.push({
         type: "attribute",
         target: "resources.legres.value",
@@ -1305,21 +1376,40 @@ ${this.data.system.description.value}
     this.actionData.uses = this.getUses();
   }
 
-  _getSaveActivity({ name = null, nameIdPostfix = null }: {
+  /**
+   * The damage the feature's own save names, for text that describes several different saves
+   * with no labelled sections and gave the save no damage parts of its own. Null when that does
+   * not apply. Without it the save falls back to every damage figure in the feature, which then
+   * belongs to the other saves: Zaratan's concentration save would deal the rubble's 5d6.
+   */
+  get #ownSaveDamage(): I5eDamagePart[] | null {
+    if (this.actionData.saveParts.length > 0 || !this.descriptionSave) return null;
+    if (this.multiSaveSections.length > 0) return null;
+    const html = this.html;
+    const saves = DDBDescriptions.parseSaves(DDBDescriptions.stripTables(html));
+    if (new Set(saves.map((save) => DDBDescriptions.saveKey(save))).size < 2) return null;
+    const text = DDBDescriptions.saveDamageTexts(html).get(DDBDescriptions.saveKey(this.descriptionSave));
+    return text === undefined ? null : DDBDescriptions.saveOwnDamageParts(text);
+  }
+
+  override _getSaveActivity({ name = null, nameIdPostfix = null }: {
     name?: string | null;
     nameIdPostfix?: string | null;
   }, options = {}) {
+    const ownDamage = this.#ownSaveDamage;
     const itemOptions = foundry.utils.mergeObject({
       generateRange: this.templateType !== "weapon",
       includeBaseDamage: false,
-      damageParts: this.actionData.saveParts,
+      damageParts: ownDamage ?? this.actionData.saveParts,
+      // an empty list would fall back to the whole feature's damage
+      ...(ownDamage?.length === 0 ? { generateDamage: false } : {}),
       onSave: this.halfDamage ? "half" : "none",
     }, options);
 
     return super._getSaveActivity({ name, nameIdPostfix }, itemOptions);
   }
 
-  _getAttackActivity({ name = null, nameIdPostfix = null }: {
+  override _getAttackActivity({ name = null, nameIdPostfix = null }: {
     name?: string | null;
     nameIdPostfix?: string | null;
   }, options = {}) {
@@ -1342,6 +1432,7 @@ ${this.data.system.description.value}
       parts = this.actionData.damageParts.map((s) => s.part);
     }
 
+    // console.warn("activity build", {
     //   isFlatWeaponDamage,
     //   this: this,
     //   noDamageMods,
@@ -1362,7 +1453,7 @@ ${this.data.system.description.value}
     return super._getAttackActivity({ name, nameIdPostfix }, itemOptions);
   }
 
-  _getUtilityActivity({ name = null, nameIdPostfix = null } = {}, options = {}) {
+  override _getUtilityActivity({ name = null, nameIdPostfix = null } = {}, options = {}) {
     const itemOptions = foundry.utils.mergeObject({
       generateRange: this.templateType !== "weapon",
       includeBaseDamage: this.templateType === "weapon",
@@ -1371,13 +1462,109 @@ ${this.data.system.description.value}
     return super._getUtilityActivity({ name, nameIdPostfix }, itemOptions);
   }
 
-  _getDamageActivity({ name = null, nameIdPostfix = null } = {}, options = {}) {
+  override _getDamageActivity({ name = null, nameIdPostfix = null } = {}, options = {}) {
     const itemOptions = foundry.utils.mergeObject({
       generateRange: this.templateType !== "weapon",
       includeBaseDamage: this.templateType === "weapon",
     }, options);
 
     return super._getDamageActivity({ name, nameIdPostfix }, itemOptions);
+  }
+
+  /**
+   * The labelled sections of this feature's text that each name a save, memoised.
+   *
+   * A monster feature is normally one roll, but a few describe several: an eye ray table
+   * (Mindwitness numbers its rays in italics), a swallow (the save to be swallowed and the save
+   * to regurgitate), a monk-style strike offering a choice of rider, and the lair/regional
+   * blocks, which DDB ships as one blob covering every lair action.
+   */
+  get multiSaveSections(): { slice: ISectionSlice; save: IParsedSave }[] {
+    this.#multiSaveSectionCache ??= this._saveBearingSections(this.html);
+    return this.#multiSaveSectionCache;
+  }
+
+  /**
+   * The name the primary activity takes on a multi-mode feature, or null to leave it unnamed.
+   * Only set where the primary IS the first section - an attack describes something else.
+   */
+  get #primaryActivityName(): string | null {
+    if (this.isLegendaryResistance) return "Expend Use";
+    if (!(this.isSave && !this.isAttack)) return null;
+    const first = this.multiSaveSections[0];
+    if (!first) return null;
+    const name = DDBActivityFactoryMixin.multiSaveActivityName(first.slice.rawLabel);
+    // a lair block labels its first section with the feature's own name; restating it says nothing
+    if (!name || DDBDescriptions.normalizeSectionLabel(name) === DDBDescriptions.normalizeSectionLabel(this.name)) {
+      return null;
+    }
+    return name;
+  }
+
+  /**
+   * On a multi-mode feature the primary describes the first section, so it needs that section's
+   * text for the same reason its siblings do - otherwise its card shows every mode.
+   */
+  get #primaryActivityOptions(): IDDBActivityBuild {
+    if (!(this.isSave && !this.isAttack)) return {};
+    const first = this.multiSaveSections[0];
+    if (!first) {
+      const flatTarget = this.#flatPrimaryTarget;
+      return flatTarget ? { targetOverride: flatTarget } : {};
+    }
+    return {
+      data: { description: { value: first.slice.section } },
+      targetOverride: this.#sectionTarget(first.slice.section),
+    };
+  }
+
+  /**
+   * The primary save's own target when the text describes several different saves without
+   * labelled sections, read like its siblings' (`flatSaveTarget`). Null keeps the target read
+   * from the whole feature: a single save, a save that refers back to that area, or one the
+   * scopes cannot place.
+   */
+  get #flatPrimaryTarget(): I5eActivityTarget | null {
+    if (!this.descriptionSave) return null;
+    const html = DDBDescriptions.stripTables(this.html);
+    const saves = DDBDescriptions.parseSaves(html);
+    if (new Set(saves.map((save) => DDBDescriptions.saveKey(save))).size < 2) return null;
+    const scope = DDBDescriptions.saveScopes(html).get(DDBDescriptions.saveKey(this.descriptionSave));
+    return DDBActivityFactoryMixin.flatSaveTarget(scope, (text) => this.#sectionTarget(text));
+  }
+
+  /**
+   * The target of one mode of a multi-mode feature, read from its own section.
+   *
+   * Always returns a target: for a monster, "inherit" would mean the target regexed from the
+   * whole feature.
+   * A section names a save by construction, so a section that names no target defaults to a
+   * creature.
+   * That also overrides the "self" a healing feature's templateless target defaults to a save mode
+   * of a feature that elsewhere heals (Nymph's Gaze, Serpent Surprise) is still rolled by someone else.
+   */
+  #sectionTarget(section: string): I5eActivityTarget {
+    const target = this.getTarget({ text: utils.stripHtml(section).trim(), mutateRange: false });
+    if (target.affects && (!target.affects.type || target.affects.type === "self")) target.affects.type = "creature";
+    return target;
+  }
+
+  /**
+   * Build one save activity per mode of a feature whose text describes several.
+   *
+   * `featureBasics` reads only the first save, so on a swallow or an eye ray table everything
+   * past it existed only in the description. The first section is skipped only when the primary
+   * activity IS that save; where the primary is an attack, every section becomes an extra and
+   * the generic "Save" activity is suppressed in favour of the named ones.
+   */
+  #generateMultiSaveActivities(): void {
+    this._multiSaveActivityGeneration({
+      text: this.html,
+      primarySave: this.descriptionSave,
+      skipFirstSection: this.isSave && !this.isAttack,
+      targetOverrideForSection: (section) => this.#sectionTarget(section),
+      flatTargetFor: (text) => this.#sectionTarget(text),
+    });
   }
 
   #addSaveAdditionalActivity(includeBase = false) {
@@ -1392,11 +1579,16 @@ ${this.data.system.description.value}
         generateDamage: this.actionData.saveParts.length > 0,
         damageParts: this.actionData.saveParts ?? parts,
         includeBaseDamage: false,
+        // the save follows a hit with the attack, which has already spent the use
+        generateConsumption: false,
       },
     });
   }
 
   #addHealAdditionalActivities() {
+    // Healing that rides on a save or attack is part of that use, which the primary activity has
+    // already spent. Where the feature only heals there is no primary, and the heal spends it.
+    const ridesOnPrimary = Object.keys(this.data.system.activities ?? {}).length > 0;
     for (const part of this.actionData.healingParts) {
       const data = {
         name: "Heal",
@@ -1406,6 +1598,7 @@ ${this.data.system.description.value}
           includeBaseDamage: false,
           generateHealing: true,
           healingPart: part.part,
+          ...(ridesOnPrimary ? { generateConsumption: false } : {}),
         },
       } as IAdditionalActivityOutline;
       this.additionalActivities.push(data);
@@ -1418,9 +1611,21 @@ ${this.data.system.description.value}
     return null;
   }
 
-  _getActivitiesType() {
+  /**
+   * Every printing of the trait, with or without a "(3/Day, or 4/Day in Lair)" style suffix
+   * (one third-party block pluralises it). The per-day count itself is read by the factory into
+   * the legres resource.
+   */
+  get isLegendaryResistance(): boolean {
+    return (/^Legendary Resistances?\b/i).test(this.name);
+  }
+
+  override _getActivitiesType() {
     // lets see if we have a save stat for things like Dragon born Breath Weapon
     if (this.name === "Legendary Actions") return null;
+    // The trait has no uses of its own (the count lives on the actor resource), which would
+    // otherwise drop it through the special-with-no-uses gate below with no activity to spend one.
+    if (this.isLegendaryResistance) return "utility";
     if (this.healingAction) {
       if (!this.isAttack && !this.isSave && this.actionData.damageParts.length === 0) {
         // we generate heal activities as additionals;
@@ -1429,8 +1634,10 @@ ${this.data.system.description.value}
     }
     if (this.isAttack) {
       // some attacks will have a save and attack
+      // console.warn("isAttack", this.isAttack, this.isSave);
       if (this.isSave) {
-        this.#addSaveAdditionalActivity();
+        // a multi-mode feature already has one named save activity per section
+        if (this.multiSaveSections.length === 0) this.#addSaveAdditionalActivity();
       }
       return "attack";
     }
@@ -1484,8 +1691,51 @@ ${this.data.system.description.value}
     this.data.effects.push(...effects);
     this.enricher.createDefaultEffects();
 
+    // Effect hints matched to the "Versatile" activity follow the damage mode that replaces it.
+    if (this.ddbMonsterDamage.replacesVersatile && this.ddbMonsterDamage.damageModes.length) {
+      const name = this.ddbMonsterDamage.damageModes[0].name;
+      for (const effect of this.data.effects) {
+        if (foundry.utils.getProperty(effect, "flags.ddbimporter.activityMatch") === "Versatile") {
+          foundry.utils.setProperty(effect, "flags.ddbimporter.activityMatch", name);
+        }
+        const matches = foundry.utils.getProperty(effect, "flags.ddbimporter.activitiesMatch") as string[] | undefined;
+        if (matches?.includes("Versatile")) {
+          foundry.utils.setProperty(effect, "flags.ddbimporter.activitiesMatch", matches.map((match) => match === "Versatile" ? name : match));
+        }
+      }
+    }
     this._activityEffectLinking();
+    this.#scopeDamageModeEffects();
+    this._activityBehaviorNaming();
+    this._activityDisplayDefaults();
+
     Effects.AutoEffects.forceDocumentEffect(this.data);
+  }
+
+  /** Filter only attack links; saves and independent follow-up activities keep their own riders. */
+  #scopeDamageModeEffects() {
+    const damage = this.ddbMonsterDamage;
+    if (!damage.damageModes.length) return;
+    const normalStatuses = monsterDamageAppliedStatuses(damage.normalHit);
+    const primary = Object.values(this.data.system.activities).find((activity) => activity.type === "attack");
+    const removeStatuses = (activity: I5eActivity, statuses: Set<string>) => {
+      activity.effects = activity.effects?.filter((link) => {
+        const effect = this.data.effects?.find((candidate) => candidate._id === link._id);
+        return !Array.from(effect?.statuses ?? []).some((status) => statuses.has(status.toLowerCase()));
+      });
+    };
+    for (const mode of damage.damageModes) {
+      const conditionalStatuses = monsterDamageAppliedStatuses(mode.text);
+      const onlyConditional = new Set([...conditionalStatuses].filter((status) => !normalStatuses.has(status)));
+      if (primary) removeStatuses(primary, onlyConditional);
+      const variant = Object.values(this.data.system.activities).find((activity) => activity.type === "attack" && activity.name === mode.name);
+      if (!variant) continue;
+      // Already-affected targets receive the extra damage instead of reapplying the condition.
+      if ((/\balready\b/i).test(mode.condition)) {
+        const existing = new Set([...normalStatuses].filter((status) => new RegExp(`\\b${status}\\b`, "i").test(mode.condition)));
+        removeStatuses(variant, existing);
+      }
+    }
   }
 
   #getSpellcastingData(): IMonsterSpellcastingData {
@@ -1568,8 +1818,9 @@ ${this.data.system.description.value}
     let generateActivityUses = false;
     let generateConsumption = false;
 
-    if (!this.spellCastingData.concentration || spellData.noConcentration)
+    if (!this.spellCastingData.concentration || spellData.noConcentration) {
       spellOverride.properties.push("concentration");
+    }
     if (!this.spellCastingData.material) spellOverride.properties.push("material");
     if (spellData.level) spellOverride.level = parseInt(spellData.level);
 
@@ -1615,7 +1866,7 @@ ${this.data.system.description.value}
       && parseInt(String(this.spellCastingData.dc)) !== parseInt(String(this.ddbMonster.spellcasting.spelldc))
     ) {
       spellOverride.challenge.override = true;
-      spellOverride.challenge.save = this.spellCastingData.dc;
+      spellOverride.challenge.save = String(this.spellCastingData.dc);
     }
 
     const options = {
@@ -1652,6 +1903,7 @@ ${this.data.system.description.value}
 
     activity.img = compendiumSpell.img;
 
+    // console.warn("spell activite", {
     //   activity,
     //   spellData,
     //   compendiumSpell,
@@ -1733,8 +1985,15 @@ ${this.data.system.description.value}
     }
   }
 
-  async #buildOtherSpellActivities() {
-    const basicRegex = /The (?:.*) casts(?: the)? (?<spells>.*?)(?: spell| on that creature)?(?<self>on itself)?(?: in response to (?:the|that) spell’s trigger)?, (?<components>requiring no spell components and )?using (?:the same spellcasting ability as Spellcasting|(?<ability>\w+) as the spellcasting ability)/i;
+  /**
+   * Extract the spells a non-Spellcasting feature casts, e.g. "The archmage casts Fireball, Ice Storm, or
+   * Lightning Bolt twice in any combination, using the same spellcasting ability as Spellcasting." The
+   * optional `count` group ("twice", "three times", "... in any combination") sits between the spell list
+   * and the ability clause so it is not swallowed into the last spell name. A cast count has no home on a
+   * dnd5e cast activity; the parent feature's recharge/uses already gate the action.
+   */
+  getOtherCastSpells(): IMonsterSpellcastingSpell[] {
+    const basicRegex = /The (?:.*) casts(?: the)? (?<spells>.*?)(?<count> (?:twice|thrice|(?:two|three|four|five|\d+) times)(?: in any combination)?)?(?: spell| on that creature)?(?<self>on itself)?(?: in response to (?:the|that) spell’s trigger)?, (?<components>requiring no (?:spell|spellcasting|material) components and )?using (?:the same spellcasting ability as (?:its )?[^.,(]+|(?<ability>\w+) as the spellcasting ability)/i;
     const basicMatch = this.strippedHtml.match(basicRegex);
 
     const useRegex = /The (?:.*) uses Spellcasting to cast (?<spells>.*?)(?<self> on itself)?(?:, and it can|\.)/i;
@@ -1742,63 +2001,66 @@ ${this.data.system.description.value}
     const canCastRegex = /the (?:.*) can cast one of the following spells, (?:.*): (?<spells>.*?)\./i;
     const canCastMatch = this.strippedHtml.match(canCastRegex);
 
-    const lairRegex = /While in its lair, the (?:.*) can cast (?<spells>.*?), (?<components>requiring no spell components and )?using the same spellcasting ability as its Spellcasting action./i;
+    const lairRegex = /While in its lair, the (?:.*) can cast (?<spells>.*?), (?<components>requiring no (?:spell|spellcasting|material) components and )?using the same spellcasting ability as its Spellcasting action./i;
     const lairMatch = this.strippedHtml.match(lairRegex);
 
     const matches = basicMatch ?? useMatch ?? canCastMatch ?? lairMatch;
     const spells: IMonsterSpellcastingSpell[] = [];
     const matchGroups = matches?.groups;
-    if (matchGroups) {
-      //   matches,
-      //   strippedHtml: this.strippedHtml,
-      //   originalName: this.originalName,
-      //   this: this,
-      // });
+    if (!matchGroups) return spells;
 
-      const perUseRegex = /The (?:.*) must finish a (\w+) Rest before using this trait to cast that spell again/i;
-      const perUseMatch = this.strippedHtml.match(perUseRegex);
+    const perUseRegex = /The (?:.*) must finish a (\w+) Rest before using this trait to cast that spell again/i;
+    const perUseMatch = this.strippedHtml.match(perUseRegex);
 
-      const names = DDBDescriptions
-        .splitStringByComma(matchGroups.spells.replace(", or ", ", ").replace(" or ", ", "))
-        .filter((n) => n.trim() !== "");
-      for (const name of names) {
-        const spell: IMonsterSpellcastingSpell = {
-          name: name, // required
-          // level: "5", // optional
-          // extra: null, // extra to append to name string
-          // period: "Day", // reset timeframe
-          // quantity: "2",
-          // consumeType: "itemUses",
-          // targetSelf: true,
-          // noComponents: true,
-          // duration: {},
-        };
+    const names = DDBDescriptions
+      .splitStringByComma(matchGroups.spells.replace(", or ", ", ").replace(" or ", ", "))
+      .filter((n) => n.trim() !== "");
+    for (const name of names) {
+      // parenthetical qualifiers such as "(level 5 version)" or "(self only)" are parsed the same way
+      // as the Spellcasting block path so the compendium lookup sees the bare spell name
+      const entry = DDBDescriptions.parseMonsterSpellEntry(name);
+      const spell: IMonsterSpellcastingSpell = {
+        name: entry.name,
+      };
 
-        if (matchGroups.self) {
-          spell.extra = "on itself";
-          spell.targetSelf = true;
-        }
-        if (matchGroups.components) {
-          spell.noComponents = true;
-        }
+      if (entry.level) spell.level = entry.level;
+      if (entry.extra) spell.extra = entry.extra;
+      if (entry.targetSelf) spell.targetSelf = true;
+      if (entry.duration) spell.duration = entry.duration;
 
-        if (matchGroups.ability) {
-          spell.ability = matchGroups.ability;
-        }
-
-        if (perUseMatch) {
-          spell.period = perUseMatch[1].trim();
-          spell.quantity = "1";
-          spell.consumeType = "activityUses";
-        } else if (this.data.system.uses.max) {
-          spell.consumeType = "itemUses";
-          spell.quantity = "1";
-        }
-        spells.push(spell);
+      if (matchGroups.self) {
+        spell.extra = "on itself";
+        spell.targetSelf = true;
+      }
+      if (matchGroups.components) {
+        spell.noComponents = true;
       }
 
-      logger.verbose(spells);
+      if (matchGroups.ability) {
+        spell.ability = matchGroups.ability;
+      }
+
+      if (perUseMatch) {
+        spell.period = perUseMatch[1].trim();
+        spell.quantity = "1";
+        spell.consumeType = "activityUses";
+      } else if (this.data.system.uses.max) {
+        spell.consumeType = "itemUses";
+        spell.quantity = "1";
+      }
+      spells.push(spell);
     }
+
+    logger.verbose(`${this.ddbMonster.name}: ${this.name}: Parsed cast spells`, {
+      spells,
+      count: matchGroups.count?.trim() ?? null,
+    });
+
+    return spells;
+  }
+
+  async #buildOtherSpellActivities() {
+    const spells = this.getOtherCastSpells();
     if (spells.length > 0) {
       await this.#buildSpellcastingActivities(spells);
     }
@@ -1871,12 +2133,26 @@ ${this.data.system.description.value}
         throw new Error(`Unknown action parsing type ${this.type}`);
     }
 
+    // A feature with limited uses of its own spends one when used. Recharge sets this where its
+    // uses are read; "(1/Day)" and "Recharges after a Short or Long Rest" give the item uses but
+    // no consumption of their own, so it is added here. Every activity of the feature spends from the
+    // same pool, which is also what a conditional weapon attack wants in either mode. An at-will
+    // feature has no uses and must not acquire a target; Legendary Resistance and a legendary
+    // action's cost already carry their own.
+    if (this.data.system.uses?.max && !this.actionData.consumptionValue
+      && this.actionData.consumptionTargets.length === 0) {
+      this.actionData.consumptionValue = "1";
+    }
+
     if (!this.actionCopy) {
       await this.#handleSpellCasting();
-      await this._generateActivity();
+      this.#generateMultiSaveActivities();
+      await this._generateActivity({ name: this.#primaryActivityName }, this.#primaryActivityOptions);
       this.#addHealAdditionalActivities();
-      if (this.enricher.addAutoAdditionalActivities)
+      this.#queueDamageModes();
+      if (this.enricher.addAutoAdditionalActivities) {
         await this._generateAdditionalActivities();
+      }
       await this.enricher.addAdditionalActivities(this);
       this._generateEffects();
     }
@@ -1888,10 +2164,12 @@ ${this.data.system.description.value}
     foundry.utils.setProperty(this.data, "flags.monsterMunch.actionData.proficient", this.actionData.proficient);
     foundry.utils.setProperty(this.data, "flags.monsterMunch.actionData.extraAttackBonus", this.actionData.extraAttackBonus);
 
-    if (this.levelBonus)
+    if (this.levelBonus) {
       foundry.utils.setProperty(this.data, "flags.ddbimporter.levelBonus", true);
-    if (this.profBonus)
+    }
+    if (this.profBonus) {
       foundry.utils.setProperty(this.data, "flags.ddbimporter.profBonus", true);
+    }
     await this.#generateDescription();
 
     await this.enricher.addDocumentAdvancements();

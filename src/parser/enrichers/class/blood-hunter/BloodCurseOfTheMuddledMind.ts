@@ -3,15 +3,15 @@ import _BloodCurse from "./_BloodCurse";
 
 export default class BloodCurseOfTheMuddledMind extends _BloodCurse {
 
-  get curseName(): string {
+  override get curseName(): string {
     return "Blood Curse of the Muddled Mind";
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: this.curseName,
       targetType: "creature",
@@ -21,7 +21,7 @@ export default class BloodCurseOfTheMuddledMind extends _BloodCurse {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -34,9 +34,9 @@ export default class BloodCurseOfTheMuddledMind extends _BloodCurse {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const changes = [
-      DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE}`, 20, "system.abilities.con.save.roll.mode"),
+      DDBEnricherData.ChangeHelper.disadvantageAbilitySaveChange("con"),
     ];
 
     return [
@@ -45,11 +45,10 @@ export default class BloodCurseOfTheMuddledMind extends _BloodCurse {
         name: "Muddled Mind",
         activityMatch: this.curseName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description: "You have disadvantage on the next Constitution saving throw you make to maintain concentration.",
         },
-        daeSpecialDurations: ["turnEndSource", "isSave"],
+        daeSpecialDurations: ["isSave"],
         changes,
       },
       {
@@ -57,11 +56,9 @@ export default class BloodCurseOfTheMuddledMind extends _BloodCurse {
         name: "Muddled Mind (Amplified)",
         activityMatch: this.amplifiedName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description: "You have disadvantage on all Constitution saving throws made to maintain concentration.",
         },
-        daeSpecialDurations: ["turnEndSource"],
         changes,
       },
     ];

@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class DragonWings extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Use",
       noConsumeTargets: true,
@@ -16,7 +16,7 @@ export default class DragonWings extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -44,7 +44,7 @@ export default class DragonWings extends DDBEnricherData {
               {
                 type: "itemUses",
                 value: "3",
-                target: "Sorcery Points",
+                target: "feat:sorcery-points",
                 scaling: { allowed: false, max: "" },
               },
             ],
@@ -54,7 +54,7 @@ export default class DragonWings extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     const uses = this._getUsesWithSpent({
       type: "class",
       name: "Dragon Wings",
@@ -71,14 +71,16 @@ export default class DragonWings extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       name: "Dragon Wings",
       options: {
-        durationSeconds: 600,
+        // 2024: "The wings last for 1 hour or until you dismiss them"; the 2014 wings have no
+        // time limit at all
+        durationSeconds: this.is2014 ? null : 3600,
       },
       changes: [
-        DDBEnricherData.ChangeHelper.upgradeChange("60", 2, "system.attributes.movement.fly"),
+        DDBEnricherData.ChangeHelper.upgradeChange("60", 2, "system.attributes.movement.speeds.fly"),
       ],
     }];
   }

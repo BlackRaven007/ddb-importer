@@ -1,14 +1,15 @@
 import { utils } from "../../../../lib/_module";
 import DDBEnricherData from "../../data/DDBEnricherData";
 import type { DDBMonsterDamage } from "../../../monster/features/DDBMonsterDamage";
+import type DDBMonsterFeature from "../../../monster/features/DDBMonsterFeature";
 
 export default class EyeRays extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     const rayChoices = this.rayChoices;
     return {
       name: `Roll 1d${rayChoices.length}`,
@@ -24,17 +25,18 @@ export default class EyeRays extends DDBEnricherData {
     };
   }
 
-  get rayText() {
+  get rayText(): string {
     const text = (this.ddbParser.html ?? "")
       .replace(/<strong> \.<\/strong>/, "").trim()
       .replaceAll("<strong></strong>", "")
       .replaceAll("<em></em>", "")
       .replaceAll("<em> </em>", "")
       .replaceAll("<em><strong></strong></em>", "");
-    if (this.is2014)
+    if (this.is2014) {
       return text;
-    else
+    } else {
       return text.replaceAll("<br> <strong>", "</p><p><strong>");
+    }
   }
 
   get rayChoices(): { number: number; title: string; content: string; full: string }[] {
@@ -55,30 +57,37 @@ export default class EyeRays extends DDBEnricherData {
   }
 
   static rayName(ray: { number: number; title: string }) {
-    if (ray.title.startsWith(`${ray.number}`))
+    if (ray.title.startsWith(`${ray.number}`)) {
       return ray.title;
-    else
+    } else {
       return `${ray.number}: ${ray.title}`;
+    }
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     const rayChoices = this.rayChoices;
 
+    // console.warn("ray choices", {
     //   rayChoices,
     //   this: this,
     //   rayText: this.rayText,
     // })
     const results = rayChoices.map((ray) => {
+      const name = EyeRays.rayName(ray);
       const strippedHtml = utils.stripHtml(`${ray.full}`).trim();
+      const rayDescription = DDBImporter.lib.ParserLib.DDBDescriptions
+        .matchActivitySection(ray.full, name)?.section ?? ray.full;
       const descriptionParse = DDBImporter.lib.ParserLib.DDBDescriptions.featureBasics({ text: strippedHtml }) as IFeatureBasicsResult;
 
-      const ddbMonsterDamage = new DDBImporter.lib.DDBMonsterDamage(ray.full, { ddbMonsterFeature: this.ddbParser }) as DDBMonsterDamage;
+      // Eye Rays is a monster-only enricher, so the parser is always the monster feature.
+      const ddbMonsterFeature = this.ddbParser as DDBMonsterFeature;
+      const ddbMonsterDamage = new DDBImporter.lib.DDBMonsterDamage(ray.full, { ddbMonsterFeature }) as DDBMonsterDamage;
       ddbMonsterDamage.generateDamage();
       ddbMonsterDamage.generateRegain();
 
       const result = {
         init: {
-          name: EyeRays.rayName(ray),
+          name,
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
@@ -91,9 +100,18 @@ export default class EyeRays extends DDBEnricherData {
         },
         overrides: {
           id: EyeRays.getId(ray.title),
+          // a ray hits one target; without this the Disintegration Ray's "10-foot cube of it"
+          // (the portion of an object destroyed) would read as an area on that ray
+          noTemplate: true,
+          data: {
+            description: {
+              value: rayDescription,
+            },
+          },
         },
       };
 
+      // console.warn("EyeRay", {
       //   name: ray.title,
       //   description: strippedHtml,
       //   ddbMonsterDamage,
@@ -106,7 +124,7 @@ export default class EyeRays extends DDBEnricherData {
     return results;
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
@@ -120,7 +138,7 @@ export default class EyeRays extends DDBEnricherData {
             description: "Half speed, and limited reactions",
           },
           changes: [
-            DDBEnricherData.ChangeHelper.customChange("/2", 20, "system.attributes.movement.all"),
+            DDBEnricherData.ChangeHelper.movementMultiplierChange("0.5", 20),
           ],
         },
       ];
@@ -137,7 +155,7 @@ export default class EyeRays extends DDBEnricherData {
     return [];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const results: IDDBEffectHint[] = [];
 
     this.rayChoices.forEach((ray) => {
@@ -156,7 +174,7 @@ export default class EyeRays extends DDBEnricherData {
     return results;
   }
 
-  get override(): IDDBOverrideData | null {
+  override get override(): IDDBOverrideData | null {
     if (this.is2014) return null;
     const description = this.ddbEnricher.data?.system?.description?.value;
     if (description === undefined) return null;

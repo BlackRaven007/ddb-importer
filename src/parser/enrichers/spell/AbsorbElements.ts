@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class AbsorbElements extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: `${this.data.name} Effect`,
       data: {
@@ -17,7 +17,7 @@ export default class AbsorbElements extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -43,7 +43,7 @@ export default class AbsorbElements extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const noMidiEffects: IDDBEffectHint[] = ["Acid", "Cold", "Fire", "Lightning", "Thunder"].map((element) => {
       return {
         midiNever: true,
@@ -59,17 +59,13 @@ export default class AbsorbElements extends DDBEnricherData {
         name: `${this.data.name}: Extra Damage`,
         midiOnly: true,
         midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`(@item.level)d6`, 20, "system.bonuses.mwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`(@item.level)d6`, 20, "system.bonuses.msak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(`(@item.level)d6`, 20, "system.rolls.damage.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(`(@item.level)d6`, 20, "system.rolls.damage.msak.bonus"),
         ],
-        daeSpecialDurations: ["DamageDealt", "turnEnd"],
-        data: {
-          duration: {
-            value: 6,
-            expiry: "turnEnd",
-            units: "seconds",
-          },
-        },
+        // "the first time you hit with a melee attack on your next turn" - the effect
+        // rides the caster, so the caster's turn end is the bound
+        options: { expiry: "sourceEnd" },
+        daeSpecialDurations: ["DamageDealt"],
       },
       {
         name: `${this.data.name}: Resistance`,
@@ -77,27 +73,20 @@ export default class AbsorbElements extends DDBEnricherData {
         midiChanges: [
           DDBEnricherData.ChangeHelper.damageResistanceChange(""),
         ],
-        daeSpecialDurations: ["turnStartSource"],
-        data: {
-          duration: {
-            value: 6,
-            expiry: "turnEnd",
-            units: "seconds",
-          },
-        },
+        options: { expiry: "sourceStart" },
       },
     ];
     return [...noMidiEffects, ...midiEffects];
   }
 
-  get itemMacro(): IDDBItemMacro {
+  override get itemMacro(): IDDBItemMacro {
     return {
       type: "spell",
       name: "absorbElements.js",
     };
   }
 
-  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
+  override get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
     return {
       type: "spell",
       name: "absorbElements.js",
@@ -105,7 +94,7 @@ export default class AbsorbElements extends DDBEnricherData {
     };
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         flags: {

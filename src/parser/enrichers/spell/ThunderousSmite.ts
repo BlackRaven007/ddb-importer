@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class ThunderousSmite extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       noeffect: true,
       allowCritical: true,
@@ -26,7 +26,7 @@ export default class ThunderousSmite extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     const activities: IDDBAdditionalActivity[] = [
       {
         init: {
@@ -34,8 +34,13 @@ export default class ThunderousSmite extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
-          generateConsumption: true,
-          generateSave: false,
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
+          generateConsumption: false,
+          noSpellslot: true,
+          generateSave: true,
+          // the spell data carries no save (the smite rides on the attack), so the push save is spelled out
+          saveOverride: { ability: ["str"], dc: { calculation: "spellcasting", formula: "" } },
           generateDamage: false,
           generateRange: true,
         },
@@ -64,12 +69,12 @@ export default class ThunderousSmite extends DDBEnricherData {
     return activities;
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return this.is2014 && this.useMidiAutomations;
   }
 
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return this.is2014 && this.useMidiAutomations
       ? [
         {
@@ -99,7 +104,7 @@ export default class ThunderousSmite extends DDBEnricherData {
       : [];
   }
 
-  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag | null {
+  override get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag | null {
     if (this.is2014) {
       return {
         type: "spell",
@@ -110,7 +115,7 @@ export default class ThunderousSmite extends DDBEnricherData {
     return null;
   }
 
-  get itemMacro(): IDDBItemMacro | null {
+  override get itemMacro(): IDDBItemMacro | null {
     if (this.is2014) {
       return {
         type: "spell",

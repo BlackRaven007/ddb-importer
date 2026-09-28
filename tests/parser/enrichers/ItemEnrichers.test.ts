@@ -1,0 +1,1362 @@
+/**
+ * A cross-section of the branchier equipment enrichers.
+ *
+ * Item enrichers are the least covered corner of the audit: the items suite
+ * replays RAW muncher payloads, so `is2014` is fixed by whichever payload was
+ * captured, and `documentStub` (which retypes an item entirely before parsing)
+ * never shows up in the worksheet at all. As with the other audit suites, none
+ * of it runs in CI.
+ *
+ * See ClassEnrichers.test.ts for why the barrel mocks below are needed and why
+ * DDBDataUtils is filled in beforeAll rather than in the mock factory.
+ */
+const loggerMock = vi.hoisted(() => ({
+  warn: vi.fn(),
+  debug: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+  verbose: vi.fn(),
+}));
+
+const parserLib = vi.hoisted(() => ({ DDBDataUtils: {} as any, DDBTemplateStrings: {} as any }));
+const modules = vi.hoisted(() => ({ midiQolInstalled: true }));
+
+vi.mock("../../../src/lib/_module", async () => ({
+  logger: loggerMock,
+  utils: (await vi.importActual<any>("../../../src/lib/Utils")).default,
+  // Cannon resolves publisher book ids through it; its own imports are light
+  // enough (config, Logger, Utils) not to re-enter the enricher tree.
+  DDBSources: (await vi.importActual<any>("../../../src/lib/DDBSources")).default,
+}));
+vi.mock("../../../src/parser/spells/CharacterSpellFactory", () => ({ default: class {} }));
+vi.mock("../../../src/parser/spells/DDBSpell", () => ({ default: class {} }));
+vi.mock("../../../src/parser/lib/_module", () => parserLib);
+vi.mock("../../../src/parser/enrichers/effects/_module", async () => ({
+  AutoEffects: { effectModules: () => modules },
+  EnchantmentEffects: {},
+  ChangeHelper: (await vi.importActual<any>("../../../src/parser/enrichers/effects/ChangeHelper")).default,
+  BehaviorHelper: (await vi.importActual<any>("../../../src/parser/enrichers/effects/BehaviorHelper")).default,
+  EffectGenerator: {},
+}));
+
+import * as ItemEnrichers from "../../../src/parser/enrichers/item/_module";
+import { makeEnricherData } from "../../_fixtures/ddb/factories";
+import { retributiveStrike } from "../../../src/parser/enrichers/item/_ItemActivities";
+
+type TEnricher = new (options: any) => any;
+
+beforeAll(async () => {
+  const { default: DDBDataUtils } = await import("../../../src/parser/lib/DDBDataUtils");
+  for (const key of Object.getOwnPropertyNames(DDBDataUtils)) {
+    if (typeof (DDBDataUtils as any)[key] === "function") {
+      parserLib.DDBDataUtils[key] = (DDBDataUtils as any)[key].bind(DDBDataUtils);
+    }
+  }
+  Object.assign(parserLib.DDBTemplateStrings, await import("../../../src/parser/lib/DDBTemplateStrings"));
+});
+
+function build(Enricher: TEnricher, options: Record<string, any> = {}): any {
+  return makeEnricherData(Enricher, { name: "Test Item", ...options } as any);
+}
+
+describe("AlchemistsFire", () => {
+  const Enricher = ItemEnrichers.AlchemistsFire;
+
+  it("is a dex attack in 2014 and a dex save in 2024", () => {
+    const legacy = build(Enricher, { is2014: true });
+    expect(legacy.type).toBe("attack");
+    expect(legacy.activity.data.attack).toMatchObject({ ability: "dex", type: { value: "ranged" } });
+    expect(legacy.activity.data.save).toBeUndefined();
+
+    const modern = build(Enricher);
+    expect(modern.type).toBe("save");
+    expect(modern.activity.data.save).toMatchObject({ ability: ["dex"], dc: { calculation: "dex" } });
+    expect(modern.activity.data.attack).toBeUndefined();
+  });
+
+  it("consumes the flask in both rulesets but only 2024 survives being emptied", () => {
+    expect(build(Enricher, { is2014: true }).activity.addItemConsume).toBe(true);
+    expect(build(Enricher).activity.addItemConsume).toBe(true);
+    expect(build(Enricher, { is2014: true }).override).toBeNull();
+    expect(build(Enricher).override.uses.autoDestroy).toBe(false);
+  });
+
+  it("adds the extinguish check only in 2014, where Burning does not exist", () => {
+    expect(build(Enricher, { is2014: true }).additionalActivities[0].init.name).toBe("Extinguish Flames Check");
+    expect(build(Enricher).additionalActivities).toBeNull();
+
+    expect(build(Enricher, { is2014: true }).effects[0].statuses).toBeUndefined();
+    expect(build(Enricher).effects[0].statuses).toEqual(["Burning"]);
+  });
+});
+
+describe("PotionOfHealing", () => {
+  const Enricher = ItemEnrichers.PotionOfHealing;
+
+  it("is an action in 2014 and a bonus action in 2024", () => {
+    expect(build(Enricher, { is2014: true }).activity.activationType).toBe("action");
+    expect(build(Enricher).activity.activationType).toBe("bonus");
+    expect(build(Enricher).type).toBe("heal");
+  });
+
+  it("forces the 2014 ruleset for a Player's Handbook (2014) printing", () => {
+    // sourceId 1 is the 2014 PHB; DDB ships both printings under one name
+    const phb2014 = build(Enricher, { ddbParser: { ddbDefinition: { sources: [{ sourceId: 1 }] } } });
+    expect(phb2014.override.data["flags.ddbimporter"]).toEqual({ is2014: true, is2024: false });
+    expect(phb2014.override.data.system.source.rules).toBe("2014");
+
+    const other = build(Enricher, { ddbParser: { ddbDefinition: { sources: [{ sourceId: 145 }] } } });
+    expect(other.override).toEqual({});
+    // and no sources at all must not throw
+    expect(build(Enricher, { ddbParser: { ddbDefinition: {} } }).override).toEqual({});
+  });
+});
+
+describe("Cannon", () => {
+  const Enricher = ItemEnrichers.Cannon;
+  const withSources = (...sourceIds: number[]) =>
+    build(Enricher, { ddbParser: { ddbDefinition: { sources: sourceIds.map((sourceId) => ({ sourceId })) } } });
+
+  // "Cannon" is a name other publishers use too, so the enricher gates on the
+  // DDB source. 164/197/281 are the Mage Hand Press books in category 32.
+  it.each([164, 197, 281])("sets cannonballs for a Mage Hand Press cannon (source %i)", (sourceId) => {
+    expect(withSources(sourceId).isMageHandPress).toBe(true);
+    expect(withSources(sourceId).override).toEqual({ data: { "system.ammunition.type": "cannonballs" } });
+  });
+
+  it.each([2, 249])("leaves another publisher's cannon alone (source %i)", (sourceId) => {
+    expect(withSources(sourceId).isMageHandPress).toBe(false);
+    expect(withSources(sourceId).override).toEqual({});
+  });
+
+  it("matches when the publisher is one of several sources", () => {
+    expect(withSources(2, 197).isMageHandPress).toBe(true);
+  });
+
+  it("does not throw when the item lists no sources", () => {
+    expect(withSources().isMageHandPress).toBe(false);
+    expect(build(Enricher, { ddbParser: { ddbDefinition: {} } }).override).toEqual({});
+  });
+
+  // foundry's mergeObject only expands dotted keys at depth 0, so nesting this
+  // under a `system` object would write a literal "ammunition.type" key
+  it("keeps the dotted path at the top level of data", () => {
+    expect(Object.keys(withSources(197).override.data)).toEqual(["system.ammunition.type"]);
+  });
+});
+
+describe("AirRender", () => {
+  const Enricher = ItemEnrichers.AirRender;
+
+  // Air Render is a shortbow that fires no ammunition, so the override clears
+  // the type the weapon parser assigns.
+  it("clears the ammunition type and the magical bonus", () => {
+    expect(build(Enricher).override.data).toEqual({
+      "system.magicalBonus": null,
+      "system.ammunition.type": "",
+    });
+  });
+
+  // Regression: both were nested under a `system` object, where mergeObject
+  // does not expand them. The item kept its parser assigned ammunition type
+  // (arrow) and gained a literal "ammunition.type" property instead.
+  it("keeps dotted paths at the top level of data", () => {
+    const data = build(Enricher).override.data;
+    expect(data.system).toBeUndefined();
+    for (const key of Object.keys(data)) expect(key.startsWith("system.")).toBe(true);
+  });
+});
+
+describe("JavelinOfLightning", () => {
+  const Enricher = ItemEnrichers.JavelinOfLightning;
+
+  it("clears the DDB uses and keeps the item from self-destructing", () => {
+    for (const is2014 of [true, false]) {
+      const override = build(Enricher, { is2014 }).override;
+      expect(override.retainUseSpent).toBe(true);
+      expect(override.data.system.uses).toMatchObject({ max: "", recovery: [], autoDestroy: false });
+    }
+  });
+
+  it("only 2024 restates the base damage as piercing plus lightning", () => {
+    expect(build(Enricher, { is2014: true }).override.data.system.damage).toBeUndefined();
+    expect(build(Enricher).override.data.system.damage.base).toMatchObject({
+      number: 1,
+      denomination: 6,
+      types: ["piercing", "lightning"],
+    });
+  });
+
+  it("adds the lightning bolt without the auto-generated activities", () => {
+    const e = build(Enricher);
+    expect(e.additionalActivities.map((a: any) => a.init?.name ?? a.action?.name)).toContain("Lightning Bolt");
+    expect(e.addAutoAdditionalActivities).toBe(false);
+    expect(e.activity.noConsumeTargets).toBe(true);
+  });
+});
+
+describe("WandOfOrcus", () => {
+  const Enricher = ItemEnrichers.WandOfOrcus;
+
+  it("retypes the wand into a mace before parsing", () => {
+    // documentStub runs ahead of the normal item pipeline and never appears in
+    // the audit worksheet, so nothing else asserts this retype
+    const stub = build(Enricher).documentStub;
+    expect(stub).toMatchObject({
+      documentType: "weapon",
+      parsingType: "weapon",
+      replaceDefaultActivity: true,
+      systemType: { value: "simpleM", baseItem: "mace" },
+    });
+    expect(stub.copySRD.uuid).toBe("Compendium.dnd5e.items.Item.Ajyq6nGwF7FtLhDQ");
+  });
+
+  it("adds the attunement save and suppresses the auto activities", () => {
+    const e = build(Enricher);
+    expect(e.additionalActivities.map((a: any) => a.init.name)).toContain("Save vs Attunement");
+    expect(e.addAutoAdditionalActivities).toBe(false);
+  });
+});
+
+describe("MistypedCrossbow", () => {
+  const Enricher = ItemEnrichers.MistypedCrossbow;
+
+  // DDB source 225 ships these with type "Ammunition" and no damage, range,
+  // properties or category, so they import as consumable ammo without the stub
+  it.each([
+    ["Silent Hand Crossbow", "martialR", "handcrossbow", "Compendium.dnd5e.equipment24.Item.phbwepHandCrossb"],
+    ["Silent Heavy Crossbow", "martialR", "heavycrossbow", "Compendium.dnd5e.equipment24.Item.phbwepHeavyCross"],
+    ["Silent Light Crossbow", "simpleR", "lightcrossbow", "Compendium.dnd5e.equipment24.Item.phbwepLightCross"],
+    ["Ghaal'Shaarat Hand Crossbow +3", "martialR", "handcrossbow", "Compendium.dnd5e.equipment24.Item.phbwepHandCrossb"],
+    ["Ghaal'Shaarat Light Crossbow +1", "simpleR", "lightcrossbow", "Compendium.dnd5e.equipment24.Item.phbwepLightCross"],
+  ])("retypes %s into a weapon with the right base", (name, systemType, baseItem, uuid) => {
+    const stub = build(Enricher, { name, ddbParser: { originalName: name } }).documentStub;
+    expect(stub).toMatchObject({
+      documentType: "weapon",
+      parsingType: "weapon",
+      systemType: { value: systemType, baseItem },
+    });
+    expect(stub.copySRD.uuid).toBe(uuid);
+  });
+
+  it("copies the 2014 crossbow for legacy content", () => {
+    const name = "Ghaal'Shaarat Heavy Crossbow +2";
+    const stub = build(Enricher, { name, is2014: true, ddbParser: { originalName: name } }).documentStub;
+    expect(stub.copySRD.uuid).toBe("Compendium.dnd5e.items.Item.RmP0mYRn2J7K26rX");
+  });
+
+  it("leaves a weapon that is not a crossbow alone", () => {
+    const name = "Ghaal'Shaarat Longsword +1";
+    expect(build(Enricher, { name, ddbParser: { originalName: name } }).documentStub).toBeNull();
+  });
+});
+
+describe("GhaalShaaratWeapon", () => {
+  const Enricher = ItemEnrichers.GhaalShaaratWeapon;
+
+  function applyOverride(name: string, doc: any): any {
+    const e = build(Enricher, { name, ddbParser: { originalName: name } });
+    e.override.func({ enricher: { data: doc } });
+    return doc;
+  }
+
+  function weaponDoc(value: string, properties: string[], range: any): any {
+    return { type: "weapon", system: { type: { value, baseItem: "" }, properties, range } };
+  }
+
+  // every ghaal'shaarat has the Returning Weapon trait, none of the DDB
+  // definitions carry the Thrown property
+  it("adds thrown and returning to a melee weapon, with the 30/120 thrown range", () => {
+    const doc = applyOverride(
+      "Ghaal'Shaarat Longsword +1",
+      weaponDoc("martialM", ["ver", "mgc"], { value: 5, long: null, units: "ft", reach: null }),
+    );
+    expect(doc.system.properties).toEqual(["ver", "mgc", "thr", "ret"]);
+    expect(doc.system.range).toEqual({ value: 30, long: 120, units: "ft", reach: null });
+  });
+
+  it("keeps the longer range of a ranged weapon", () => {
+    const doc = applyOverride(
+      "Ghaal'Shaarat Longbow +2",
+      weaponDoc("martialR", ["amm", "hvy", "two"], { value: 150, long: 600, units: "ft", reach: null }),
+    );
+    expect(doc.system.properties).toEqual(["amm", "hvy", "two", "thr", "ret"]);
+    expect(doc.system.range).toEqual({ value: 150, long: 600, units: "ft", reach: null });
+  });
+
+  it("still retypes the crossbow variants DDB entered as ammunition", () => {
+    const name = "Ghaal'Shaarat Hand Crossbow +1";
+    const stub = build(Enricher, { name, ddbParser: { originalName: name } }).documentStub;
+    expect(stub).toMatchObject({ documentType: "weapon", systemType: { baseItem: "handcrossbow" } });
+  });
+});
+
+describe("EldritchClawTattoo", () => {
+  it("pairs the Eldritch Maul activity with an effect of the same name", () => {
+    // the effect is matched to the activity by name, so a rename in one place
+    // orphans the other
+    const e = build(ItemEnrichers.EldritchClawTattoo);
+    const activityNames = e.additionalActivities.map((a: any) => a.init?.name ?? a.action?.name);
+    expect(activityNames).toContain("Eldritch Maul");
+    expect(e.effects.map((effect: any) => effect.name)).toContain("Eldritch Maul");
+  });
+});
+
+describe("ArrowCatchingShield", () => {
+  it("keeps the ranged AC bonus as a standing transfer effect the reaction does not apply", () => {
+    const hints = build(ItemEnrichers.ArrowCatchingShield).effects;
+    for (const hint of hints) {
+      expect(hint.activityMatch).toBeUndefined();
+      expect(hint.options).toMatchObject({ transfer: true, durationSeconds: null, expiry: null });
+    }
+    const [ac5e, manual] = hints;
+    expect(ac5e.ac5eOnly).toBe(true);
+    expect(ac5e.changes).toBeUndefined();
+    expect(ac5e.ac5eChanges[0]).toMatchObject({
+      key: "flags.automated-conditions-5e.modifyAC",
+      value: "bonus=2; actionType.rwak || actionType.rsak",
+    });
+    // a live flat bonus would also count against melee attacks
+    expect(manual.ac5eNever).toBe(true);
+    expect(manual.options.disabled).toBe(true);
+    expect(manual.changes[0]).toMatchObject({ key: "system.attributes.ac.bonus", value: "2" });
+  });
+});
+
+describe("granted fly speeds go to whoever uses the item, not whoever carries it", () => {
+  it("Broom of Flying applies Riding Broom from Mount Broom and leaves it open-ended", () => {
+    const e = build(ItemEnrichers.BroomOfFlying);
+    expect(e.type).toBe("utility");
+    expect(e.activity).toMatchObject({ name: "Mount Broom", targetType: "self", activationType: "action" });
+    // an applied effect with no expiry would otherwise inherit a counted activity duration
+    expect(e.activity.data.duration.units).toBe("spec");
+    expect(build(ItemEnrichers.BroomOfFlying, { is2014: true }).activity.activationType).toBe("special");
+    expect(e.additionalActivities.map((a: any) => a.init.name)).toEqual(["Send Alone or Recall"]);
+    // DDB's unconditional "set flying speed" modifier must not survive as a passive effect
+    expect(e.clearAutoEffects).toBe(true);
+    expect(e.effects).toHaveLength(1);
+    expect(e.effects[0]).toMatchObject({
+      activityMatch: "Mount Broom",
+      statuses: ["Flying"],
+      options: { transfer: false, durationSeconds: null, expiry: null },
+    });
+    expect(e.effects[0].changes.map((c: any) => [c.key, c.value])).toEqual([
+      ["system.attributes.movement.speeds.fly", "50"],
+      ["system.attributes.movement.hover", "true"],
+    ]);
+  });
+
+  it("Pixie Dust spends the packet to give one creature fly 30 and hover for a minute", () => {
+    const e = build(ItemEnrichers.PixieDust);
+    expect(e.type).toBe("utility");
+    expect(e.activity).toMatchObject({ name: "Sprinkle Dust", targetType: "creature", addItemConsume: true });
+    expect(e.activity.data.range).toMatchObject({ value: "5", units: "ft" });
+    expect(e.activity.data.duration).toMatchObject({ value: "1", units: "minute" });
+    expect(e.clearAutoEffects).toBe(true);
+    expect(e.effects[0].options).toMatchObject({ transfer: false, durationSeconds: 60 });
+    expect(e.effects[0].changes.map((c: any) => [c.key, c.value])).toEqual([
+      ["system.attributes.movement.speeds.fly", "30"],
+      ["system.attributes.movement.hover", "true"],
+    ]);
+  });
+});
+
+describe("FlameTongue", () => {
+  const Enricher = ItemEnrichers.FlameTongue;
+  const fireMod = (restriction: string, diceString = "2d6") => ({
+    ddbParser: {
+      ddbDefinition: { grantedModifiers: [{ type: "damage", subType: "fire", dice: { diceString }, restriction }] },
+    },
+  });
+
+  it("sets the blade ablaze with a self enchantment in place of the parser's restricted attack", () => {
+    const e = build(Enricher, fireMod("While Flaming"));
+    expect(e.addAutoAdditionalActivities).toBe(false);
+    expect(e.additionalActivities).toHaveLength(1);
+    const engulf = e.additionalActivities[0];
+    expect(engulf.init).toMatchObject({ name: "Engulf in Flames", type: "enchant" });
+    expect(engulf.overrides).toMatchObject({ noeffect: false, activationType: "bonus" });
+    expect(engulf.overrides.data.enchant).toEqual({ self: true });
+    // a counted duration would be stamped onto the open-ended enchantment
+    expect(engulf.overrides.data.duration.units).toBe("spec");
+  });
+
+  it("adds DDB's fire dice through the enchantment and carries the light as a transferring rider", () => {
+    const [ablaze, light] = build(Enricher, fireMod("While the sword is ablaze", "3d6")).effects;
+    expect(ablaze).toMatchObject({ type: "enchant", activityMatch: "Engulf in Flames" });
+    expect(ablaze.changes.map((c: any) => [c.key, c.value])).toEqual([
+      ["name", "{} (Ablaze)"],
+      ["system.damage.parts", "[[\"3d6\", \"fire\"]]"],
+      // the toggle's next use removes the enchantment, so it reads as the way to put the flames out
+      ["activities[enchant].name", "Extinguish Flames"],
+    ]);
+    expect(ablaze.data.flags.ddbimporter.effectRiders).toEqual([light.data._id]);
+    expect(ablaze.options.showIcon).toBe(2);
+    expect(light.options.showIcon).toBeUndefined();
+
+    expect(light.options.transfer).toBe(true);
+    expect(light.activityMatch).toBeUndefined();
+    expect(light.tokenChanges.slice(0, 2).map((c: any) => [c.key, c.type, c.value])).toEqual([
+      ["token.light.bright", "upgrade", "40"],
+      ["token.light.dim", "upgrade", "80"],
+    ]);
+  });
+
+  it("strips the fire dice the parser bakes into the attack only when DDB leaves them unrestricted", () => {
+    const parts = () => [
+      { number: 1, denomination: 8, types: ["radiant"] },
+      { number: 2, denomination: 6, types: ["fire"] },
+    ];
+
+    const baked = { damage: { parts: parts() } };
+    build(Enricher, fireMod("")).activity.func({ activity: baked });
+    expect(baked.damage.parts).toEqual([{ number: 1, denomination: 8, types: ["radiant"] }]);
+
+    const restricted = { damage: { parts: parts() } };
+    build(Enricher, fireMod("While Flaming")).activity.func({ activity: restricted });
+    expect(restricted.damage.parts).toHaveLength(2);
+  });
+
+  it("falls back to 2d6 when the payload has no fire modifier", () => {
+    expect(build(Enricher).flameDice).toBe("2d6");
+  });
+});
+
+describe("hazard gear regions", () => {
+  it("Caltrops place a region that fires a save carrying the speed rider", () => {
+    const e = build(ItemEnrichers.Caltrops);
+    expect(e.type).toBe("utility");
+    expect(e.activity.data.behaviors[0].config.events).toEqual(["tokenEnter"]);
+    expect(e.activity.data.behaviors[0].config.args.activityName).toBe("Caltrops Save");
+    const save = e.additionalActivities[0];
+    expect(save.init).toEqual({ name: "Caltrops Save", type: "save" });
+    expect(save.build.saveOverride.dc.formula).toBe("15");
+    expect(save.build.generateConsumption).toBe(false);
+    expect(save.overrides.data.damage.onSave).toBe("none");
+    // applied by the save the region fires, never passively to whoever carries the bag
+    expect(e.effects[0]).toMatchObject({ activityMatch: "Caltrops Save", options: { transfer: false } });
+    expect(e.effects[0].changes[0].key).toBe("system.attributes.movement.multiplier");
+    expect(build(ItemEnrichers.Caltrops, { is2014: true }).effects[0].changes[0].key).toBe("system.attributes.movement.bonus");
+  });
+
+  it("Ball Bearings place a region that fires a prone save", () => {
+    const e = build(ItemEnrichers.BallBearings);
+    expect(e.type).toBe("utility");
+    expect(e.activity.data.behaviors[0].config.events).toEqual(["tokenEnter"]);
+    expect(e.activity.data.behaviors[0].config.args.activityName).toBe("Ball Bearings Save");
+    expect(e.additionalActivities[0].init).toEqual({ name: "Ball Bearings Save", type: "save" });
+    expect(e.additionalActivities[0].build.saveOverride.dc.formula).toBe("10");
+    expect(e.effects[0]).toMatchObject({ activityMatch: "Ball Bearings Save", statuses: ["Prone"], options: { transfer: false } });
+  });
+
+  it("Oil pours without burning; lighting it places the 2-round fire that burns on entry or turn end", () => {
+    const e = build(ItemEnrichers.Oil);
+    expect(e.activity).toMatchObject({ name: "Douse a Space", addItemConsume: true, noTemplate: true });
+    expect(e.activity.data.behaviors).toBeUndefined();
+    expect(e.additionalActivities.map((a: any) => a.init.name)).toEqual(["Light the Oil", "Burning Oil Damage", "Douse a Creature"]);
+    const [light] = e.additionalActivities;
+    expect(light.init.type).toBe("utility");
+    expect(light.build.targetOverride.template).toMatchObject({ type: "square", size: "5" });
+    expect(light.build.durationOverride).toMatchObject({ value: "2", units: "round" });
+    const macro = light.overrides.data.behaviors.find((b: any) => b.type === "ddbMacro");
+    expect(macro.config).toMatchObject({ events: ["tokenEnter", "tokenTurnEnd"], enterOn: "movement", args: { activityName: "Burning Oil Damage" } });
+  });
+});
+
+describe("MoonSickle", () => {
+  it("limits the healing die to spells, cantrips included", () => {
+    const effects = build(ItemEnrichers.MoonSickle).effects;
+    expect(effects[0].changes).toEqual([
+      expect.objectContaining({ key: "healing", value: "1d4", type: "dnd5e.bonus" }),
+    ]);
+    // "when you cast a spell that restores hit points": Lay on Hands and potions are not spells,
+    // and only a spell carries item.level, so the filter is a positive test on that
+    expect(JSON.parse(effects[0].changes[0].conditions)).toEqual({ k: "item.level", o: "gte", v: 0 });
+  });
+});
+
+/**
+ * Unarmed magic items split two ways. A plain numeric bonus is a rule change gated on the attack
+ * classification, which needs no enchantment and no user action. Anything that changes the strike
+ * itself - its die, its damage type, or making it magical - can only be an enchantment, because a
+ * rule change cannot mutate another item.
+ */
+describe("unarmed magic items", () => {
+  const unarmed = { k: "roll.attack.classification", o: "in", v: ["unarmed", "natural"] };
+
+  it("gives Wraps of Dyamak a bonus per vestige state", () => {
+    for (const [name, bonus] of [["Wraps of Dyamak (Dormant)", "1"], ["Wraps of Dyamak (Awakened)", "2"],
+      ["Wraps of Dyamak (Exalted)", "3"], ["Wraps of Dyamak", "3"]] as const) {
+      const changes = build(ItemEnrichers.WrapsOfDyamak, { name }).effects[0].changes ?? [];
+      expect(changes.map((c: any) => `${c.key}:${c.value}`)).toEqual([`attack:${bonus}`, `damage:${bonus}`]);
+      for (const change of changes) expect(JSON.parse(String(change.conditions))).toEqual(unarmed);
+    }
+  });
+
+  it("scales the Broodslinger spikes by rarity and types the damage", () => {
+    for (const [name, damage] of [["Broodslinger (Uncommon)", "1"], ["Broodslinger (Rare)", "1d4"],
+      ["Broodslinger (Very Rare)", "2d4"], ["Broodslinger", "1"]] as const) {
+      const changes = build(ItemEnrichers.Broodslinger, { name }).effects[0].changes ?? [];
+      expect(changes).toEqual([
+        expect.objectContaining({ key: "damage", value: `${damage}[piercing]`, type: "dnd5e.bonus" }),
+      ]);
+      expect(JSON.parse(String(changes[0].conditions))).toEqual(unarmed);
+    }
+  });
+
+  it("splits Demon Padded Armor between a rule and an enchantment", () => {
+    const enricher = build(ItemEnrichers.DemonArmor, { name: "Demon Padded Armor" });
+    const [bonusEffect, enchantEffect] = enricher.effects;
+
+    // the +1 needs no user action
+    expect((bonusEffect.changes ?? []).map((c: any) => `${c.key}:${c.value}`)).toEqual(["attack:1", "damage:1"]);
+    expect(JSON.parse(String(bonusEffect.changes[0].conditions))).toEqual(unarmed);
+
+    // the 1d8 slashing rewrites the strike, which only an enchantment can do
+    expect(enchantEffect.type).toBe("enchant");
+    expect((enchantEffect.changes ?? []).map((c: any) => `${c.key}=${c.value}`)).toEqual([
+      "system.damage.base.number=1",
+      "system.damage.base.denomination=8",
+      "system.damage.base.custom.enabled=false",
+      "system.damage.base.types=slashing",
+      "system.damage.base.types=-bludgeoning",
+    ]);
+    // the Unarmed Strike item's weapon type is "natural", which is what the restriction matches
+    expect(enricher.activity.data.restrictions).toMatchObject({ type: "weapon", categories: ["natural"] });
+  });
+
+  it("makes the Hypnovulfen bite an enchantment, not a bonus", () => {
+    const effects = build(ItemEnrichers.HypnovulfenFigure, { name: "Hypnovulfen Figure" }).effects;
+    expect(effects).toHaveLength(1);
+    expect(effects[0].type).toBe("enchant");
+    expect((effects[0].changes ?? []).map((c: any) => c.value)).toContain("piercing");
+  });
+
+  it("adds a damage type option to the elemental potions without losing the drink", () => {
+    for (const [name, type] of [["Salamander Sauce", "fire"], ["Last Rites Rum", "necrotic"]] as const) {
+      const enricher = build(ItemEnrichers.UnarmedElementalPotion, { name });
+      // the enchantment is an additional activity, so the parsed self-damage activity survives
+      const [additional] = enricher.additionalActivities;
+      expect(additional.init).toMatchObject({ name: expect.stringContaining("Empower Unarmed Strikes"), type: "enchant" });
+      expect(additional.overrides.data.restrictions).toMatchObject({ categories: ["natural"] });
+
+      const [effect] = enricher.effects;
+      expect(effect.type).toBe("enchant");
+      expect(effect.options.durationSeconds).toBe(3600);
+      // an added type is an extra option at roll time, the Sacred Weapon idiom
+      expect(effect.changes).toEqual([
+        expect.objectContaining({ key: "system.damage.base.types", value: type, type: "add" }),
+      ]);
+    }
+  });
+
+  it("gives Shepherd's Bane a timed claw enchantment", () => {
+    const enricher = build(ItemEnrichers.ShepherdsBane, { name: "Shepherd’s Bane" });
+    expect(enricher.effects[0].type).toBe("enchant");
+    expect(enricher.effects[0].options.durationSeconds).toBe(3600);
+    expect((enricher.effects[0].changes ?? []).map((c: any) => c.value)).toContain("slashing");
+  });
+});
+
+// The item parser carries at most one save and parses no checks at all, so an
+// item describing a second roll needs an enricher to build it. See
+// docs/multi-roll-items.md for the rest of the candidates.
+describe("items with more than one roll", () => {
+  it("gives Muscle Graft both of its Constitution saves", () => {
+    const enricher = build(ItemEnrichers.MuscleGraft, { name: "Muscle Graft" });
+
+    // DDB writes this one as a "save" rather than a "saving throw"
+    expect(enricher.activity.name).toBe("Attunement Save");
+    expect(enricher.activity.data.save).toMatchObject({ ability: ["con"], dc: { formula: "15" } });
+
+    expect(enricher.additionalActivities).toHaveLength(1);
+    const curse = enricher.additionalActivities[0];
+    expect(curse.init.name).toBe("Curse: Weekly Save");
+    expect(curse.build.saveOverride).toMatchObject({ ability: ["con"], dc: { formula: "10" } });
+
+    // the failed attunement save costs 2 Constitution; the minimum of 1 is manual
+    expect(enricher.effects[0]).toMatchObject({ activityMatch: "Attunement Save" });
+    expect(enricher.effects[0].changes).toEqual([
+      expect.objectContaining({ key: "system.abilities.con.value", value: "-2" }),
+    ]);
+  });
+
+  it("puts the Sugarbomb's bite check in front of its nausea save", () => {
+    const enricher = build(ItemEnrichers.EverlastingSugarbomb, { name: "Everlasting Sugarbomb" });
+
+    expect(enricher.type).toBe("check");
+    // check.ability is a single StringField, so the "or Constitution" half of the
+    // choice lives in the activation condition
+    expect(enricher.activity.data.check).toMatchObject({ ability: "str", dc: { formula: "25" } });
+    expect(enricher.activity.activationCondition).toContain("Constitution");
+
+    expect(enricher.additionalActivities[0].init.name).toBe("Nausea Save");
+    expect(enricher.additionalActivities[0].build.saveOverride).toMatchObject({
+      ability: ["con"],
+      dc: { formula: "16" },
+    });
+    expect(enricher.effects[0]).toMatchObject({
+      statuses: ["Poisoned"],
+      activityMatch: "Nausea Save",
+      options: { durationSeconds: 60 },
+    });
+  });
+
+  it("builds the Sphere of Annihilation's SRD activity set", () => {
+    const enricher = build(ItemEnrichers.SphereOfAnnihilation, { name: "Sphere of Annihilation" });
+
+    // the Dexterity save and its damage differ between printings and both parse
+    // correctly, so the enricher only names it - and strips the template the parser
+    // reads out of the planar-portal table's "180 feet of the sphere"
+    expect(enricher.activity).toMatchObject({
+      name: "Touched by the Sphere",
+      activationCondition: "A creature's space the sphere enters",
+      noTemplate: true,
+    });
+
+    expect(enricher.additionalActivities.map((a: any) => a.init.name))
+      .toEqual(["Engulfed", "Control the Sphere"]);
+
+    const [engulfed, control] = enricher.additionalActivities;
+    expect(engulfed.init.type).toBe("damage");
+    expect(control.init.type).toBe("check");
+    expect(control.build.checkOverride).toMatchObject({
+      ability: "int",
+      associated: ["arc"],
+      dc: { formula: "25" },
+    });
+  });
+
+  it("doubles the sphere's touch damage for the 2024 reprint", () => {
+    const legacy = build(ItemEnrichers.SphereOfAnnihilation, { name: "Sphere of Annihilation", is2014: true });
+    const modern = build(ItemEnrichers.SphereOfAnnihilation, { name: "Sphere of Annihilation", is2014: false });
+
+    expect(legacy.additionalActivities[0].build.damageParts[0]).toMatchObject({ number: 4, denomination: 10 });
+    expect(modern.additionalActivities[0].build.damageParts[0]).toMatchObject({ number: 8, denomination: 10 });
+  });
+
+  it("builds the Bag of Beans' SRD activity set", () => {
+    const enricher = build(ItemEnrichers.BagOfBeans, { name: "Bag of Beans" });
+
+    // the parser reads the DC 15 save but scoops the d100 table's dice in with it
+    expect(enricher.activity.name).toBe("Dump Beans");
+    expect(enricher.activity.removeDamageParts).toBe(true);
+    expect(enricher.activity.damageParts).toHaveLength(1);
+    expect(enricher.activity.data.damage.onSave).toBe("half");
+    expect(enricher.activity.data.target.template).toMatchObject({ type: "sphere", size: "10" });
+
+    expect(enricher.additionalActivities.map((a: any) => a.init.name)).toEqual(["Count Beans", "Plant Bean"]);
+    // a negative consumption ADDS uses: rolling Count Beans sets the bean count
+    expect(enricher.additionalActivities[0].overrides.data.consumption.targets[0])
+      .toMatchObject({ type: "itemUses", value: "-3d4" });
+    // the bag starts empty so Count Beans' negative consumption can set the count
+    expect(enricher.override.uses).toMatchObject({ spent: 12, max: "12" });
+
+    // the table-derived "Damage" activity the parser would otherwise add
+    expect(enricher.addAutoAdditionalActivities).toBe(false);
+  });
+
+  it("burns for fire in 2014 and force in the 2024 reprint", () => {
+    const legacy = build(ItemEnrichers.BagOfBeans, { name: "Bag of Beans", is2014: true });
+    const modern = build(ItemEnrichers.BagOfBeans, { name: "Bag of Beans", is2014: false });
+
+    expect(legacy.activity.damageParts[0].types).toEqual(["fire"]);
+    expect(modern.activity.damageParts[0].types).toEqual(["force"]);
+  });
+
+  it("explodes for 5d4 however many beans are dumped", () => {
+    const legacy = build(ItemEnrichers.BagOfBeans, { name: "Bag of Beans", is2014: true });
+    const modern = build(ItemEnrichers.BagOfBeans, { name: "Bag of Beans", is2014: false });
+
+    for (const enricher of [legacy, modern]) {
+      expect(enricher.activity.damageParts[0]).toMatchObject({ number: 5, denomination: 4, scaling: { mode: "none" } });
+    }
+    // 2014 dumps the whole bag; the 2024 reprint picks how many beans to dump
+    expect(legacy.activity).toMatchObject({ addItemConsume: true, itemConsumeValue: "@item.uses.value" });
+    expect(legacy.activity.addScalingMode).toBeUndefined();
+    expect(modern.activity).toMatchObject({
+      addItemConsume: true,
+      itemConsumeValue: 1,
+      addScalingMode: "amount",
+      addConsumptionScalingMax: "@item.uses.value",
+    });
+  });
+
+  it("makes the Rod of Lordly Might a +3 mace with separately recovering properties", () => {
+    const legacy = build(ItemEnrichers.RodOfLordlyMight, { name: "Rod of Lordly Might", is2014: true });
+    const modern = build(ItemEnrichers.RodOfLordlyMight, { name: "Rod of Lordly Might", is2014: false });
+
+    for (const enricher of [legacy, modern]) {
+      expect(enricher.documentStub).toMatchObject({
+        documentType: "weapon",
+        parsingType: "weapon",
+        replaceDefaultActivity: true,
+        systemType: { value: "simpleM", baseItem: "mace" },
+      });
+      // the 2014 item has no magic bonus modifier, only the text
+      expect(enricher.override.data["system.magicalBonus"]).toBe(3);
+      // the shared item use the parser reads from the text is cleared
+      expect(enricher.override.uses).toMatchObject({ max: "", recovery: [] });
+    }
+    expect(modern.type).toBe("attack");
+    expect(modern.activity).toMatchObject({ name: "Mace", noConsumeTargets: true });
+
+    const byName = (enricher: any) => Object.fromEntries(
+      enricher.additionalActivities.map((a: any) => [a.init.name, a]),
+    );
+    const legacyActivities = byName(legacy);
+    const modernActivities = byName(modern);
+
+    expect(modernActivities["Drain Life"].build).toMatchObject({
+      includeBaseDamage: false,
+      onSave: "none",
+      saveOverride: { ability: ["con"], dc: { formula: "17" } },
+      usesOverride: { max: "1", recovery: [{ period: "dawn", type: "recoverAll" }] },
+      activationOverride: { type: "special" },
+    });
+    expect(modernActivities["Drain Life"].build.damageParts[0]).toMatchObject({ number: 4, denomination: 6, types: ["necrotic"] });
+    expect(modernActivities["Drain Life"].overrides.addActivityConsume).toBe(true);
+
+    // the button forms are attacks, not limited properties
+    for (const name of ["Button 1: Flame Tongue", "Button 2: Battleaxe", "Button 3: Spear"]) {
+      expect(modernActivities[name].init.type, name).toBe("attack");
+      expect(modernActivities[name].overrides.noConsumeTargets, name).toBe(true);
+      expect(modernActivities[name].overrides.addActivityConsume, name).toBeUndefined();
+    }
+    // dnd5e adds the rod's +3 to every attack roll; the flame tongue blade is not a +3 weapon,
+    // so it rolls flat with the rod's proficiency written back in
+    const flameTongue = modernActivities["Button 1: Flame Tongue"].overrides.data;
+    expect(flameTongue.attack).toMatchObject({ flat: true, bonus: "@mod + @item.prof" });
+    expect(flameTongue.damage.parts.map((p: any) => p.types[0])).toEqual(["slashing", "fire"]);
+    expect(flameTongue.damage.parts[0].bonus).toBe("@mod");
+    const battleaxe = modernActivities["Button 2: Battleaxe"].overrides.data;
+    expect(battleaxe.attack.flat).toBeUndefined();
+    expect(battleaxe.attack.bonus).toBeUndefined();
+    expect(modernActivities["Button 3: Spear"].overrides.data.damage.parts[0])
+      .toMatchObject({ number: 1, denomination: 6, bonus: "@mod + @item.magicalBonus", types: ["piercing"] });
+
+    // Paralyze is a Strength save in 2014 and a Constitution save in 2024
+    expect(legacyActivities.Paralyze.build.saveOverride.ability).toEqual(["str"]);
+    expect(modernActivities.Paralyze.build.saveOverride.ability).toEqual(["con"]);
+    for (const name of ["Paralyze", "Terrify"]) {
+      expect(modernActivities[name].build.usesOverride, name).toMatchObject({ max: "1" });
+      expect(modernActivities[name].overrides.addActivityConsume, name).toBe(true);
+    }
+    expect(modernActivities.Paralyze.build.activationOverride.type).toBe("special");
+  });
+
+  it("splits the Staff of Thunder and Lightning into separately recovering properties", () => {
+    const legacy = build(ItemEnrichers.StaffOfThunderAndLightning, { name: "Staff of Thunder and Lightning", is2014: true });
+    const modern = build(ItemEnrichers.StaffOfThunderAndLightning, { name: "Staff of Thunder and Lightning", is2014: false });
+
+    expect(modern.clearAutoEffects).toBe(true);
+    expect(modern.override.uses).toMatchObject({ max: "", recovery: [] });
+
+    expect(legacy.additionalActivities.map((a: any) => a.init.name)).toEqual([
+      "Thunder",
+      "Lightning",
+      "Thunder and Lightning (Lightning Strike)",
+      "Thunder and Lightning (Thunderclap)",
+      "Lightning Strike",
+      "Thunderclap",
+    ]);
+    expect(modern.additionalActivities.map((a: any) => a.init.name)).toEqual([
+      "Thunder",
+      "Lightning",
+      "Thunder and Lightning",
+      "Lightning Strike",
+      "Thunderclap",
+    ]);
+
+    // Thunder rides on a hit and needs no action of its own
+    expect(modern.additionalActivities[0].build.activationOverride.type).toBe("special");
+    // 2024 Thunder and Lightning is a Bonus Action after a hit
+    expect(modern.additionalActivities[2].build.activationOverride.type).toBe("bonus");
+
+    // one activity cannot spend another's use, so the 2014 Thunderclap half has its own daily use
+    const legacyThunderclap = legacy.additionalActivities[3];
+    expect(legacyThunderclap.init.name).toBe("Thunder and Lightning (Thunderclap)");
+    expect(legacyThunderclap.build.generateUses).toBe(true);
+    expect(legacyThunderclap.build.usesOverride).toMatchObject({ max: "1", recovery: [{ period: "dawn", type: "recoverAll" }] });
+    expect(legacyThunderclap.overrides.addActivityConsume).toBe(true);
+
+    const stunned = modern.effects.find((e: any) => e.name === "Stunned");
+    expect(stunned.options.expiry).toBe("sourceEnd");
+    expect(stunned.activitiesMatch).toEqual(["Thunder", "Thunder and Lightning"]);
+    expect(legacy.effects.find((e: any) => e.name === "Deafened").activitiesMatch)
+      .toEqual(["Thunderclap", "Thunder and Lightning (Thunderclap)"]);
+  });
+
+  it("names every mode of the Quiver of Elemental Chaos", () => {
+    const enricher = build(ItemEnrichers.QuiverOfElementalChaos, { name: "Quiver of Elemental Chaos" });
+
+    // the section splitter cannot read this item - DDB nests its labels both ways
+    // round - so the generator would fall back to "Dex Save"/"Con Save"
+    expect(enricher.addAutoAdditionalActivities).toBe(false);
+    expect(enricher.activity.name).toBe("Air Ammunition");
+    expect(enricher.activity.removeDamageParts).toBe(true);
+
+    const names = enricher.additionalActivities.map((a: any) => a.init.name);
+    expect(names).toEqual([
+      "Earth Ammunition", "Earth Ammunition: Push",
+      "Fire Ammunition", "Fire Ammunition: Explosion",
+      "Water Ammunition",
+      "Ice Ammunition", "Ice Ammunition: Paralysis",
+      "Magma Ammunition", "Magma Ammunition: Searing Heat",
+      "Ooze Ammunition: Grease",
+    ]);
+
+    // the on-hit extra damage and the rider are separate rolls, so they stay separate
+    // activities: folding them together would gate the extra damage on the save
+    const byName = Object.fromEntries(enricher.additionalActivities.map((a: any) => [a.init.name, a]));
+    expect(byName["Ice Ammunition"].init.type).toBe("damage");
+    expect(byName["Ice Ammunition"].build.damageParts[0]).toMatchObject({ number: 3, denomination: 6, types: ["cold"] });
+    expect(byName["Ice Ammunition: Paralysis"].init.type).toBe("save");
+    expect(byName["Ice Ammunition: Paralysis"].build.saveOverride).toMatchObject({
+      ability: ["con"], dc: { formula: "15" },
+    });
+    expect(byName["Ice Ammunition: Paralysis"].build.damageParts).toEqual([]);
+
+    // only the riders that cover an area carry one
+    expect(byName["Magma Ammunition: Searing Heat"].overrides.data.target.template)
+      .toMatchObject({ type: "sphere", size: "10" });
+    expect(byName["Earth Ammunition: Push"].overrides.noTemplate).toBe(true);
+  });
+
+  it("gives the quiver's ice rider both of its outcomes", () => {
+    const enricher = build(ItemEnrichers.QuiverOfElementalChaos, { name: "Quiver of Elemental Chaos" });
+
+    const [paralysed, slowed] = enricher.effects;
+    expect(paralysed).toMatchObject({
+      activityMatch: "Ice Ammunition: Paralysis",
+      statuses: ["Paralyzed"],
+      options: { durationSeconds: 60 },
+    });
+    // the halved speed is what a SUCCESSFUL save leaves behind
+    expect(slowed.onSave).toBe(true);
+    expect(slowed.options.expiry).toBe("targetEnd");
+    expect(slowed.changes[0]).toEqual(
+      expect.objectContaining({ key: "system.attributes.movement.multiplier", value: "0.5" }),
+    );
+  });
+});
+
+// Formula-DC items: the second save's DC is derived from the item's rarity bonus or from a
+// count the user picks at roll time. See docs/build/multi-roll-items.md.
+function spellSaveDcModifiers(...values: number[]): any[] {
+  return values.map((value) => ({ type: "bonus", subType: "spell-save-dc", value }));
+}
+
+describe("BanjoOfOlJerichoSticks", () => {
+  const Enricher = ItemEnrichers.BanjoOfOlJerichoSticks;
+  const banjo = (name: string, ...bonuses: number[]) =>
+    build(Enricher, { name, ddbParser: { ddbDefinition: { grantedModifiers: spellSaveDcModifiers(...bonuses) } } });
+
+  it("derives the Fiendish Lure DC from the record's spell save DC bonus", () => {
+    expect(banjo("Banjo of Ol' Jericho Sticks, +1", 1).activity.data.save.dc.formula).toBe("17");
+    expect(banjo("Banjo of Ol' Jericho Sticks, +3", 3).activity.data.save.dc.formula).toBe("19");
+  });
+
+  it("builds the Varies record at the lowest tier and says so", () => {
+    const varies = banjo("Banjo of Ol' Jericho Sticks", 1, 2, 3);
+    expect(varies.activity.data.save.dc.formula).toBe("17");
+    expect(varies.override.descriptionSuffix).toContain("Rare tier");
+    expect(banjo("Banjo of Ol' Jericho Sticks, +3", 3).override).toEqual({});
+  });
+
+  it("gives Birdcage only to the Legendary tier", () => {
+    expect(banjo("Banjo of Ol' Jericho Sticks, +1", 1).additionalActivities.map((a: any) => a.init.name)).toEqual(["Scarecrow's Dance"]);
+    expect(banjo("Banjo of Ol' Jericho Sticks, +3", 3).additionalActivities.map((a: any) => a.init.name)).toEqual(["Scarecrow's Dance", "Birdcage"]);
+    expect(banjo("Banjo of Ol' Jericho Sticks", 1, 2, 3).additionalActivities.map((a: any) => a.init.name)).toContain("Birdcage");
+  });
+
+  it("gives Fiendish Lure its own once-per-dusk clock and a non-transferring Charmed effect", () => {
+    const lure = banjo("Banjo of Ol' Jericho Sticks, +3", 3);
+    expect(lure.activity.addActivityConsume).toBe(true);
+    expect(lure.activity.data.uses).toEqual({ spent: 0, max: "1", recovery: [{ period: "dusk", type: "recoverAll" }] });
+    expect(lure.effects[0]).toMatchObject({ activityMatch: "Fiendish Lure", statuses: ["Charmed"], options: { transfer: false, durationSeconds: 60 } });
+  });
+});
+
+describe("AxeOfTheGallopingHeadsman", () => {
+  const Enricher = ItemEnrichers.AxeOfTheGallopingHeadsman;
+  const axe = (name: string, ...bonuses: number[]) => build(Enricher, {
+    name,
+    ddbParser: {
+      originalName: name,
+      ddbDefinition: { grantedModifiers: bonuses.map((value) => ({ type: "bonus", subType: "magic", value })) },
+    },
+  });
+  const names = (e: any) => e.additionalActivities.map((a: any) => a.init.name);
+
+  it("unlocks the properties by tier", () => {
+    expect(names(axe("Axe of the Galloping Headsman, +1", 1))).toEqual(["Fiery Smite (1d10)"]);
+    expect(names(axe("Axe of the Galloping Headsman, +2", 2))).toEqual(["Fiery Smite (1d10)", "Mark of Guilt", "Sense Guilt"]);
+    expect(names(axe("Axe of the Galloping Headsman, +3", 3))).toEqual([
+      "Fiery Smite (1d10)", "Mark of Guilt", "Sense Guilt", "Dark Binding", "Executioner's Blade Damage", "Executioner's Blade Save",
+    ]);
+  });
+
+  it("adds the Fiery Smite die to the weapon attack and bakes the Sense Guilt DC", () => {
+    const plusTwo = axe("Axe of the Galloping Headsman, +2", 2);
+    expect(plusTwo.activity.data.damage.parts[0]).toMatchObject({ number: 1, denomination: 6, types: ["fire"] });
+    const sense = plusTwo.additionalActivities.find((a: any) => a.init.name === "Sense Guilt");
+    expect(sense.build.saveOverride.dc.formula).toBe("18");
+  });
+
+  it("builds the Varies record at the Rare tier and says so", () => {
+    const varies = axe("Axe of the Galloping Headsman", 1, 2, 3);
+    expect(names(varies)).toEqual(["Fiery Smite (1d10)"]);
+    expect(varies.override.descriptionSuffix).toContain("Rare tier");
+    expect(axe("Axe of the Galloping Headsman, +3", 3).override).toEqual({});
+  });
+
+  it("scopes the prone critical range to this axe for AC5e", () => {
+    const executioner = axe("Axe of the Galloping Headsman, +3", 3).effects.find((e: any) => e.name === "Executioner's Blade");
+    expect(executioner.ac5eOnly).toBe(true);
+    expect(executioner.ac5eChanges[0]).toMatchObject({
+      key: "flags.automated-conditions-5e.attack.criticalThreshold",
+      value: "set=19; opponentActor.statuses.prone && item.identifier === 'axe-of-the-galloping-headsman-3'",
+    });
+  });
+});
+
+describe("levelled and variant weapon properties", () => {
+  const named = (Enricher: TEnricher, name: string) => build(Enricher, { name, ddbParser: { originalName: name } });
+  const names = (e: any) => e.additionalActivities.map((a: any) => a.init.name);
+
+  it("gates Tordalfr's Rebuttal by the level in the record name, the parent carrying every level", () => {
+    expect(names(named(ItemEnrichers.TordalfrsRebuttal, "Tordalfr's Rebuttal (Lv. 9)"))).toEqual([]);
+    expect(named(ItemEnrichers.TordalfrsRebuttal, "Tordalfr's Rebuttal (Lv. 9)").override.uses.max).toBe("");
+    expect(names(named(ItemEnrichers.TordalfrsRebuttal, "Tordalfr's Rebuttal (Lv. 13)"))).toEqual(["Charged Strike"]);
+    expect(names(named(ItemEnrichers.TordalfrsRebuttal, "Tordalfr's Rebuttal"))).toEqual(["Charged Strike", "Lightning Bolt"]);
+    expect(named(ItemEnrichers.TordalfrsRebuttal, "Tordalfr's Rebuttal").override).toEqual({});
+  });
+
+  it("builds the Pneuma misfire from the text's save, not DDB's modifier label", () => {
+    const veryRare = named(ItemEnrichers.PneumaBlade, "Pneuma Greatsword (Very Rare)");
+    expect(names(veryRare)).toEqual(["Pneumatic Strike", "Burnout"]);
+    expect(veryRare.additionalActivities[1].build.saveOverride).toMatchObject({ ability: ["dex"], dc: { formula: "16" } });
+    expect(veryRare.additionalActivities[0].overrides.data.attack.bonus).toBe("5");
+    const rare = named(ItemEnrichers.PneumaBlade, "Pneuma Longsword (Rare)");
+    expect(rare.additionalActivities[1].build.saveOverride).toMatchObject({ ability: ["con"], dc: { formula: "15" } });
+    expect(rare.stopDefaultActivity).toBe(false);
+    expect(named(ItemEnrichers.PneumaBlade, "Pneuma Blade").stopDefaultActivity).toBe(true);
+  });
+
+  it("splits the Unstable Crumbler forms and keeps both on the parent", () => {
+    expect(names(named(ItemEnrichers.UnstableCrumbler, "Unstable Crumbler (Cannon)"))).toEqual(["Overheated Cannonball"]);
+    expect(names(named(ItemEnrichers.UnstableCrumbler, "Unstable Crumbler (Maul)"))).toEqual(["Detonation"]);
+    expect(names(named(ItemEnrichers.UnstableCrumbler, "Unstable Crumbler"))).toEqual(["Overheated Cannonball", "Detonation"]);
+    expect(named(ItemEnrichers.UnstableCrumbler, "Unstable Crumbler").effects[0].changes[0]).toMatchObject({
+      key: "system.traits.dm.amount.fire", value: "-max(@abilities.con.mod, 1)",
+    });
+  });
+
+  it("spends Scorching Cleaver charges by consumption scaling", () => {
+    const [slash] = named(ItemEnrichers.ScorchingCleaver, "Scorching Cleaver").additionalActivities;
+    expect(slash.build.saveOverride.dc.formula).toBe("10 + @prof + @scaling");
+    expect(slash.overrides).toMatchObject({ addItemConsume: true, itemConsumeValue: "3", addScalingMode: "amount", addConsumptionScalingMax: "@item.uses.value - 2" });
+  });
+});
+
+describe("GrassWhistleBlade", () => {
+  const e = build(ItemEnrichers.GrassWhistleBlade, { name: "Grass Whistle Blade" });
+
+  it("rolls the psychic damage apart from the saves, since it lands on a success", () => {
+    expect(e.additionalActivities.map((a: any) => a.init.name)).toEqual(["Lullaby", "Lullaby: Second Save", "Lullaby: Psychic Damage"]);
+    expect(e.additionalActivities[0].overrides.addItemConsume).toBe(true);
+    expect(e.additionalActivities[1].build.generateDamage).toBe(false);
+    expect(e.effects.map((effect: any) => [effect.activityMatch, effect.statuses])).toEqual([
+      ["Lullaby", ["Incapacitated"]],
+      ["Lullaby: Second Save", ["Unconscious"]],
+    ]);
+  });
+});
+
+describe("BellOfTheDuskMother", () => {
+  const Enricher = ItemEnrichers.BellOfTheDuskMother;
+  const bell = (name: string, ...bonuses: number[]) =>
+    build(Enricher, { name, ddbParser: { ddbDefinition: { grantedModifiers: spellSaveDcModifiers(...bonuses) } } });
+
+  it("derives the Dolorous Tolling DC from the bonus and replaces the parsed damage", () => {
+    const plusTwo = bell("Bell of the Dusk Mother, +2", 2);
+    expect(plusTwo.activity.data.save.dc.formula).toBe("18");
+    expect(plusTwo.activity.removeDamageParts).toBe(true);
+    expect(plusTwo.activity.damageParts).toHaveLength(1);
+    expect(plusTwo.activity.damageParts[0]).toMatchObject({ number: 3, denomination: 10, types: ["psychic"] });
+    expect(plusTwo.activity.data.target.template).toMatchObject({ type: "radius", size: "30" });
+  });
+
+  it("unlocks Call of the Bell at Very Rare and Death Knell at Legendary", () => {
+    expect(bell("Bell of the Dusk Mother, +1", 1).additionalActivities.map((a: any) => a.init.name)).toEqual([]);
+    expect(bell("Bell of the Dusk Mother, +2", 2).additionalActivities.map((a: any) => a.init.name)).toEqual(["Call of the Bell"]);
+    expect(bell("Bell of the Dusk Mother, +3", 3).additionalActivities.map((a: any) => a.init.name)).toEqual(["Call of the Bell", "Death Knell"]);
+  });
+
+  it("builds Death Knell as a half-damage Constitution save at the printed DC", () => {
+    const knell = bell("Bell of the Dusk Mother, +3", 3).additionalActivities[1];
+    expect(knell.build.saveOverride).toEqual({ ability: ["con"], dc: { calculation: "", formula: "19" } });
+    expect(knell.build.onSave).toBe("half");
+    expect(knell.build.damageParts[0]).toMatchObject({ number: 5, denomination: 10, types: ["necrotic"] });
+    expect(knell.build.usesOverride.recovery[0].period).toBe("dusk");
+  });
+
+  it("applies the Bane-style penalty for a minute on a failed Dolorous Tolling save", () => {
+    const [penalty] = bell("Bell of the Dusk Mother, +1", 1).effects;
+    expect(penalty.activityMatch).toBe("Dolorous Tolling");
+    expect(penalty.options).toMatchObject({ transfer: false, durationSeconds: 60 });
+    expect(penalty.changes.map((change: any) => change.key)).toContain("system.rolls.ability.save.bonus");
+    expect(penalty.changes.every((change: any) => change.value === "-1d4")).toBe(true);
+  });
+});
+
+describe("PhoenixRocketSword", () => {
+  const Enricher = ItemEnrichers.PhoenixRocketSword;
+
+  it("turns the auto riders off so the restriction-gated damage is not doubled", () => {
+    expect(build(Enricher).addAutoAdditionalActivities).toBe(false);
+  });
+
+  it("scales the flame jet and the push DC with the charges expended", () => {
+    const [jet, rocket] = build(Enricher).additionalActivities;
+    expect(jet.init.name).toBe("Flame Jet");
+    expect(jet.build.saveOverride.dc.formula).toBe("16");
+    expect(jet.build.damageParts[0]).toMatchObject({ number: 3, denomination: 6, types: ["fire"], scaling: { mode: "whole", number: 1 } });
+    // the scaling max is the number of charges spent, capped by what the sword still holds
+    expect(jet.overrides).toEqual({ addScalingMode: "amount", addConsumptionScalingMax: "min(5, @item.uses.value)" });
+
+    expect(rocket.init.name).toBe("Rocket");
+    expect(rocket.build.saveOverride).toEqual({ ability: ["str"], dc: { calculation: "", formula: "10 + @scaling" } });
+    expect(rocket.build.targetOverride.affects.type).toBe("self");
+    expect(rocket.overrides).toEqual({ addScalingMode: "amount", addConsumptionScalingMax: "min(5, @item.uses.value)" });
+  });
+});
+
+describe("random-table items", () => {
+  const roll = (formula: string, name: string) => ({ formula, prompt: false, visible: true, name });
+
+  it.each([
+    ["CataclysmBolts", "1d6", "Cataclysm"],
+    ["FoolsLamp", "1d10", "Wish Outcome"],
+    ["SlingBulletsOfAlthemone", "1d4", "Bullet Property"],
+    ["SovereignseedSatchel", "1d6", "Seed"],
+    ["TeethOfDahlverNar", "1d20", "Draw Tooth"],
+    ["TheInfernalMachineOfLumTheMad", "1d100", "Machine Effect"],
+  ] as const)("%s rolls the table die instead of a save scraped from one row", (key, formula, name) => {
+    const enricher = build(ItemEnrichers[key]);
+    expect(enricher.type).toBe("utility");
+    expect(enricher.addAutoAdditionalActivities).toBe(false);
+    expect(enricher.clearAutoEffects).toBe(true);
+    expect(enricher.activity).toMatchObject({ name, noeffect: true, noTemplate: true, data: { roll: roll(formula, name) } });
+  });
+
+  it("never spends a use on the table roll itself", () => {
+    expect(build(ItemEnrichers.FoolsLamp).activity).toMatchObject({ noConsumeTargets: true });
+    expect(build(ItemEnrichers.FoolsLamp).override).toBeNull();
+  });
+
+  it("spends a Tossable Kernel on the throw, not on the once-per-bag type roll", () => {
+    const kernels = build(ItemEnrichers.TossableKernels);
+    expect(kernels.activity).toMatchObject({ name: "Throw Kernel", activationType: "action", addItemConsume: true });
+    expect(kernels.activity.data.range).toMatchObject({ value: "20", units: "ft" });
+    const [type] = kernels.additionalActivities;
+    expect(type.overrides).toMatchObject({ noConsumeTargets: true, data: { roll: roll("1d8", "Kernel Type") } });
+  });
+
+  it("drops the pool read from a single tooth's row", () => {
+    const teeth = build(ItemEnrichers.TeethOfDahlverNar);
+    expect(teeth.activity.activationType).toBe("action");
+    expect(teeth.override.data.system.uses).toEqual({ spent: null, max: "", recovery: [] });
+  });
+
+  it("keeps the Marotte's Charisma club attack and rolls the d100 gate apart from the table", () => {
+    const marotte = build(ItemEnrichers.MarotteOfChance);
+    expect(marotte.type).toBe("attack");
+    expect(marotte.activity.data.attack).toEqual({ ability: "cha", type: { value: "melee", classification: "weapon" } });
+    expect(marotte.activity.damageParts[0]).toMatchObject({ number: 1, denomination: 4, bonus: "@mod", types: ["bludgeoning"] });
+    expect(marotte.additionalActivities.map((a: any) => [a.init.name, a.overrides.data.roll.formula]))
+      .toEqual([["Something Odd", "1d100"], ["Chance Table", "1d10"]]);
+  });
+
+  it("throws a Deck of Wild Cards card as a Dexterity ranged spell attack", () => {
+    const deck = build(ItemEnrichers.DeckOfWildCards);
+    expect(deck.type).toBe("attack");
+    expect(deck.activity.data).toMatchObject({
+      attack: { ability: "dex", type: { value: "ranged", classification: "spell" } },
+      range: { value: "30", units: "ft" },
+    });
+    expect(deck.additionalActivities.map((a: any) => a.overrides.data.roll)).toEqual([roll("1d4", "Suit")]);
+  });
+
+  it.each([
+    ["the d20 printing", "<table><thead><tr><th>1d20</th><th>Arcane Anomalies</th></tr></thead></table>", "1d20"],
+    ["the d100 printing", "<table><thead><tr><th>1d100</th><th>Arcane Anomalies</th></tr></thead></table>", "1d100"],
+  ])("Delerium keeps the contamination save and rolls %s", (_label, description, formula) => {
+    const delerium = build(ItemEnrichers.Delerium, { name: "Delerium Geode", ddbParser: { ddbDefinition: { description } } });
+    // no type: the parser's own DC 10 Constitution save stays the primary
+    expect(delerium.type).toBeNull();
+    expect(delerium.addAutoAdditionalActivities).toBe(false);
+    expect(delerium.activity).toMatchObject({ name: "Contamination", data: { damage: { onSave: "none" } } });
+    expect(delerium.activity.damageParts[0]).toMatchObject({ number: 1, denomination: 6, types: ["necrotic"] });
+    expect(delerium.additionalActivities.map((a: any) => a.overrides.data.roll)).toEqual([roll(formula, "Arcane Anomaly")]);
+  });
+});
+
+describe("Requiem", () => {
+  const Enricher = ItemEnrichers.Requiem;
+
+  it("keys the addiction DC and the question pool on the drug", () => {
+    const bliss = build(Enricher, { name: "Requiem Bliss" });
+    // @scaling is the question count (increase + 1), so it carries the "+ 1 per question" itself
+    expect(bliss.activity.data.save.dc.formula).toBe("12 + @scaling");
+    expect(bliss.activity.data.uses.max).toBe("10");
+    // dnd5e's scaling max is the highest scaling value offered, which is questions asked
+    expect(bliss.activity.addConsumptionScalingMax).toBe("10");
+    expect(bliss.additionalActivities[0].build.saveOverride.dc.formula).toBe("15");
+
+    const clay = build(Enricher, { name: "Requiem Clay" });
+    expect(clay.activity.data.save.dc.formula).toBe("10 + @scaling");
+    expect(clay.activity.data.uses.max).toBe("5");
+    expect(clay.activity.addConsumptionScalingMax).toBe("5");
+    expect(clay.additionalActivities[0].build.saveOverride.dc.formula).toBe("13");
+  });
+
+  it("rolls the poison per question regardless of the save", () => {
+    const smoke = build(Enricher, { name: "Requiem Bliss" }).activity;
+    expect(smoke.removeDamageParts).toBe(true);
+    expect(smoke.damageParts[0]).toMatchObject({ number: 1, denomination: 6, types: ["poison"], scaling: { mode: "whole", number: 1 } });
+    expect(smoke.data.damage.onSave).toBe("full");
+    expect(smoke.addActivityScalingMode).toBe("amount");
+  });
+});
+
+describe("seconds-canonical effect durations (dnd5e #7434)", () => {
+  it("Boots of Speed carries ten minutes as 600 seconds and nothing in rounds", () => {
+    const [effect] = build(ItemEnrichers.BootsOfSpeed).effects;
+    expect(effect.options).toEqual({ transfer: false, durationSeconds: 600 });
+  });
+
+  it("Armor of Invulnerability and Bead of Force carry their minutes as seconds", () => {
+    expect(build(ItemEnrichers.ArmorOfInvulnerability).effects[0].options.durationSeconds).toBe(600);
+    expect(build(ItemEnrichers.BeadOfForce).effects[0].options.durationSeconds).toBe(60);
+  });
+});
+
+/** The applied +3 lasts an hour under 2014 rules and is permanent under 2024 (dnd5e 6.0 stamps it). */
+describe("OilOfSharpness", () => {
+  it("states the coating's duration, not the application time", () => {
+    expect(build(ItemEnrichers.OilOfSharpness, { is2014: true }).activity.data.duration).toEqual({ value: "1", units: "hour" });
+    expect(build(ItemEnrichers.OilOfSharpness, { is2014: false }).activity.data.duration).toEqual({ value: "", units: "perm" });
+  });
+});
+
+/**
+ * Items the dnd5e SRD packs ship with a summon. One table-driven enricher serves them; building
+ * the actors needs a live munch, so the declarative shape is what is pinned.
+ */
+describe("SRDSummonItem", () => {
+  const item = (name: string, options: Record<string, any> = {}) => build(ItemEnrichers.SRDSummonItem, { name, ddbParser: { originalName: name }, ...options });
+
+  it("replaces the primary activity of a pure summoning item", () => {
+    const e = item("Figurine of Wondrous Power (Onyx Dog)");
+    expect(e.type).toBe("summon");
+    expect(e.generateSummons).toBe(true);
+    expect(e.activity).toMatchObject({ name: "Become Mastiff", profileKeys: [{ count: "1", name: "SRDCreatureMastiff2024" }] });
+    expect(e.activity.summons.match.disposition).toBe(true);
+    expect(e.additionalActivities).toBeNull();
+  });
+
+  it("keys creatures by ruleset so a legacy item calls the legacy stat block", () => {
+    expect(item("Figurine of Wondrous Power (Onyx Dog)", { is2014: true }).activity.profileKeys[0].name).toBe("SRDCreatureMastiff2014");
+  });
+
+  it("gives a creature DDB publishes once a single key for both rulesets", () => {
+    const modern = item("Figurine of Wondrous Power (Ebony Fly)").activity.profileKeys[0].name;
+    const legacyKey = item("Figurine of Wondrous Power (Ebony Fly)", { is2014: true }).activity.profileKeys[0].name;
+    expect(modern).toBe("SRDCreatureGiantFly");
+    expect(legacyKey).toBe(modern);
+  });
+
+  it("offers the whole Bag of Tricks table", () => {
+    const keys = item("Gray Bag of Tricks").activity.profileKeys.map((k: any) => k.name);
+    expect(keys).toHaveLength(8);
+    expect(keys).toContain("SRDCreatureDireWolf2024");
+  });
+
+  it("rolls the Horn of Valhalla's berserkers", () => {
+    expect(item("Horn of Valhalla (Bronze)").activity.profileKeys).toEqual([{ count: "4d4 + 4", name: "SRDCreatureBerserker2024" }]);
+  });
+
+  it("matches a specific gem before the generic one", () => {
+    expect(item("Elemental Gem (Emerald)").activity.profileKeys.map((k: any) => k.name)).toEqual(["SRDCreatureWaterElemental2024"]);
+    expect(item("Elemental Gem").activity.profileKeys).toHaveLength(4);
+  });
+
+  it("places the Goat of Terror's aura from the figurine, for the rider to put on the goat", () => {
+    const e = item("Figurine of Wondrous Power (Ivory Goats)");
+    expect(e.type).toBe("summon");
+    const [aura, save] = e.additionalActivities;
+    expect(aura.init).toEqual({ name: "Goat of Terror: Aura", type: "utility" });
+    expect(aura.build.targetOverride).toMatchObject({ affects: { type: "enemy" }, template: { type: "radius", size: "30" } });
+    expect(aura.overrides.data.behaviors[0].config).toMatchObject({
+      events: ["tokenTurnStart"],
+      args: { activityName: "Goat of Terror: Save" },
+    });
+    expect(save.init).toEqual({ name: "Goat of Terror: Save", type: "save" });
+    expect(save.build.saveOverride).toEqual({ ability: ["wis"], dc: { calculation: "", formula: "15" } });
+    expect(e.effects[0]).toMatchObject({
+      name: "Goat of Terror",
+      statuses: ["Frightened"],
+      activityMatch: "Goat of Terror: Save",
+      options: { transfer: false },
+    });
+    expect(e.clearAutoEffects).toBe(true);
+    expect(item("Figurine of Wondrous Power (Onyx Dog)").effects).toEqual([]);
+  });
+
+  it("sits beside the primary activity when the item does something else too", () => {
+    const e = item("Staff of the Python");
+    expect(e.type).toBeNull();
+    expect(e.activity).toBeNull();
+    expect(e.additionalActivities).toHaveLength(1);
+    expect(e.additionalActivities[0]).toMatchObject({
+      init: { name: "Transform into Snake", type: "summon" },
+      build: { generateSummon: true },
+      overrides: { profileKeys: [{ count: "1", name: "SRDCreatureGiantConstrictorSnake2024" }] },
+    });
+    expect(item("Pipes of the Sewers").additionalActivities[0].build.activationOverride.type).toBe("bonus");
+  });
+
+  it("places bare object tokens for carpets, boats and the dancing sword", () => {
+    expect(item("Carpet of Flying").activity.profileKeys.map((k: any) => k.name)).toEqual([
+      "SRDObjectCarpetOfFlying3x5", "SRDObjectCarpetOfFlying4x6", "SRDObjectCarpetOfFlying5x7", "SRDObjectCarpetOfFlying6x9",
+    ]);
+    expect(item("Dancing Sword, Longsword").additionalActivities[0].overrides.profileKeys).toEqual([{ count: "1", name: "SRDObjectDancingSword" }]);
+  });
+
+  it("leaves the Iron Flask one blank profile and builds no actors", () => {
+    const e = item("Iron Flask");
+    expect(e.generateSummons).toBe(false);
+    expect(e.summonsFunction).toBeNull();
+    expect(e.additionalActivities[0].overrides.data.profiles).toEqual([{ name: "", count: "1" }]);
+  });
+
+  it("stands down for an item with no table entry", () => {
+    const e = item("Figurine of Wondrous Power, Byeshk Worg Pack");
+    expect(e.type).toBeNull();
+    expect(e.activity).toBeNull();
+    expect(e.additionalActivities).toBeNull();
+    expect(e.generateSummons).toBe(false);
+  });
+});
+
+/**
+ * Item effect hints build through `AutoEffects.ItemEffect`, which defaults to `transfer: true`, and
+ * the activity linker skips transfer effects. A hint that names the activity applying it, or that
+ * carries a condition, describes something done TO a creature by using the item, so left at the
+ * default it would instead sit passively on whoever carries the item and never reach the activity.
+ */
+describe("item effects applied by an activity do not transfer", () => {
+  /** Conditions the wearer genuinely holds while the item is equipped: `<barrel key>|<hint name>: reason`. */
+  const PASSIVE_STATUS_HINTS: Record<string, string> = {};
+
+  const offenders: string[] = [];
+  let evaluated = 0;
+  for (const [key, Enricher] of Object.entries(ItemEnrichers)) {
+    if (key.startsWith("_") || typeof Enricher !== "function") continue;
+    for (const is2014 of [false, true]) {
+      let hints: any[];
+      try {
+        hints = build(Enricher as TEnricher, { name: key, is2014 }).effects ?? [];
+      } catch {
+        // abstract bases and getters reading parser state the stub lacks; the audit suite covers those
+        continue;
+      }
+      evaluated++;
+      for (const hint of hints) {
+        if (!hint || hint.noCreate || hint.standalone || hint.ignoreTransfer || hint.type === "enchant") continue;
+        const applied = Boolean(hint.activityMatch) || (hint.activitiesMatch?.length ?? 0) > 0 || (hint.statuses?.length ?? 0) > 0;
+        if (!applied || hint.options?.transfer === false) continue;
+        const id = `${key}|${hint.name ?? ""}`;
+        if (!(id in PASSIVE_STATUS_HINTS) && !offenders.includes(id)) offenders.push(id);
+      }
+    }
+  }
+
+  it("evaluates most of the item barrel", () => {
+    expect(evaluated).toBeGreaterThan(300);
+  });
+
+  it("has no activity-matched or condition hint left at the transfer default", () => {
+    expect(offenders, `set options.transfer false on: ${offenders.join(", ")}`).toEqual([]);
+  });
+});
+
+// =============================================================================
+// Weapon property enrichers built from the 2026-09-28 rider review. Text here is synthetic.
+// =============================================================================
+describe("weapon property enrichers", () => {
+  const record = (Enricher: TEnricher, name: string, description = "", extra: Record<string, any> = {}) => build(Enricher, {
+    name,
+    ddbParser: { originalName: name, parsingType: "weapon", ddbDefinition: { description, properties: [] }, data: { system: { uses: {} } }, ...extra },
+  });
+  const names = (e: any) => e.additionalActivities.map((a: any) => a.init.name);
+
+  it("reads Retributive Strike's DC and multipliers from either printing", () => {
+    const banded: any = retributiveStrike("Retributive Strike. Break it. You take force damage equal to 16 x the number of charges. Every other creature must make a DC 17 Dexterity saving throw. On a failed save, 8 x the number of charges within 10 ft, 6 x the number of charges farther, 4 x the number of charges at the edge.");
+    expect(banded.build.saveOverride.dc.formula).toBe("17");
+    expect(banded.build.damageParts[0].custom.formula).toBe("8 * @item.uses.value");
+    expect(banded.build.activationOverride.condition).toContain("6x at 11-20 ft");
+    const flat: any = retributiveStrike("Retributive Strike. You take Force damage equal to 16 times the number of charges. Each other creature makes a DC 18 Dexterity saving throw. On a failed save, a creature takes Force damage equal to 4 times the number of charges.");
+    expect(flat.build.saveOverride.dc.formula).toBe("18");
+    expect(flat.build.damageParts[0].custom.formula).toBe("4 * @item.uses.value");
+  });
+
+  it("scales Will of the Talon and Lash of Shadows by stage", () => {
+    const dormant = record(ItemEnrichers.WillOfTheTalon, "Will of the Talon (Dormant)");
+    const exalted = record(ItemEnrichers.WillOfTheTalon, "Will of the Talon");
+    expect(dormant.additionalActivities[1].build.saveOverride.dc.formula).toBe("13");
+    expect(dormant.additionalActivities[1].build.damageParts[0].number).toBe(3);
+    expect(exalted.additionalActivities[1].build.damageParts[0].number).toBe(5);
+    expect(dormant.effects.map((e: any) => e.name)).toEqual(["Frightful Presence"]);
+    expect(exalted.effects.map((e: any) => e.name)).toContain("Will of the Talon: Resistances");
+    expect(names(record(ItemEnrichers.LashOfShadows, "Lash of Shadows (Dormant)"))).toEqual(["Serpent Venom", "Dead Eyes"]);
+    expect(names(record(ItemEnrichers.LashOfShadows, "Lash of Shadows (Exalted)"))).toContain("Cockatrice Tears: Second Save");
+  });
+
+  it("builds Dragon's Wrath Weapon by tier with a choice of breath types", () => {
+    expect(names(record(ItemEnrichers.DragonsWrathWeapon, "Dragon's Wrath Weapon (Stirring)"))).toEqual(["Wrathful Burst"]);
+    const ascendant = record(ItemEnrichers.DragonsWrathWeapon, "Dragon's Wrath Weapon (Ascendant)");
+    const cone = ascendant.additionalActivities[1];
+    expect(cone.build.saveOverride.dc.formula).toBe("18");
+    expect(cone.build.damageParts[0].number).toBe(12);
+    expect(cone.build.damageParts[0].types).toContain("radiant");
+    expect(ascendant.activity.data.damage.parts[0].number).toBe(3);
+  });
+
+  it("builds only the songs a Headbanger Lute record describes", () => {
+    const both = "Panic! at the Tavern. Each creature must make a DC 14 Wisdom saving throw, taking 4d6 psychic damage. Mithrallica. Each creature in a 20-foot cone must make a DC 14 Strength saving throw, taking 4d6 thunder damage.";
+    const lute = record(ItemEnrichers.HeadbangerLute, "Headbanger Lute (Rare Club)", both);
+    expect(names(lute)).toEqual(["Corrosive Strike", "Panic! at the Tavern", "Mithrallica"]);
+    expect(lute.additionalActivities[2].build.targetOverride.template.size).toBe("20");
+    expect(names(record(ItemEnrichers.HeadbangerLute, "Headbanger Lute (Uncommon Club)", "A lute that deals an additional 1d8 acid damage."))).toEqual(["Corrosive Strike"]);
+  });
+
+  it("gives Gunnspier Backfire or Chomp by rarity and keeps Sword of Kas's save on its wielder", () => {
+    expect(names(record(ItemEnrichers.Gunnspier, "Gunnspier (Rare Pike)"))).toEqual(["Point Blank Shot", "Backfire"]);
+    expect(names(record(ItemEnrichers.Gunnspier, "Gunnspier (Very Rare Pike)"))).toEqual(["Point Blank Shot", "Chomp"]);
+    const kas = record(ItemEnrichers.SwordOfKas, "Sword of Kas");
+    expect(kas.additionalActivities[1].build.targetOverride.affects.type).toBe("self");
+  });
+
+  it("puts charges the text states onto items DDB leaves without uses", () => {
+    const teeth = record(ItemEnrichers.TrappersTeeth, "Trapper's Teeth", "The teeth have 4 charges and regain all expended charges at dawn.", { ddbItem: { chargesUsed: 0 } });
+    expect(teeth.override.uses).toMatchObject({ max: "4", recovery: [{ period: "dawn", type: "recoverAll" }] });
+  });
+
+  it("stops the stray primary on a parent record that does not parse as a weapon", () => {
+    expect(record(ItemEnrichers.Moonblade, "Moonblade", "", { parsingType: "wondrous" }).stopDefaultActivity).toBe(true);
+    expect(record(ItemEnrichers.Moonblade, "Moonblade Longsword").stopDefaultActivity).toBe(false);
+  });
+});

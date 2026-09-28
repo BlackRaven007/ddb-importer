@@ -2,23 +2,23 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class VigilantBlessing extends DDBEnricherData {
 
-  get addAutoAdditionalActivities() {
+  override get addAutoAdditionalActivities(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         changes: [
           DDBEnricherData.ChangeHelper.customChange("1", 30, "flags.dnd5e.initiativeAdv"),
         ],
-        daeSpecialDurations: ["Initiative" as const],
+        daeSpecialDurations: ["Initiative"],
         data: {
           duration: {
             value: null,

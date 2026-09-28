@@ -2,7 +2,9 @@ import DDBCharacter from "../../../src/parser/DDBCharacter";
 import "../../../src/parser/character/hp";
 import { makeMockCharacter } from "../../_fixtures/mockCharacter";
 
+// =============================================================================
 // _generateHitPoints
+// =============================================================================
 describe("DDBCharacter._generateHitPoints", () => {
   const generateHP = DDBCharacter.prototype._generateHitPoints;
 
@@ -186,6 +188,115 @@ describe("DDBCharacter._generateHitPoints", () => {
 
     // Fixed bonus picked up via includeExcludedEffects=true path
     expect(mock.raw.character.flags.ddbimporter.fixedBonusHitPointValuesWithEffects).toBe(5);
+  });
+
+  it("ignores hit-points bonuses that carry only a healing die and no value", () => {
+    const mock = makeMockCharacter({
+      ddbCharacter: {
+        baseHitPoints: 103,
+        modifiers: {
+          class: [
+            {
+              type: "bonus",
+              subType: "hit-points",
+              value: null,
+              fixedValue: null,
+              dice: { diceCount: 1, diceValue: 4, diceMultiplier: null, fixedValue: null, diceString: "1d4" },
+              componentId: 601,
+              componentTypeId: 1,
+              restriction: "Whenever you use a Lvl. 1+ spell to restore HP",
+              isGranted: true,
+            },
+          ],
+          race: [
+            {
+              type: "bonus",
+              subType: "hit-points",
+              value: null,
+              fixedValue: 3,
+              componentId: 602,
+              componentTypeId: 1,
+              restriction: "",
+              isGranted: true,
+            },
+          ],
+          background: [],
+          item: [],
+          feat: [],
+          condition: [],
+        },
+      },
+    });
+    mock.raw.character.flags.ddbimporter.dndbeyond.effectAbilities.con.value = 13;
+    mock.raw.character.flags.ddbimporter.dndbeyond.totalLevels = 20;
+
+    generateHP.call(mock);
+
+    // 20 levels of +1 con, base 103, the 1d4 rider contributes nothing, the fixed 3 counts
+    expect(mock.raw.character.flags.ddbimporter.fixedBonusHitPointValuesWithEffects).toBe(3);
+    expect(mock.raw.character.flags.ddbimporter.totalHP).toBe(126);
+    expect(mock.raw.character.system.attributes.hp.value).toBe(123);
+  });
+
+  it("ignores a healing rider whose die carries a fixed part (Keoghtom's Ointment 2d8 + 2)", () => {
+    const mock = makeMockCharacter({
+      ddbCharacter: {
+        baseHitPoints: 10,
+        modifiers: {
+          class: [],
+          race: [],
+          background: [],
+          item: [],
+          feat: [
+            {
+              type: "bonus",
+              subType: "hit-points-per-level",
+              value: 2,
+              componentId: 1789206,
+              componentTypeId: 1088085227,
+              restriction: "",
+              isGranted: true,
+            },
+          ],
+          condition: [],
+        },
+        inventory: [
+          {
+            id: 749042808,
+            equipped: true,
+            isAttuned: false,
+            definition: {
+              id: 9228809,
+              name: "Keoghtom's Ointment",
+              canEquip: true,
+              canAttune: false,
+              isConsumable: false,
+              grantedModifiers: [
+                {
+                  type: "bonus",
+                  subType: "hit-points",
+                  value: null,
+                  fixedValue: 2,
+                  dice: { diceCount: 2, diceValue: 8, diceMultiplier: null, fixedValue: 2, diceString: "2d8 + 2" },
+                  componentId: 9228809,
+                  componentTypeId: 112130694,
+                  restriction: "",
+                  isGranted: true,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+    mock.raw.character.flags.ddbimporter.dndbeyond.effectAbilities.con.value = 14;
+
+    generateHP.call(mock);
+
+    // 10 base + 2 con + 2 Tough; the ointment's fixed healing part does not raise the maximum
+    expect(mock.raw.character.flags.ddbimporter.fixedBonusHitPointValuesWithEffects).toBe(0);
+    expect(mock.raw.character.flags.ddbimporter.totalHP).toBe(14);
+    expect(mock.raw.character.system.attributes.hp.value).toBe(14);
   });
 
   it("stores metadata flags", () => {

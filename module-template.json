@@ -8,17 +8,17 @@
   "manifest": "https://github.com/BlackRaven007/ddb-importer/releases/download/latest/module.json",
   "readme": "https://github.com/BlackRaven007/ddb-importer/blob/main/README.md",
   "changelog": "https://github.com/BlackRaven007/ddb-importer/blob/main/CHANGELOG.md",
-  "url": "https://docs.ddb.1blackraven007.co.uk",
+  "url": "https://docs.ddb.blackraven007.co.uk",
   "compatibility": {
-    "minimum": "14.359",
-    "verified": "14.359",
+    "minimum": "14.367",
+    "verified": "14.367",
     "maximum": 14
   },
   "authors": [
     {
       "name": "BlackRaven007",
-      "email": "admin@blackraven007.co.uk",
-      "url": "https://docs.ddb.2blackraven007.co.uk",
+      "email": "jack@blackraven007.co.uk",
+      "url": "https://docs.ddb.blackraven007.co.uk",
       "patreon": "https://www.patreon.com/BlackRaven007",
       "discord": "https://discord.gg/WzPuRuDJVP"
     }
@@ -35,11 +35,28 @@
       "id": "dnd5e",
       "type": "system",
       "compatibility": {
-        "minimum": "6.0.1",
-        "verified": "6.0.1",
+        "minimum": "6.0.3",
+        "verified": "6.0.3",
         "maximum": "6.0.99"
       }
-    }]
+    }],
+    "recommends": [
+      {
+        "id": "auraeffects",
+        "type": "module",
+        "reason": "Automates DDB Importer aura features (e.g. Paladin auras) as Aura Effects."
+      },
+      {
+        "id": "tokenizer-2",
+        "type": "module",
+        "reason": "Allows the creation of Pog style tokens from the DDB art."
+      },
+      {
+        "id": "vision-5e",
+        "type": "module",
+        "reason": "Adds advanced Vision/Detection modes to the 5e system."
+      }
+    ]
   },
   "scripts": [
     "./vendor/zipjs/zip-fs.js"

@@ -3,17 +3,18 @@ import _BloodCurse from "./_BloodCurse";
 
 export default class BloodCurseOfTheFallenPuppet extends _BloodCurse {
 
-  get curseName(): string {
+  override get curseName(): string {
     return "Blood Curse of the Fallen Puppet";
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: this.curseName,
+      useActivitySnippet: true,
       targetType: "creature",
       targetCount: 1,
       activationType: "reaction",
@@ -21,7 +22,7 @@ export default class BloodCurseOfTheFallenPuppet extends _BloodCurse {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -34,7 +35,7 @@ export default class BloodCurseOfTheFallenPuppet extends _BloodCurse {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     // the attack is made by the cursed creature; the amplified bonus uses the
     // blood hunter's hemocraft modifier, which cannot resolve on the target's
     // actor, so both are marker effects the GM applies
@@ -43,8 +44,7 @@ export default class BloodCurseOfTheFallenPuppet extends _BloodCurse {
         name: "Fallen Puppet",
         activityMatch: this.curseName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "turnEnd",
           description: "You immediately make one weapon attack against a target of the blood hunter's choice within your range.",
         },
         daeSpecialDurations: ["1Attack"],
@@ -53,8 +53,7 @@ export default class BloodCurseOfTheFallenPuppet extends _BloodCurse {
         name: "Fallen Puppet (Amplified)",
         activityMatch: this.amplifiedName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "turnEnd",
           description: "You can first move up to half your speed, then immediately make one weapon attack against a target of the blood hunter's choice within your range, with a bonus to the attack roll equal to their Hemocraft modifier (minimum of +1).",
         },
         daeSpecialDurations: ["1Attack"],

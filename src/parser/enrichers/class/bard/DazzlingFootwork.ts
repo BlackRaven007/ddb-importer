@@ -2,12 +2,13 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class DazzlingFootwork extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.ENCHANT;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
+      useActivitySnippet: { name: "Bardic Damage", type: "class" },
       targetType: "self",
       data: {
         name: "Bardic Damage",
@@ -19,7 +20,7 @@ export default class DazzlingFootwork extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Unarmored Defense",
@@ -27,7 +28,7 @@ export default class DazzlingFootwork extends DDBEnricherData {
           transfer: true,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.overrideChange("unarmoredBard", 10, "system.attributes.ac.calc"),
+          DDBEnricherData.ChangeHelper.acCalcsAddChange("unarmoredBard", 10),
         ],
         activityMatch: "No Activity",
       },
@@ -47,7 +48,7 @@ export default class DazzlingFootwork extends DDBEnricherData {
   }
 
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 

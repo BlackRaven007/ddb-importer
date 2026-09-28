@@ -6,11 +6,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
  */
 export default class SprayNPray extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       activationType: "bonus",
       targetType: "self",
@@ -18,17 +18,16 @@ export default class SprayNPray extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Spray 'n' Pray: 2 Attacks",
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          // the -5 penalty is on the shooter for their own turn
+          expiry: "turnEnd",
         },
-        daeSpecialDurations: ["turnEnd"],
         changes: [
-          DDBEnricherData.ChangeHelper.signedAddChange("-5", 20, "system.bonuses.rwak.attack"),
+          DDBEnricherData.ChangeHelper.signedAddChange("-5", 20, "system.rolls.attack.rwak.bonus"),
         ],
       },
     ];

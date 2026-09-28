@@ -1,6 +1,8 @@
 import { hasSpellCastingAbility, convertSpellCastingAbilityId, getSpellCastingAbility } from "../../../src/parser/spells/ability";
 
+// =============================================================================
 // hasSpellCastingAbility - checks if ability ID exists in DICTIONARY
+// =============================================================================
 describe("hasSpellCastingAbility", () => {
   it("returns true for valid ability ID (INT = 4)", () => {
     expect(hasSpellCastingAbility(4)).toBe(true);
@@ -11,7 +13,9 @@ describe("hasSpellCastingAbility", () => {
   });
 });
 
+// =============================================================================
 // convertSpellCastingAbilityId - converts ID to foundry ability string
+// =============================================================================
 describe("convertSpellCastingAbilityId", () => {
   it("converts CHA (6) to 'cha'", () => {
     expect(convertSpellCastingAbilityId(6)).toBe("cha");
@@ -26,7 +30,9 @@ describe("convertSpellCastingAbilityId", () => {
   });
 });
 
+// =============================================================================
 // getSpellCastingAbility - determines spellcasting ability from class info
+// =============================================================================
 describe("getSpellCastingAbility", () => {
   it("returns class spellcasting ability when present", () => {
     const classInfo = {

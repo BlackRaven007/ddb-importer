@@ -161,6 +161,85 @@ export function makeDdbChoice(overrides: Record<string, any> = {}): any {
   };
 }
 
+/**
+ * Instantiates a DDBEnricherData subclass against a stub ddbEnricher, for tests
+ * that exercise an enricher's getters directly rather than through the parsing
+ * pipeline.
+ *
+ * The importing test file must still carry its own `vi.mock` preamble (see
+ * tests/parser/enrichers/DDBEnricherData.uses.test.ts) - vi.mock is hoisted per
+ * file, so it cannot be shared from here. Loading the real lib barrel while
+ * DDBEnricherData is mid-evaluation crashes SpellListExtractorMixin's
+ * `extends DDBEnricherData`, which is what those mocks are avoiding.
+ *
+ * Pass `actions: null` to model a parser with no ddbData at all (the
+ * compendium/muncher context, where hasAction must not throw).
+ */
+export function makeEnricherData<T>(
+  Enricher: new (options: any) => T,
+  {
+    name = "Test Feature",
+    actions = {},
+    rawCharacter = null,
+    is2014 = false,
+    klass = null,
+    subKlass = null,
+    data = {},
+    isAction = false,
+    character = {},
+    ddbParser: ddbParserOverrides = {},
+  }: {
+    name?: string;
+    actions?: Record<string, any[]> | null;
+    rawCharacter?: any;
+    is2014?: boolean;
+    /** ddbParser.klass / .subKlass, read by isClass/isSubclass and scale identifiers */
+    klass?: string | null;
+    subKlass?: string | null;
+    /** ddbParser.data, the in-progress document some enrichers reference from effects */
+    data?: any;
+    isAction?: boolean;
+    /** merged into ddbData.character, for enrichers reading classes/options/choices */
+    character?: Record<string, any>;
+    /** escape hatch for parser fields not worth a named option */
+    ddbParser?: Record<string, any>;
+  } = {},
+): T {
+  const ddbParser = {
+    // built through makeDdbCharacterData so the empty classes/choices/options
+    // buckets the real DDBDataUtils lookups iterate are always present
+    ...(actions === null
+      ? {}
+      : {
+        ddbData: makeDdbCharacterData({
+          character: {
+            actions: { class: [], race: [], feat: [], item: [], background: [], ...actions },
+            ...character,
+          },
+        }),
+      }),
+    rawCharacter,
+    klass,
+    subKlass,
+    data,
+    isAction,
+    ...ddbParserOverrides,
+  };
+  return new Enricher({
+    ddbEnricher: {
+      ddbParser,
+      is2014,
+      useLookupName: false,
+      activityGenerator: null,
+      effectType: "",
+      document: {},
+      name,
+      isCustomAction: false,
+      manager: null,
+    },
+  });
+}
+
 /** Minimal I5ePCData raw character with the flags feature parsing reads. */
 export function makeRawCharacter(overrides: Record<string, any> = {}): any {
   const { effectAbilities, characterValues, resources, flags, ...rest } = overrides;

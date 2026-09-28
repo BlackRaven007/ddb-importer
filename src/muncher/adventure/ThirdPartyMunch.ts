@@ -95,7 +95,7 @@ export default class ThirdPartyMunch extends FormApplication {
   }
 
   /** @override */
-  static get defaultOptions() {
+  static override get defaultOptions() {
     this.pattern = /(@[a-z]*)(\[)([a-z0-9]*|[a-z0-9.]*)(\])(\{)(.*?)(\})/gmi;
     this.altpattern = /((data-entity)=\\?["']?([a-zA-Z]*)\\?["']?|(data-pack)=\\?["']?([[\S.]*)\\?["']?) data-id=\\?["']?([a-zA-Z0-9]*)\\?["']?.*?>(.*?)<\/a>/gmi;
 
@@ -111,7 +111,7 @@ export default class ThirdPartyMunch extends FormApplication {
 
   /** @override */
 
-  async getData() {
+  override async getData() {
     let data;
     let packages: any[] = [];
 
@@ -141,7 +141,7 @@ export default class ThirdPartyMunch extends FormApplication {
   }
 
   /** @override */
-  activateListeners(html: JQuery<HTMLElement>) {
+  override activateListeners(html: JQuery<HTMLElement>) {
     super.activateListeners(html);
 
     html.find(".dialog-button").on("click", this._dialogButton.bind(this));
@@ -229,17 +229,17 @@ export default class ThirdPartyMunch extends FormApplication {
     if (adventure.required?.spells && adventure.required.spells.length > 0) {
       logger.debug(`${adventure.name} - spells required`, adventure.required.spells);
       ThirdPartyMunch._progressNote(`Checking for missing spells from DDB`);
-      await AdventureMunchHelpers.checkForMissingDocuments("spell", adventure.required.spells);
+      await AdventureMunchHelpers.tryCheckForMissingDocuments("spell", adventure.required.spells);
     }
     if (adventure.required?.items && adventure.required.items.length > 0) {
       logger.debug(`${adventure.name} - items required`, adventure.required.items);
       ThirdPartyMunch._progressNote(`Checking for missing items from DDB`);
-      await AdventureMunchHelpers.checkForMissingDocuments("item", adventure.required.items);
+      await AdventureMunchHelpers.tryCheckForMissingDocuments("item", adventure.required.items);
     }
     if (adventure.required?.monsters && adventure.required.monsters.length > 0) {
       logger.debug(`${adventure.name} - monsters required`, adventure.required.monsters);
       ThirdPartyMunch._progressNote(`Checking for missing monsters from DDB`);
-      await AdventureMunchHelpers.checkForMissingDocuments("monster", adventure.required.monsters);
+      await AdventureMunchHelpers.tryCheckForMissingDocuments("monster", adventure.required.monsters);
     }
   }
 
@@ -454,6 +454,8 @@ export default class ThirdPartyMunch extends FormApplication {
               ? this._pageFinders[noteJournal._id].getPageIdForElementId(noteDdbFlags.slugLink as string)
               : undefined;
 
+            // console.warn("MATCHES", { slugLinkPageId, contentChunkIdPageId, noteFlags: note.flags.ddb });
+            // console.warn("PageIds", noteJournal.pages.map((p) => {return {id: p._id, flags: p.flags.ddb}}));
             const journalPage = noteJournal.pages.find((pageDoc: unknown) => {
               // pages is typed differently between the base and strict configs; the ddb flag
               // shape is importer data, so view the page structurally for the match checks
@@ -581,6 +583,7 @@ export default class ThirdPartyMunch extends FormApplication {
       }
       scene.folder = folder.id ?? undefined;
       const worldScene = await game.scenes.importFromCompendium(compendium as unknown as CompendiumCollection<"Scene">, compendiumScene._id, scene as any, { keepId: true });
+      if (!worldScene) throw new Error(`Import of scene ${scene.name} (${compendiumScene._id}) returned no document`);
       logger.info(`Scene: ${scene.name} folder:`, folder);
       logger.debug("worldScene:", worldScene);
       return worldScene;

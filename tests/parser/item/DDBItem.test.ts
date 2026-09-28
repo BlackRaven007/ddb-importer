@@ -13,7 +13,14 @@ vi.mock("../../../src/parser/activities/mixins/DDBActivityFactoryMixin", () => (
   },
 }));
 vi.mock("../../../src/parser/enrichers/DDBItemEnricher", () => ({
-  default: class { init() {} load() {} },
+  default: class {
+    init() {
+      // Item unit tests do not initialise enrichment.
+    }
+    load() {
+      // Item unit tests do not load document enrichers.
+    }
+  },
 }));
 vi.mock("../../../src/parser/activities/_module", () => ({
   DDBItemActivity: class {},
@@ -26,8 +33,153 @@ vi.mock("../../../src/effects/restrictions", () => ({
 }));
 
 import DDBItem from "../../../src/parser/item/DDBItem";
+import SystemHelpers from "../../../src/lib/SystemHelpers";
+import { JEWEL_OF_THREE_PRAYERS, NO_CHARGE_VESTIGE } from "../../_fixtures/ddb/vestiges";
+import { setMockModules, setMockSettings } from "../../_setup/foundryMocks";
 
+// =============================================================================
+// getPublisherAmmunitionType* - Mage Hand Press ammunition, gated on the DDB
+// source category so nothing outside that publisher is re-typed
+// =============================================================================
+describe("DDBItem publisher ammunition", () => {
+  const MHP = 32;
+
+  describe("getPublisherAmmunitionTypeByName", () => {
+    it.each([
+      // DDB ships count suffixes and prefixes
+      ["Shells (10)", "shells"],
+      ["Shot (10)", "shot"],
+      ["Cannonballs (5)", "cannonballs"],
+      ["Flares (5)", "flares"],
+      ["Portable Cannonballs", "cannonballs"],
+      // the module may append a legacy postfix
+      ["Shells (10) (Legacy)", "shells"],
+    ])("matches %s as %s", (name, expected) => {
+      expect(DDBItem.getPublisherAmmunitionTypeByName(name, MHP)).toBe(expected);
+    });
+
+    // word boundaries, so a substring hit is not enough
+    it.each(["Seashell", "Shell Coin", "Shotgun", "Flaregun"])("does not match %s", (name) => {
+      expect(DDBItem.getPublisherAmmunitionTypeByName(name, MHP)).toBeNull();
+    });
+
+    it("returns null for the MHP bullets, which are the existing firearmBullet", () => {
+      expect(DDBItem.getPublisherAmmunitionTypeByName("Bullets (10)", MHP)).toBeNull();
+    });
+
+    it("returns null for a non publisher source category", () => {
+      expect(DDBItem.getPublisherAmmunitionTypeByName("Shells (10)", 2)).toBeNull();
+      expect(DDBItem.getPublisherAmmunitionTypeByName("Cannonball", 249)).toBeNull();
+      expect(DDBItem.getPublisherAmmunitionTypeByName("Shells (10)", null)).toBeNull();
+    });
+
+    it("returns null for an empty name", () => {
+      expect(DDBItem.getPublisherAmmunitionTypeByName(null, MHP)).toBeNull();
+      expect(DDBItem.getPublisherAmmunitionTypeByName("", MHP)).toBeNull();
+    });
+  });
+
+  describe("getPublisherAmmunitionTypeByWeapon", () => {
+    it.each([
+      ["Double-Barrel Shotgun", "shells"],
+      ["Pump Shotgun", "shells"],
+      ["Blunderbuss", "shot"],
+      ["Flare Gun", "flares"],
+    ])("maps %s to %s", (weaponType, expected) => {
+      expect(DDBItem.getPublisherAmmunitionTypeByWeapon(weaponType, MHP)).toBe(expected);
+    });
+
+    // handled by src/parser/enrichers/item/Cannon.ts, not the weapon table
+    it("leaves the Cannon to its enricher", () => {
+      expect(DDBItem.getPublisherAmmunitionTypeByWeapon("Cannon", MHP)).toBeNull();
+    });
+
+    it.each(["Handgun", "Magnum", "Gatling Gun", "Sniper Rifle", "Submachine Gun"])(
+      "leaves %s to firearmBullet",
+      (weaponType) => {
+        expect(DDBItem.getPublisherAmmunitionTypeByWeapon(weaponType, MHP)).toBeNull();
+      },
+    );
+
+    it("does not re-type a non publisher weapon of the same name", () => {
+      expect(DDBItem.getPublisherAmmunitionTypeByWeapon("Shotgun", MHP)).toBeNull();
+      expect(DDBItem.getPublisherAmmunitionTypeByWeapon("Pump Shotgun", 2)).toBeNull();
+    });
+  });
+});
+
+// =============================================================================
+// inferAmmunitionType - name based fallback for weapons and ammunition with no
+// DICTIONARY.actor.proficiencies row (177 of DDB's 229 weapon types)
+// =============================================================================
+describe("DDBItem.inferAmmunitionType", () => {
+  it.each([
+    // the reported case, plus other third party firearms
+    ["Gatling Gun", "firearmBullet"],
+    ["Magnum", "firearmBullet"],
+    ["Submachine Gun", "firearmBullet"],
+    ["Blunderbuss (Steinhardt's)", "firearmBullet"],
+    ["Palm Pistol (Exandria)", "firearmBullet"],
+    ["Magitech Revolver", "firearmBullet"],
+    ["Musket (Wooden Bullets)", "firearmBullet"],
+    ["Bad News (Exandria)", "firearmBullet"],
+    // energy weapons
+    ["Laser Pistol", "energyCell"],
+    ["Blaster", "energyCell"],
+    ["Antimatter Rifle", "energyCell"],
+    // conventional ranged weapons
+    ["Repeater Crossbow, Heavy", "crossbowBolt"],
+    ["Light Crossbow (Wooden Bolts)", "crossbowBolt"],
+    ["Composite Longbow", "arrow"],
+    ["Shortbow (Wooden Arrows)", "arrow"],
+    ["Tommybow, heavy", "arrow"],
+    ["Hoopak", "slingBullet"],
+    ["Repeater Needler", "blowgunNeedle"],
+  ])("infers %s as %s", (name, expected) => {
+    expect(DDBItem.inferAmmunitionType(name)).toBe(expected);
+  });
+
+  it.each([
+    ["Bullets, Renaissance", "firearmBullet"],
+    ["Energy Cells, +2", "energyCell"],
+    ["Sling Bullets", "slingBullet"],
+    ["Crossbow Bolts", "crossbowBolt"],
+    ["Blowgun Needles", "blowgunNeedle"],
+    ["Unbreakable Arrow", "arrow"],
+    // plausible third party ammunition names with no dictionary row
+    ["Shotgun Shells", "firearmBullet"],
+    ["Cartridges", "firearmBullet"],
+    ["Buckshot", "firearmBullet"],
+  ])("infers ammunition item %s as %s", (name, expected) => {
+    expect(DDBItem.inferAmmunitionType(name)).toBe(expected);
+  });
+
+  // the dictionary list is ordered and first match wins
+  it("prefers sling over the firearm patterns", () => {
+    expect(DDBItem.inferAmmunitionType("Slingshot")).toBe("slingBullet");
+  });
+
+  it("prefers crossbow over bow", () => {
+    expect(DDBItem.inferAmmunitionType("Repeater Crossbow")).toBe("crossbowBolt");
+  });
+
+  it("returns null for a melee weapon name", () => {
+    expect(DDBItem.inferAmmunitionType("Ulfberht Blade")).toBeNull();
+  });
+
+  it("returns the first text that matches", () => {
+    expect(DDBItem.inferAmmunitionType("Ulfberht Blade", "Gatling Gun")).toBe("firearmBullet");
+  });
+
+  it("skips empty and nullish texts", () => {
+    expect(DDBItem.inferAmmunitionType(null, undefined, "", "Longbow")).toBe("arrow");
+    expect(DDBItem.inferAmmunitionType(null, undefined, "")).toBeNull();
+  });
+});
+
+// =============================================================================
 // getRechargeFormula - static method for parsing charge recharge formulas
+// =============================================================================
 describe("DDBItem.getRechargeFormula", () => {
   it("returns maxCharges for empty description", () => {
     expect(DDBItem.getRechargeFormula("", 7)).toBe("7");
@@ -58,7 +210,52 @@ describe("DDBItem.getRechargeFormula", () => {
   });
 });
 
+// =============================================================================
+// spellIgnoresConcentration - item text freeing a granted spell from concentration
+// =============================================================================
+describe("DDBItem.spellIgnoresConcentration", () => {
+  it("matches a parenthetical naming the spell", () => {
+    const description = "<p>When you use the widget, you gain the effect of the <em>Glow</em> spell (no Concentration required).</p>";
+    expect(DDBItem.spellIgnoresConcentration(description, "Glow")).toBe(true);
+  });
+
+  it("matches a curly apostrophe with no spell named", () => {
+    const description = "<p>You can cast Glow from the widget.</p><p>The spell doesn’t require concentration.</p>";
+    expect(DDBItem.spellIgnoresConcentration(description, "Glow")).toBe(true);
+  });
+
+  it.each([
+    "You can cast Glow from it without requiring concentration.",
+    "You can cast Glow on yourself, requiring no Concentration.",
+    "The Glow spell no longer requires Concentration.",
+    "These spells do not require your concentration.",
+    "Glow cast this way (save DC 15, no concentration required) lasts 1 minute.",
+  ])("matches %s", (description) => {
+    expect(DDBItem.spellIgnoresConcentration(description, "Glow")).toBe(true);
+  });
+
+  it.each([
+    "When Glow is cast using the widget, it lasts 1 hour, provided you maintain concentration on the spell.",
+    "You deal extra damage to creatures under a spell you cast that requires Concentration.",
+    "You can cast Glow from the widget.",
+  ])("does not match %s", (description) => {
+    expect(DDBItem.spellIgnoresConcentration(description, "Glow")).toBe(false);
+  });
+
+  it("only frees the spell a sentence names when the item grants several", () => {
+    const description = "You can cast Glow from the widget. You can also cast Shimmer (no Concentration required).";
+    expect(DDBItem.spellIgnoresConcentration(description, "Glow", ["Shimmer"])).toBe(false);
+    expect(DDBItem.spellIgnoresConcentration(description, "Shimmer", ["Glow"])).toBe(true);
+  });
+
+  it("ignores a legacy postfix on the spell name", () => {
+    expect(DDBItem.spellIgnoresConcentration("You gain the effect of Glow (no Concentration required).", "Glow (Legacy)", ["Shimmer"])).toBe(true);
+  });
+});
+
+// =============================================================================
 // getMagicItemResetType - static method for determining reset period
+// =============================================================================
 describe("DDBItem.getMagicItemResetType", () => {
   it("detects dawn reset from 'expended charges daily at dawn'", () => {
     expect(DDBItem.getMagicItemResetType("The staff regains expended charges daily at dawn.")).toBe("dawn");
@@ -72,16 +269,26 @@ describe("DDBItem.getMagicItemResetType", () => {
     expect(DDBItem.getMagicItemResetType("The item regains expended charges each day at sunset.")).toBe("dusk");
   });
 
-  it("detects next dawn from can't-be-used formula", () => {
-    expect(DDBItem.getMagicItemResetType("This property can't be used this way again until the next dawn.")).toBe("Dawn");
+  it.each([
+    ["This property can't be used this way again until the next dawn.", "dawn"],
+    ["Once this property is used, it can't be used again until the next dusk.", "dusk"],
+    ["Once this property is used, it can’t be used again until the next dawn.", "dawn"],
+  ])("detects prose reset in %s", (description, expected) => {
+    expect(DDBItem.getMagicItemResetType(description)).toBe(expected);
   });
 
   it("detects long rest", () => {
-    expect(DDBItem.getMagicItemResetType("You can't use this feature again until you finish a long rest.")).toBe("LongRest");
+    expect(DDBItem.getMagicItemResetType("You can't use this feature again until you finish a long rest.")).toBe("lr");
   });
 
   it("detects short or long rest as 'sr'", () => {
     expect(DDBItem.getMagicItemResetType("You can't use it again until you finish a short or long rest.")).toBe("sr");
+  });
+
+  it("reads the capitalised 2024 rest wording", () => {
+    expect(DDBItem.getMagicItemResetType("It can't be used this way again until you finish a Short or Long Rest.")).toBe("sr");
+    expect(DDBItem.getMagicItemResetType("It can't be used this way again until you finish a Short Rest.")).toBe("sr");
+    expect(DDBItem.getMagicItemResetType("It can't be used this way again until you finish a Long Rest.")).toBe("lr");
   });
 
   it("returns null when no reset pattern found", () => {
@@ -89,7 +296,352 @@ describe("DDBItem.getMagicItemResetType", () => {
   });
 });
 
+// =============================================================================
+// _getCompendiumUses - muncher-side charge parsing. Stage-aware resolution lives
+// in Vestige (see tests/parser/item/Vestige.test.ts); these pin the dispatch and
+// the unstaged behaviour around it.
+// =============================================================================
+describe("DDBItem.prototype._getCompendiumUses", () => {
+  function makeUsesMock(originalName: string, description: string, isMuncher = true) {
+    const mock = Object.create(DDBItem.prototype);
+    mock.isMuncher = isMuncher;
+    mock.originalName = originalName;
+    mock.ddbDefinition = { description };
+    mock.ddbItem = { definition: mock.ddbDefinition };
+    mock.actionData = {};
+    return mock;
+  }
+
+  it("returns the named stage's charges and marks the activity as consuming one", () => {
+    const mock = makeUsesMock("Jewel of Three Prayers (Awakened)", JEWEL_OF_THREE_PRAYERS);
+    expect(mock._getCompendiumUses()).toEqual({
+      max: "5",
+      spent: 0,
+      recovery: [{ period: "dawn", type: "recoverAll", formula: "" }],
+    });
+    expect(mock.actionData.consumptionValue).toBe(1);
+  });
+
+  it("never consults the stage on the character path", () => {
+    const mock = makeUsesMock("Jewel of Three Prayers (Awakened)", JEWEL_OF_THREE_PRAYERS, false);
+    expect(mock._getCompendiumUses()).toEqual({ spent: 0, max: null, recovery: [] });
+    expect(mock.actionData.consumptionValue).toBeUndefined();
+  });
+
+  it("leaves an ordinary charged item untouched", () => {
+    const description = "<p>The wand has 7 charges. It regains 1d6 + 1 expended charges daily at dawn.</p>";
+    const mock = makeUsesMock("Wand of Magic Missiles", description);
+    expect(mock._getCompendiumUses()).toEqual({
+      max: "7",
+      spent: 0,
+      recovery: [{ period: "dawn", type: "formula", formula: "1d6 + 1" }],
+    });
+  });
+
+  it("gives a once-per-reset property one use when the text names no charges", () => {
+    const description = "<p>While this pearl is on your person, you can take a Magic action to regain one expended spell slot of level 3 or lower. Once you use the pearl, it can’t be used again until the next dawn.</p>";
+    const mock = makeUsesMock("Pearl of Power", description);
+    expect(mock._getCompendiumUses()).toEqual({
+      max: "1",
+      spent: 0,
+      recovery: [{ period: "dawn", type: "recoverAll", formula: "" }],
+    });
+    expect(mock.actionData.consumptionValue).toBe(1);
+  });
+
+  it("does not turn a running-total limit into a single use", () => {
+    const description = "<p>When you’ve used the boots’ property for a total of 10 minutes, the magic ceases to function for you until you finish a Long Rest.</p>";
+    const mock = makeUsesMock("Boots of Speed", description);
+    expect(mock._getCompendiumUses()).toEqual({ spent: null, max: null, recovery: [] });
+  });
+
+  it("falls back to the default max for a staged item with no charges", () => {
+    const mock = makeUsesMock("Blade of Broken Mirrors (Exalted)", NO_CHARGE_VESTIGE);
+    expect(mock._getCompendiumUses("1")).toEqual({ spent: null, max: "1", recovery: [] });
+  });
+});
+
+// =============================================================================
+// isFirearm - DDB's Firearm property (id 33) says the ability modifier is not
+// added to damage, so these weapons carry their damage on the activity
+// =============================================================================
+describe("DDBItem.prototype.isFirearm", () => {
+  function makeWeaponMock({
+    properties = [] as { name: string }[],
+    parsingType = "weapon" as string | null,
+  } = {}) {
+    const mock = Object.create(DDBItem.prototype);
+    mock.ddbDefinition = { properties };
+    mock.parsingType = parsingType;
+    return mock;
+  }
+
+  const FIREARM = [{ name: "Firearm" }, { name: "Ammunition" }, { name: "Reload" }];
+  // the WotC firearms, which carry no Firearm property and keep their modifier
+  const WOTC_FIREARM = [{ name: "Ammunition (Firearms)" }, { name: "Range" }, { name: "Loading" }];
+
+  it("matches a weapon with the Firearm property", () => {
+    expect(makeWeaponMock({ properties: FIREARM }).isFirearm).toBe(true);
+  });
+
+  it("does not match Ammunition (Firearms) weapons such as the Pistol and Musket", () => {
+    expect(makeWeaponMock({ properties: WOTC_FIREARM }).isFirearm).toBe(false);
+  });
+
+  it("is false for a weapon with no properties", () => {
+    expect(makeWeaponMock().isFirearm).toBe(false);
+    expect(makeWeaponMock({ properties: undefined as any }).isFirearm).toBe(false);
+  });
+
+  it.each(["ammunition", "staff", "consumable", null])("is false for parsing type %s", (parsingType) => {
+    expect(makeWeaponMock({ properties: FIREARM, parsingType }).isFirearm).toBe(false);
+  });
+});
+
+// =============================================================================
+// hasOverkillRangedDamage - Overkill's other half, an extra 1d8 for a Ranged
+// weapon that already adds the ability modifier
+// =============================================================================
+describe("DDBItem.prototype.hasOverkillRangedDamage", () => {
+  const originalSettings = game.settings.settings;
+
+  beforeEach(() => {
+    foundry.utils.setProperty(game, "settings.settings", new Map([["mage-hand-press-core.gunslinger", {}]]));
+  });
+
+  afterEach(() => {
+    foundry.utils.setProperty(game, "settings.settings", originalSettings);
+  });
+
+  // DDB attackType: 1 melee, 2 ranged
+  function makeWeaponMock({
+    properties = [] as { name: string }[],
+    classFeatures = ["overkill"] as string[],
+    attackType = 2 as number | null,
+    parsingType = "weapon" as string | null,
+  } = {}) {
+    const mock = Object.create(DDBItem.prototype);
+    mock.ddbDefinition = { properties, attackType };
+    mock.flags = { classFeatures };
+    mock.parsingType = parsingType;
+    return mock;
+  }
+
+  const FIREARM = [{ name: "Firearm" }, { name: "Ammunition" }, { name: "Reload" }];
+
+  // Longbow, Shortbow, Sling and the Dart, which DDB types as ranged despite
+  // being thrown, because it is a Simple Ranged Weapon
+  it("applies to a ranged weapon", () => {
+    expect(makeWeaponMock().hasOverkillRangedDamage).toBe(true);
+  });
+
+  it.each([
+    [true, true, false],
+    [true, false, true],
+    [false, true, true],
+    [false, false, true],
+  ])("handles MHP active=%s and automation=%s without duplicating its die", (active, mankillerOverkill, expected) => {
+    setMockModules({ "mage-hand-press-core": { active } });
+    setMockSettings({ gunslinger: { mankillerOverkill } }, "mage-hand-press-core");
+    expect(makeWeaponMock().hasOverkillRangedDamage).toBe(expected);
+    expect(makeWeaponMock({ properties: FIREARM }).hasOverkillRangedDamage).toBe(false);
+    expect(makeWeaponMock({ attackType: 1 }).hasOverkillRangedDamage).toBe(false);
+  });
+
+  it("keeps importer automation when MHP has no registered Gunslinger settings", () => {
+    setMockModules({ "mage-hand-press-core": { active: true } });
+    foundry.utils.setProperty(game, "settings.settings", new Map());
+    expect(makeWeaponMock().hasOverkillRangedDamage).toBe(true);
+  });
+
+  it("does not apply without the feature", () => {
+    expect(makeWeaponMock({ classFeatures: [] }).hasOverkillRangedDamage).toBe(false);
+    expect(makeWeaponMock({ classFeatures: ["pactWeapon"] }).hasOverkillRangedDamage).toBe(false);
+  });
+
+  // Dagger, Handaxe, Javelin: melee weapons that can be thrown, not Ranged weapons
+  it("does not apply to a melee or thrown melee weapon", () => {
+    expect(makeWeaponMock({ attackType: 1 }).hasOverkillRangedDamage).toBe(false);
+    expect(makeWeaponMock({ attackType: null }).hasOverkillRangedDamage).toBe(false);
+  });
+
+  // firearms take the ability modifier instead, never both
+  it("does not apply to a firearm", () => {
+    expect(makeWeaponMock({ properties: FIREARM }).hasOverkillRangedDamage).toBe(false);
+  });
+
+  it.each(["ammunition", "staff", "consumable", null])("is false for parsing type %s", (parsingType) => {
+    expect(makeWeaponMock({ parsingType }).hasOverkillRangedDamage).toBe(false);
+  });
+});
+
+// =============================================================================
+// hasOverkill - the Gunslinger level 11 feature, the Firearm property's
+// "unless otherwise stated"
+// =============================================================================
+describe("DDBItem.hasOverkill", () => {
+  const overkill = { definition: { name: "Overkill", requiredLevel: 11 } };
+  const trickShot = { definition: { name: "Trick Shot", requiredLevel: 3 } };
+
+  function makeClass({ name = "Gunslinger", level = 11, classFeatures = [overkill] } = {}) {
+    return { definition: { name }, level, classFeatures } as any;
+  }
+
+  it("detects the feature on a Gunslinger at the required level", () => {
+    expect(DDBItem.hasOverkill([makeClass()])).toBe(true);
+    expect(DDBItem.hasOverkill([makeClass({ level: 20 })])).toBe(true);
+  });
+
+  // DDB lists every class feature regardless of the character's level
+  it("does not detect it below the required level", () => {
+    expect(DDBItem.hasOverkill([makeClass({ level: 10 })])).toBe(false);
+    expect(DDBItem.hasOverkill([makeClass({ level: 1 })])).toBe(false);
+  });
+
+  it("ignores an Overkill feature on another class", () => {
+    expect(DDBItem.hasOverkill([makeClass({ name: "Blood Hunter", level: 20 })])).toBe(false);
+  });
+
+  it("finds it on a multiclassed Gunslinger", () => {
+    const classes = [makeClass({ name: "Fighter", level: 3, classFeatures: [] }), makeClass({ level: 12 })];
+    expect(DDBItem.hasOverkill(classes)).toBe(true);
+  });
+
+  it("is false without the feature", () => {
+    expect(DDBItem.hasOverkill([makeClass({ classFeatures: [trickShot] })])).toBe(false);
+  });
+
+  // the muncher builds a mock character with no classes
+  it("is false for an empty or missing class list", () => {
+    expect(DDBItem.hasOverkill([])).toBe(false);
+    expect(DDBItem.hasOverkill(null)).toBe(false);
+    expect(DDBItem.hasOverkill(undefined)).toBe(false);
+  });
+});
+
+// =============================================================================
+// getCriticalShotThreshold - the Gunslinger level 2 feature, whose levelScale
+// DDB resolves to the threshold for the character's level
+// =============================================================================
+describe("DDBItem.getCriticalShotThreshold", () => {
+  function criticalShot(fixedValue: number | null) {
+    return {
+      definition: { name: "Critical Shot", requiredLevel: 2 },
+      levelScale: fixedValue === null ? null : { level: 2, fixedValue },
+    };
+  }
+
+  function makeClass({
+    name = "Gunslinger",
+    level = 2,
+    classFeatures = [criticalShot(19)] as any[],
+  } = {}) {
+    return { definition: { name }, level, classFeatures } as any;
+  }
+
+  // 19 at level 2, 18 at 9, 17 at 17, as DDB ships them
+  it.each([[2, 19], [9, 18], [17, 17], [20, 17]])("returns the level %i threshold %i", (level, fixed) => {
+    expect(DDBItem.getCriticalShotThreshold([makeClass({ level, classFeatures: [criticalShot(fixed)] })]))
+      .toBe(fixed);
+  });
+
+  it("returns null below the required level", () => {
+    expect(DDBItem.getCriticalShotThreshold([makeClass({ level: 1 })])).toBeNull();
+  });
+
+  it("ignores a Critical Shot feature on another class", () => {
+    expect(DDBItem.getCriticalShotThreshold([makeClass({ name: "Fighter", level: 20 })])).toBeNull();
+  });
+
+  it("finds it on a multiclassed Gunslinger", () => {
+    const classes = [makeClass({ name: "Fighter", level: 3, classFeatures: [] }), makeClass({ level: 9 })];
+    expect(DDBItem.getCriticalShotThreshold(classes)).toBe(19);
+  });
+
+  it("returns null without the feature or a scale value", () => {
+    expect(DDBItem.getCriticalShotThreshold([makeClass({ classFeatures: [] })])).toBeNull();
+    expect(DDBItem.getCriticalShotThreshold([makeClass({ classFeatures: [criticalShot(null)] })])).toBeNull();
+  });
+
+  // the muncher builds a mock character with no classes
+  it("returns null for an empty or missing class list", () => {
+    expect(DDBItem.getCriticalShotThreshold([])).toBeNull();
+    expect(DDBItem.getCriticalShotThreshold(null)).toBeNull();
+    expect(DDBItem.getCriticalShotThreshold(undefined)).toBeNull();
+  });
+});
+
+// =============================================================================
+// rangedCriticalThreshold - Critical Shot applied to a weapon, unless ac5e is
+// installed and its own effect is doing the job
+// =============================================================================
+describe("DDBItem.prototype.rangedCriticalThreshold", () => {
+  const criticalShot = {
+    definition: { name: "Critical Shot", requiredLevel: 2 },
+    levelScale: { level: 9, fixedValue: 18 },
+  };
+
+  function makeWeaponMock({
+    attackType = 2 as number | null,
+    parsingType = "weapon" as string | null,
+    classes = [{ definition: { name: "Gunslinger" }, level: 9, classFeatures: [criticalShot] }] as any[],
+  } = {}) {
+    const mock = Object.create(DDBItem.prototype);
+    mock.ddbDefinition = { attackType };
+    mock.parsingType = parsingType;
+    mock.ddbData = { character: { classes } };
+    return mock;
+  }
+
+  // SystemHelpers.effectModules() early-returns this cache, so setting it is
+  // the only way to fake an install without stubbing game.modules
+  function setAc5eInstalled(installed: boolean) {
+    foundry.utils.setProperty(
+      CONFIG,
+      "DDBI.EFFECT_CONFIG.MODULES.installedModules",
+      installed ? { ac5eInstalled: true } : null,
+    );
+  }
+
+  afterEach(() => {
+    setAc5eInstalled(false);
+  });
+
+  it("applies to a ranged weapon", () => {
+    expect(makeWeaponMock().rangedCriticalThreshold).toBe(18);
+  });
+
+  // unlike Overkill's 1d8, firearms are Ranged weapons and do crit-expand
+  it("applies to a firearm", () => {
+    const mock = makeWeaponMock();
+    mock.ddbDefinition.properties = [{ name: "Firearm" }];
+    expect(mock.rangedCriticalThreshold).toBe(18);
+  });
+
+  // Dagger, Handaxe, Javelin
+  it("does not apply to a melee or thrown melee weapon", () => {
+    expect(makeWeaponMock({ attackType: 1 }).rangedCriticalThreshold).toBeNull();
+    expect(makeWeaponMock({ attackType: null }).rangedCriticalThreshold).toBeNull();
+  });
+
+  it("does not apply without the feature", () => {
+    expect(makeWeaponMock({ classes: [] }).rangedCriticalThreshold).toBeNull();
+  });
+
+  // the enricher's ac5eOnly effect owns this when the module is present
+  it("stands down when ac5e is installed", () => {
+    setAc5eInstalled(true);
+    expect(makeWeaponMock().rangedCriticalThreshold).toBeNull();
+  });
+
+  it.each(["ammunition", "staff", "consumable", null])("is null for parsing type %s", (parsingType) => {
+    expect(makeWeaponMock({ parsingType }).rangedCriticalThreshold).toBeNull();
+  });
+});
+
+// =============================================================================
 // parsePerSpellMagicItem - per-spell charge detection
+// =============================================================================
 describe("DDBItem.prototype.parsePerSpellMagicItem", () => {
   function makeItemMock(description: string) {
     const mock = Object.create(DDBItem.prototype);
@@ -111,8 +663,12 @@ describe("DDBItem.prototype.parsePerSpellMagicItem", () => {
     expect(result.charges).toBe(2);
   });
 
-  it("falls back to description when useDescription is empty", () => {
-    const mock = makeItemMock("This property can\u2019t be used this way again until the next dawn.");
+  it.each([
+    "This property can't be used this way again until the next dawn.",
+    "Once this property is used, it can't be used again until the next dusk.",
+    "Once this property is used, it can’t be used again until the next dawn.",
+  ])("falls back to per-spell wording in the item description: %s", (description) => {
+    const mock = makeItemMock(description);
     const result = mock.parsePerSpellMagicItem("");
     expect(result.isPerSpell).toBe(true);
     expect(result.charges).toBe(1);
@@ -125,10 +681,270 @@ describe("DDBItem.prototype.parsePerSpellMagicItem", () => {
     expect(result.charges).toBeNull();
   });
 
-  it("detects 'can't be used to cast that spell again' in useDescription", () => {
+  it.each([
+    "This property can’t be used to cast that spell again until the next dawn.",
+    "Once this property is used, it can't be used again until the next dusk.",
+    "Once this property is used, it can’t be used again until the next dawn.",
+  ])("detects per-spell wording in useDescription: %s", (useDescription) => {
     const mock = makeItemMock("");
-    const result = mock.parsePerSpellMagicItem("This property can\u2019t be used to cast that spell again until the next dawn.");
+    const result = mock.parsePerSpellMagicItem(useDescription);
     expect(result.isPerSpell).toBe(true);
     expect(result.charges).toBe(1);
+  });
+});
+
+// =============================================================================
+// parseSaveFromDescription - save.ability may only ever hold 5e ability keys.
+// The wildcard capture this replaced produced "dc " from "DC 15 Dexterity", and
+// its lazy match paired DCs with abilities from unrelated sentences.
+// =============================================================================
+describe("DDBItem.parseSaveFromDescription", () => {
+  it.each([
+    // the common phrasing, which used to yield ["dc ", "dex"]
+    ["must succeed on a DC 15 Dexterity saving throw or take 5d4 force damage", ["dex"], "15", ""],
+    ["must make a DC 15 Dexterity saving throw", ["dex"], "15", ""],
+    ["must succeed on an Intelligence saving throw against your spell save DC", ["int"], "", "spellcasting"],
+    // save.ability is a choice list, so both halves of an either/or belong in it
+    ["must make a DC 16 Strength or Dexterity saving throw", ["str", "dex"], "16", ""],
+    // DDB text is not reliably capitalised
+    ["must succeed on a DC 12 wisdom saving throw", ["wis"], "12", ""],
+    // DDB writes the roll both ways; Muscle Graft uses the "save" shorthand
+    ["you must succeed on a DC 15 Constitution save", ["con"], "15", ""],
+    ["each creature makes a DC 10 Charisma save", ["cha"], "10", ""],
+  ])("reads %s", (description, ability, formula, calculation) => {
+    expect(DDBItem.parseSaveFromDescription(description)).toEqual({
+      ability,
+      dc: { formula, calculation },
+    });
+  });
+
+  it.each([
+    // an ability check, which the lazy wildcard used to reach past into a later save
+    ["A DC 24 Dexterity (Acrobatics) check ends the effect. It must make a saving throw."],
+    // "death" and "saving" are not abilities; these produced "dea" and "sav"
+    ["must succeed on a death saving throw"],
+    ["must make a DC 13 saving throw of your choice"],
+    // a bare parenthesised DC names no ability at all
+    ["you can cast one of the following spells (save DC 18)"],
+    ["A perfectly ordinary hat."],
+  ])("finds no save in %s", (description) => {
+    expect(DDBItem.parseSaveFromDescription(description)).toBeNull();
+  });
+
+  it("never emits an ability outside the six", () => {
+    const abilities = ["str", "dex", "con", "int", "wis", "cha"];
+    for (const description of [
+      "must succeed on a DC 15 Dexterity saving throw",
+      "must make a DC 16 Strength or Dexterity saving throw",
+      "must succeed on a Charisma saving throw against your spell save DC",
+    ]) {
+      const save = DDBItem.parseSaveFromDescription(description);
+      expect(save?.ability?.every((ability) => abilities.includes(ability))).toBe(true);
+    }
+  });
+
+  it("pairs the ability with the DC from its own sentence when an item has two saves", () => {
+    // Banjo of Ol' Jericho Sticks: a Wisdom save with a formula DC, and a
+    // separate DC 19 Charisma save on another property
+    const save = DDBItem.parseSaveFromDescription(
+      "The target must succeed on a Wisdom saving throw (DC = 16 + the banjo's bonus) or have the Charmed condition."
+      + " Birdcage. You can force a creature you have Charmed to make a DC 19 Charisma saving throw.",
+    );
+    expect(save).toEqual({ ability: ["cha"], dc: { formula: "19", calculation: "" } });
+  });
+
+  it.each([
+    ["The target must succeed on a Dexterity saving throw (DC 10 plus your Proficiency Bonus) or be grappled.",
+      ["dex"], "10 + @prof", ""],
+    ["The target must succeed on a Strength saving throw (DC equals 8 plus your Strength modifier and your Proficiency Bonus) or fall prone.",
+      ["str"], "", "str"],
+    ["the creature must succeed on a Strength saving throw (DC equals 8 + your proficiency bonus + your Strength modifier) or fall prone.",
+      ["str"], "", "str"],
+    ["the target must succeed on a Constitution saving throw (DC 8 plus your Dexterity modifier and Proficiency Bonus) or be stunned.",
+      ["con"], "", "dex"],
+  ])("reads a prose DC from %s", (description, ability, formula, calculation) => {
+    expect(DDBItem.parseSaveFromDescription(description)).toEqual({ ability, dc: { formula, calculation } });
+  });
+
+  it.each([
+    // a term the parser cannot resolve follows the proficiency bonus
+    ["Creatures in the area must succeed on a Dexterity saving throw. The DC for the save is equal to 8 plus your Proficiency Bonus and the modifier used for the attack."],
+    // an item-bonus DC would roll "16 + " on an item with no bonus
+    ["The target must succeed on a Wisdom saving throw (DC = 16 + the wand's bonus) or be frightened."],
+  ])("leaves the DC blank for %s", (description) => {
+    expect(DDBItem.parseSaveFromDescription(description)?.dc).toEqual({ formula: "", calculation: "" });
+  });
+});
+
+describe("DDBItem.parseItemBonusSaveDC", () => {
+  it.each([
+    ["must succeed on a Wisdom saving throw (DC = 16 + the wand’s bonus) or be frightened.", 16],
+    ["must succeed on a Charisma saving throw (DC = 15 + the rusty axe's bonus).", 15],
+    ["must succeed on a DC 15 Charisma saving throw.", null],
+    ["The DC equals 8 plus your Proficiency Bonus.", null],
+  ])("reads %s", (description, expected) => {
+    expect(DDBItem.parseItemBonusSaveDC(description)).toBe(expected);
+  });
+});
+
+describe("DDBItem.restrictionSave", () => {
+  it.each([
+    ["Backfire - DC 15 CON save", ["con"], "15"],
+    ["Dex. Save: DC 16 with Disadvantage; Success: half damage", ["dex"], "16"],
+    ["Line: 60 ft. long and 5 ft. wide Save DC: 15 Dex.", ["dex"], "15"],
+    ["DC 15 Strength or Dexterity saving throw", ["str", "dex"], "15"],
+    // "Construct" is not a Constitution save
+    ["20 on the attack roll, not Construct; save for half", [], null],
+  ])("reads %s", (restriction, abilities, dc) => {
+    expect(DDBItem.restrictionSave(restriction)).toEqual({ abilities, dc });
+  });
+
+  it("recognises a restriction that names a save", () => {
+    expect(DDBItem.RESTRICTION_NAMES_SAVE.test("Con. Save: DC 16: On fail, damage and paralyzed")).toBe(true);
+    expect(DDBItem.RESTRICTION_NAMES_SAVE.test("When you hit a Giant")).toBe(false);
+  });
+});
+
+// =============================================================================
+// WIELDER_SAVE - saves the wielder makes get no rider activity against the target
+// =============================================================================
+describe("DDBItem.WIELDER_SAVE", () => {
+  it.each([
+    "When you use this property, you must succeed on a DC 13 Wisdom saving throw or be charmed by the blade.",
+    "Each time you finish a Long Rest, you make a DC 15 Constitution saving throw.",
+    "you can attempt a DC 12 Charisma saving throw to end the curse.",
+    "If the blade isn't fed within 1 minute, its wielder makes a DC 15 Charisma saving throw.",
+  ])("is the wielder's save in %s", (sentence) => {
+    expect(DDBItem.WIELDER_SAVE.test(sentence)).toBe(true);
+  });
+
+  it.each([
+    "Each enemy you can see within 30 feet of you must make a DC 18 Strength saving throw or be pushed.",
+    "The target must succeed on a DC 15 Constitution saving throw or take 2d10 poison damage.",
+    "A creature adjacent to you must make a DC 14 Dexterity saving throw.",
+    "Each creature in the area other than you must make a DC 15 Dexterity saving throw.",
+    "Each creature in the area excluding you must make a DC 13 Strength saving throw.",
+  ])("is the target's save in %s", (sentence) => {
+    expect(DDBItem.WIELDER_SAVE.test(sentence)).toBe(false);
+  });
+});
+
+// =============================================================================
+// greatWeaponFightingModifiers - the no-AC5e fallback for Great Weapon Fighting,
+// baked onto the damage part because no dnd5e rule change can alter a die result
+// =============================================================================
+describe("DDBItem.prototype.greatWeaponFightingModifiers", () => {
+  // DDB attackType: 1 melee, 2 ranged
+  function makeWeaponMock({
+    classFeatures = ["greatWeaponFighting2024"] as string[],
+    attackType = 1 as number | null,
+    parsingType = "weapon" as string | null,
+  } = {}) {
+    const mock = Object.create(DDBItem.prototype);
+    mock.ddbDefinition = { properties: [], attackType };
+    mock.flags = { classFeatures };
+    mock.parsingType = parsingType;
+    return mock;
+  }
+
+  let ac5eInstalled = false;
+  beforeEach(() => {
+    ac5eInstalled = false;
+    vi.spyOn(SystemHelpers, "effectModules").mockImplementation(() => ({ ac5eInstalled }) as any);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("treats 1s and 2s as 3s for the 2024 feat", () => {
+    expect(makeWeaponMock().greatWeaponFightingModifiers).toEqual(["min3"]);
+  });
+
+  it("rerolls 1s and 2s for the 2014 option", () => {
+    expect(makeWeaponMock({ classFeatures: ["greatWeaponFighting"] }).greatWeaponFightingModifiers).toEqual(["r<=2"]);
+  });
+
+  it("stands down when AC5e applies the modifier at roll time", () => {
+    ac5eInstalled = true;
+    expect(makeWeaponMock().greatWeaponFightingModifiers).toEqual([]);
+  });
+
+  it("does not apply without the feature, to a ranged weapon, or to a non weapon", () => {
+    expect(makeWeaponMock({ classFeatures: [] }).greatWeaponFightingModifiers).toEqual([]);
+    expect(makeWeaponMock({ attackType: 2 }).greatWeaponFightingModifiers).toEqual([]);
+    expect(makeWeaponMock({ parsingType: "staff" }).greatWeaponFightingModifiers).toEqual([]);
+  });
+});
+
+describe("DDBItem.addDamageDieModifiers", () => {
+  it("adds modifiers to a dice part without duplicating them", () => {
+    const damage: I5eDamagePart = { number: 2, denomination: 6, bonus: "", modifiers: ["min3"] };
+    DDBItem.addDamageDieModifiers(damage, ["min3"]);
+    expect(damage.modifiers).toEqual(["min3"]);
+  });
+
+  it("leaves flat and custom formula parts alone", () => {
+    const flat: I5eDamagePart = { number: null, denomination: 0, bonus: "5" };
+    const custom: I5eDamagePart = { number: 1, denomination: 8, custom: { enabled: true, formula: "1d8 + 2" } };
+    DDBItem.addDamageDieModifiers(flat, ["min3"]);
+    DDBItem.addDamageDieModifiers(custom, ["min3"]);
+    expect(flat.modifiers).toBeUndefined();
+    expect(custom.modifiers).toBeUndefined();
+  });
+});
+
+describe("DDBItem.ACTIVATION_WORDING", () => {
+  const kind = (text: string) => {
+    const groups = text.match(DDBItem.ACTIVATION_WORDING)?.groups;
+    return groups?.bonus ? "bonus" : groups?.reaction ? "reaction" : groups?.action ? "action" : null;
+  };
+
+  it.each([
+    ["2014 as an action", "You can use it to cast the dimension door spell as an action.", "action"],
+    ["2014 use an action", "You can use an action to press one of the cube's faces.", "action"],
+    ["2024 Magic action", "While wearing this pendant, you can take a Magic action to regain 2d4 + 2 Hit Points.", "action"],
+    ["2024 requires a Magic action", "The candle's magic is activated when the candle is lit, which requires a Magic action.", "action"],
+    ["2024 Utilize action", "When blown as a Utilize action, a Signal Whistle produces a sound.", "action"],
+    ["bonus action first", "You can take a Bonus Action to speak the command word; as an action you can stop it.", "bonus"],
+    ["reaction", "When you are hit by an attack, you can use your reaction to gain a +2 bonus to AC.", "reaction"],
+  ])("%s", (_label, text, expected) => {
+    expect(kind(text)).toBe(expected);
+  });
+
+  it("a spell cast from the item with no wording states nothing", () => {
+    expect(kind("While you wear these boots, you can cast Levitate on yourself.")).toBeNull();
+  });
+});
+
+// =============================================================================
+// Rider save readers - charges, activation and conditions from the save's own paragraph
+// =============================================================================
+describe("DDBItem rider readers", () => {
+  it.each([
+    ["As an action, you can expend 1 charge to fire a beam.", 1],
+    ["you can spend three charges to call the phalanx", 3],
+    ["You can expend charges to unleash the flame.", 1],
+    ["As a bonus action, expending 1 charge, you twist the pommel.", 1],
+    ["When you hit a creature, it must succeed on a saving throw.", null],
+  ])("reads the charges in %s", (text, charges) => {
+    expect(DDBItem.riderCharges(text)).toBe(charges);
+  });
+
+  it.each([
+    ["As a Bonus Action, you speak the command word.", "bonus"],
+    ["When a creature hits you, you can use your reaction to flash the blade.", "reaction"],
+    ["As a Magic action, you point the weapon.", "action"],
+    ["An ally is invigorated, allowing it to immediately take a Reaction to attack.", null],
+  ])("reads the activation in %s", (text, activation) => {
+    expect(DDBItem.riderActivation(text)).toBe(activation);
+  });
+
+  it("reads the conditions and duration a failure imposes", () => {
+    expect(DDBItem.riderConditions("or have the Paralyzed and Prone conditions until the end of its next turn")).toMatchObject({
+      statuses: ["paralyzed", "prone"], expiry: "targetEnd",
+    });
+    expect(DDBItem.riderConditions("must succeed on a saving throw or be knocked prone")?.statuses).toEqual(["prone"]);
+    expect(DDBItem.riderConditions("or become poisoned for 1 minute")).toMatchObject({ statuses: ["poisoned"], seconds: 60 });
+    expect(DDBItem.riderConditions("or take 2d6 fire damage")).toBeNull();
   });
 });

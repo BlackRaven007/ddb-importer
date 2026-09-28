@@ -7,35 +7,24 @@ import NativeAdventureMunch from "../muncher/adventure/native/NativeAdventureMun
 /**
  * Browse the user's DDB adventures grouped by source category and import them
  * via the native (in-browser) importer. The catalog comes from CONFIG.DDB
- * (already client-side) so there's no per-source fetch - the only network call
- * is the owned-content lookup, used to badge which books the user owns.
+ * (already client-side) so there's no per-source fetch.
  */
 export default class DDBAdventureBrowser extends DDBAppV2 {
 
   expandedCategories = new Set<number>();
   searchTerm = "";
   importingId: number | null = null;
-  // View filter: hide books the user doesn't own. Only effective once the
-  // owned-content lookup succeeds; defaults on.
-  hideUnowned = true;
-
-  // Owned book ids: null until fetched (or when the lookup fails). A failed
-  // lookup sets _ownedFetchFailed and leaves _ownedIds null - the list then
-  // shows every book with no ownership marks.
-  private _ownedIds: number[] | null = null;
   // Public meta-data summary (scene/wall/light counts per book), used for the
   // hover info card. Null until fetched/on failure. Fetched once, then cached
   // on CONFIG.DDBI by DDBAdventures.fetchMetaDataSummary.
   private _metaSummary: IMetaDataSummary | null = null;
-  private _ownedFetchInFlight = false;
-  private _ownedFetchFailed = false;
   private _searchDebounce: ((...args: any[]) => void) | null = null;
   private _searchCaret: { start: number; end: number } | null = null;
   // Preserve list scroll across re-renders (toggling a category re-renders the
   // whole part, which otherwise resets scrollTop to 0).
   private _scrollTop = 0;
 
-  static DEFAULT_OPTIONS = {
+  static override DEFAULT_OPTIONS = {
     id: "ddb-native-adventure-browser",
     classes: ["dnd5e2", "ddb-adventure-browser"],
     window: {
@@ -45,7 +34,6 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
       minimizable: true,
     },
     actions: {
-      reloadOwned: DDBAdventureBrowser.reloadOwned,
       toggleCategory: DDBAdventureBrowser.toggleCategory,
       importAdventure: DDBAdventureBrowser.importAdventure,
       closeDetails: DDBAdventureBrowser.closeDetails,
@@ -54,7 +42,7 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
     position: { width: 900, height: 760 },
   };
 
-  static PARTS = {
+  static override PARTS = {
     content: {
       template: "modules/ddb-importer/handlebars/adventure-browser/browser.hbs",
     },
@@ -68,12 +56,6 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
 
   _getTabs(): IDDBTabs {
     return {};
-  }
-
-  static async reloadOwned(this: DDBAdventureBrowser, _event: any, _target: any) {
-    this._ownedIds = null;
-    this._ownedFetchFailed = false;
-    await this._loadOwned();
   }
 
   static toggleCategory(this: DDBAdventureBrowser, _event: any, target: any) {
@@ -138,17 +120,14 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
     el.querySelector(".ddb-overlay")?.classList.remove("munching-invalid");
     el.querySelector(".ddb-working")?.classList.remove("munching-hidden");
     el.querySelector("#munch-details-okay")?.classList.add("munching-hidden");
-    el.querySelectorAll<HTMLButtonElement>(
-      "button[data-action=\"importAdventure\"], button[data-action=\"reloadOwned\"]",
-    ).forEach((b) => {
+    el.querySelectorAll<HTMLButtonElement>("button[data-action=\"importAdventure\"]").forEach((b) => {
       b.disabled = true;
     });
 
-    // reset status rows + bars
+    // reset every status row + bar, then state where this run starts from
+    this.clearDetails();
     this.notifierV2({ section: "name", message: bookName });
     this.notifierV2({ section: "monster", message: "Starting import..." });
-    this.notifierV2({ section: "import", message: "", clear: true, progressBar: "secondary" });
-    this.clearProgressBars();
   }
 
   // Stop the spinner and reveal the Okay button; leave the overlay up so the
@@ -166,38 +145,7 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
     await this.close();
   }
 
-  async _loadOwned() {
-    if (this._ownedFetchInFlight) return;
-    this._ownedFetchInFlight = true;
-    await this.render();
-    try {
-      const cobalt = Secrets.getCobalt();
-      if (!cobalt) {
-        this._ownedFetchFailed = true;
-        this._ownedIds = null;
-        return;
-      }
-      const books = await DDBAdventures.fetchOwnedBookIds();
-      const ids = books?.bookIds ?? null;
-      if (ids === null) {
-        this._ownedFetchFailed = true;
-        this._ownedIds = null;
-      } else {
-        this._ownedIds = ids;
-        this._ownedFetchFailed = false;
-      }
-    } catch (error) {
-      logger.warn(`DDBAdventureBrowser: owned fetch failed: ${(error as Error).message ?? error}`);
-      this._ownedFetchFailed = true;
-      this._ownedIds = null;
-    } finally {
-      this._ownedFetchInFlight = false;
-      await this.render();
-    }
-  }
-
-  // Public meta-data summary (no cobalt needed). Independent of the owned
-  // lookup so the hover cards populate even when ownership can't be verified.
+  // Public meta-data summary (no cobalt needed).
   async _loadMeta() {
     try {
       this._metaSummary = await DDBAdventures.fetchMetaDataSummary();
@@ -208,11 +156,8 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
     await this.render();
   }
 
-  async _onFirstRender(context: any, options: any) {
+  override async _onFirstRender(context: any, options: any) {
     await super._onFirstRender(context, options);
-    if (this._ownedIds === null && !this._ownedFetchFailed) {
-      this._loadOwned();
-    }
     if (this._metaSummary === null) {
       this._loadMeta();
     }
@@ -249,12 +194,7 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
     await this.render();
   }
 
-  _setHideUnowned(checked: boolean) {
-    this.hideUnowned = checked;
-    this.render();
-  }
-
-  async _onRender(context: any, options: any) {
+  override async _onRender(context: any, options: any) {
     await super._onRender(context, options);
 
     // Restore list scroll position, then keep tracking it.
@@ -308,14 +248,10 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
     });
   }
 
-  async _prepareContext(options: any) {
+  override async _prepareContext(options: any) {
     const context = await super._prepareContext({ ...options, noCacheLoad: true }) as any;
 
     context.searchTerm = this.searchTerm;
-    context.loadingOwned = this._ownedFetchInFlight;
-    context.ownershipUnavailable = this._ownedFetchFailed;
-    context.ownershipKnown = !!(this._ownedIds && !this._ownedFetchFailed);
-    context.hideUnowned = this.hideUnowned;
 
     context.allScenes = utils.getSetting<boolean>("adventure-policy-all-scenes");
     context.allActorsToWorld = utils.getSetting<boolean>("adventure-policy-all-actors-into-world");
@@ -334,9 +270,6 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
     const search = this.searchTerm.trim().toLowerCase();
     // owned===null => ownership unknown (no cobalt / lookup failed): show every
     // book with no marks. Otherwise badge anything not in the owned set.
-    const owned = (this._ownedIds && !this._ownedFetchFailed)
-      ? new Set(this._ownedIds)
-      : null;
     const metaBooks = this._metaSummary?.books ?? null;
     const metaVersion = this._metaSummary?.version ?? null;
 
@@ -350,8 +283,6 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
       .map((cat) => {
         const books = DDBSources.getBooksInCategories([cat.id])
           .filter((b) => b.isReleased)
-          // hide unowned only when we have a confirmed owned set and the toggle is on
-          .filter((b) => !(owned && this.hideUnowned) || owned.has(b.id))
           .filter(matchesSearch);
         const adventures = books
           .map((b) => {
@@ -362,10 +293,8 @@ export default class DDBAdventureBrowser extends DDBAppV2 {
               id: b.id,
               name: b.description,
               code: b.name,
-              cover: b.avatarURL || null,
+              cover: DDBSources.getSourceCoverURL(b),
               importing: this.importingId === b.id,
-              owned: isOwned,
-              notOwned: isOwned === false,
               enhanced: !!metaBook,
               hasMeta: !!metaTooltip,
               metaTooltip,

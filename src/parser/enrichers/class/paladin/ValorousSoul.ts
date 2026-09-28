@@ -3,7 +3,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ValorousSoul extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Valorous Soul",
       type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
@@ -19,18 +19,18 @@ export default class ValorousSoul extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       name: "Valorous",
       options: {
         durationSeconds: 60,
         description: "This ally has Advantage on attack rolls and saving throws for 1 minute.",
       },
-      changes: DICTIONARY.actor.abilities.map((ability) =>
-        DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, `system.abilities.${ability.value}.save.roll.mode`),
-      ),
-      midiChanges: [
-        DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.all"),
+      changes: [
+        ...DICTIONARY.actor.abilities.map((ability) =>
+          DDBEnricherData.ChangeHelper.advantageAbilitySaveChange(ability.value),
+        ),
+        DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
       ],
     }];
   }

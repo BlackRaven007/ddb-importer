@@ -11,8 +11,6 @@ interface IDDBSpellActivity {
   nameIdPrefix?: string | null;
   nameIdPostfix?: string | null;
   spellEffects?: boolean | null;
-  cantripBoost?: boolean | null;
-  healingBoost?: string | null;
   id?: string | null;
 }
 
@@ -22,18 +20,16 @@ export default class DDBSpellActivity extends DDBBasicActivity {
   spellEffects: boolean;
   damageRestrictionHints: boolean;
   isCantrip: boolean;
-  cantripBoost: boolean;
-  healingBonus: string;
   additionalActivityDamageParts: I5eDamagePart[];
   declare ddbParent: DDBSpell;
 
-  _init() {
+  override _init() {
     logger.debug(`Generating DDBSpellActivity ${this.name ?? this.type ?? "?"} for ${this.ddbParent.name}`);
   }
 
   constructor({
     type, name = null, ddbParent, nameIdPrefix = null, nameIdPostfix = null, spellEffects = null,
-    cantripBoost = null, healingBoost = null, id = null,
+    id = null,
   }: IDDBSpellActivity) {
 
     super({
@@ -53,19 +49,11 @@ export default class DDBSpellActivity extends DDBBasicActivity {
     this.damageRestrictionHints = utils.getSetting<boolean>("add-damage-restrictions-to-hints") && !this.spellEffects;
 
     this.isCantrip = this.ddbDefinition.level === 0;
-    if (this.isCantrip && cantripBoost === null) {
-      cantripBoost = foundry.utils.getProperty(this, "ddbParent.cantripBoost") as boolean ?? false;
-    }
-    const boost = cantripBoost ?? foundry.utils.getProperty(this.foundryFeature, "flags.ddbimporter.dndbeyond.cantripBoost") as boolean;
-    this.cantripBoost = this.isCantrip && boost;
-
-    const boostHeal = healingBoost ?? foundry.utils.getProperty(this.foundryFeature, "flags.ddbimporter.dndbeyond.healingBoost") as string;
-    this.healingBonus = boostHeal ? ` + ${boostHeal} + @item.level` : "";
 
     this.additionalActivityDamageParts = [];
   }
 
-  _generateConsumption({
+  override _generateConsumption({
     consumptionOverride = null,
     additionalTargets = [],
     consumeActivity = false,
@@ -338,6 +326,7 @@ export default class DDBSpellActivity extends DDBBasicActivity {
   }
 
   buildDamagePart({ damageString, type, damageMod = null }: { damageString: string; type?: string; damageMod?: IDDBSpellModifier | null }) {
+    // const damage = {
     //   number: null,
     //   denomination: null,
     //   bonus: "",
@@ -374,7 +363,7 @@ export default class DDBSpellActivity extends DDBBasicActivity {
   }
 
 
-  _generateDamage({ damageParts = null, onSave = null, partialDamageParts = null, modRestrictionFilter = null,
+  override _generateDamage({ damageParts = null, onSave = null, partialDamageParts = null, modRestrictionFilter = null,
     modRestrictionFilterExcludes = null, allowCritical = null }: {
     damageParts?: I5eDamagePart[] | null;
     onSave?: string | null;
@@ -418,8 +407,9 @@ export default class DDBSpellActivity extends DDBBasicActivity {
         if (!this.damageRestrictionHints && restrictionText !== "") {
           chatFlavor.push(`Restriction: ${restrictionText}`);
         }
-        const addMod = damageMod.usePrimaryStat || this.cantripBoost ? " + @mod" : "";
-        // parseDiceString stringifies its input, so a missing die keeps the historic "null" handling below
+        // class cantrip damage bonuses (Potent Spellcasting) are native damage rules on the granting feature's effect
+        const addMod = damageMod.usePrimaryStat ? " + @mod" : "";
+        // parseDiceString stringifies its input, so a missing die arrives as "null" and is skipped below
         const diceString = utils.parseDiceString(String(damageMod.die?.diceString ?? null), addMod).diceString;
         if (diceString && diceString.trim() !== "" && diceString.trim() !== "null") {
           const damage = this.buildDamagePart({
@@ -432,10 +422,7 @@ export default class DDBSpellActivity extends DDBBasicActivity {
       });
 
       // This is probably just for Toll the dead.
-      const alternativeFormula = this.#getAlternativeFormula();
-      versatile = this.cantripBoost && alternativeFormula && alternativeFormula != ""
-        ? `${alternativeFormula} + @mod`
-        : alternativeFormula;
+      versatile = this.#getAlternativeFormula();
     }
 
     this.data.description ??= { chatFlavor: "" };
@@ -487,7 +474,7 @@ export default class DDBSpellActivity extends DDBBasicActivity {
 
   }
 
-  _generateSave({ saveOverride = null }: { saveOverride?: I5eActivitySave | null } = {}) {
+  override _generateSave({ saveOverride = null }: { saveOverride?: I5eActivitySave | null } = {}) {
     if (!("save" in this.data)) return;
     if (saveOverride) {
       this.data.save = saveOverride;
@@ -516,7 +503,22 @@ export default class DDBSpellActivity extends DDBBasicActivity {
     }
   }
 
-  build({
+  /**
+   * Give a follow-up activity the spell's own duration without concentration. Left on the spell's
+   * duration, dnd5e begins concentration on every use of an activity whose duration concentrates,
+   * which ends the concentration the cast started. The spell's duration rather than an
+   * instantaneous one, because an effect linked without an expiry of its own takes the activity's
+   * duration when applied (dnd5e 6 getAppliedEffectChanges), and the parser's condition effects
+   * have none. Only a slotless activity qualifies: one that spends a slot is a cast.
+   */
+  #dropConcentration(): void {
+    if (this.data.consumption?.spellSlot !== false) return;
+    const duration = (this.foundryFeature.system as { duration?: I5eSystemDurationData } | undefined)?.duration;
+    if (!duration?.concentration) return;
+    this.data.duration = { ...foundry.utils.deepClone(duration), concentration: false, override: true };
+  }
+
+  override build({
     activationOverride = null,
     additionalTargets = [],
     allowCritical = null,
@@ -557,6 +559,7 @@ export default class DDBSpellActivity extends DDBBasicActivity {
     includeBaseDamage = false,
     noeffect = false,
     noSpellslot = false,
+    noConcentration = false,
     onSave = null,
     partialDamageParts = null,
     rangeOverride = null,
@@ -568,25 +571,31 @@ export default class DDBSpellActivity extends DDBBasicActivity {
     modRestrictionFilterExcludes = null,
   }: IDDBSpellActivityBuild = {}) {
 
-    if (generateConsumption) this._generateConsumption({
-      consumptionOverride,
-      additionalTargets,
-      consumeActivity,
-      consumeItem,
-    });
+    if (generateConsumption) {
+      this._generateConsumption({
+        consumptionOverride,
+        additionalTargets,
+        consumeActivity,
+        consumeItem,
+      });
+    }
     if (generateSave) this._generateSave({ saveOverride });
-    if (generateDamage) this._generateDamage({
-      damageParts,
-      onSave,
-      partialDamageParts,
-      modRestrictionFilter,
-      modRestrictionFilterExcludes,
-      allowCritical,
-    });
+    if (generateDamage) {
+      this._generateDamage({
+        damageParts,
+        onSave,
+        partialDamageParts,
+        modRestrictionFilter,
+        modRestrictionFilterExcludes,
+        allowCritical,
+      });
+    }
 
     if (noSpellslot) {
       foundry.utils.setProperty(this.data, "consumption.spellSlot", false);
     }
+    // an explicit duration, generated or passed in `data`, is the caller's choice
+    if (noConcentration && !generateDuration && !data?.duration) this.#dropConcentration();
 
     super.build({
       generateActivation: generateActivation || activationOverride !== null,

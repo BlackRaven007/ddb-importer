@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class DreadAllegiance extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     const results = [
       {
         init: {
@@ -110,7 +110,7 @@ export default class DreadAllegiance extends DDBEnricherData {
     return results;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Dread Allegiance to Bane (Psychic)",
@@ -136,8 +136,10 @@ export default class DreadAllegiance extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
+      // the daily choice activities consume an item use; DDB ships no action carrying one
+      uses: { spent: null, max: "1", recovery: [{ period: "lr", type: "recoverAll", formula: undefined }] },
       descriptionSuffix: `
 <section class="secret ddbSecret" id="secret-ddbDreadAllegiance">
 <p><strong>Implementation Details</strong></p>

@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class FutureSight extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "action",
@@ -23,7 +23,7 @@ export default class FutureSight extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (this.isAction) return [];
     return [
       {
@@ -32,13 +32,15 @@ export default class FutureSight extends DDBEnricherData {
           durationSeconds: 3600,
           description: "While not Incapacitated or Blinded, you have Advantage on all attack rolls and attacks against you have Disadvantage.",
         },
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
+        ],
+        // the incoming-attack half modifies other creatures' rolls, which only the modules can do
         midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.all"),
           DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.grants.disadvantage.attack.all"),
         ],
         ac5eChanges: [
-          DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.automated-conditions-5e.attack.advantage"),
-          DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.automated-conditions-5e.grants.attack.disadvantage"),
+          DDBEnricherData.ChangeHelper.ac5eChange("1", 20, "flags.automated-conditions-5e.grants.attack.disadvantage"),
         ],
       },
     ];

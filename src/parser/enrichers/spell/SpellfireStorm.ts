@@ -2,13 +2,21 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class SpellfireStorm extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
+      data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter", "tokenTurnEnd"],
+            activityId: "ddbSpellStormSa1",
+          }),
+        ],
+      },
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -20,6 +28,8 @@ export default class SpellfireStorm extends DDBEnricherData {
           noConsumeTargets: true,
           noTemplate: true,
           data: {
+            duration: { override: true, units: "inst", concentration: false },
+            behaviors: [],
             range: {
               override: true,
               units: "spec",
@@ -31,74 +41,6 @@ export default class SpellfireStorm extends DDBEnricherData {
         },
       },
     ];
-  }
-
-  get effects(): IDDBEffectHint[] {
-    return [
-      {
-        name: "Within Spellfire Storm",
-        activeAurasOnly: true,
-        midiOnly: true,
-        options: {
-          durationSeconds: 60,
-        },
-        macroChanges: [
-          {
-            functionCall: "DDBImporter.effects.AuraAutomations.DamageOnEntry",
-          },
-        ],
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.customChange(
-            `label=${this.data.name} Turn End,turn=end, saveAbility=con, saveDC=@attributes.spell.dc, saveDamage=halfdamage, rollType=save, saveMagic=true, damageBeforeSave=false, damageRoll=(@item.level)d10, damageType=radiant, killAnim=true`,
-            20,
-            "flags.midi-qol.OverTime",
-          ),
-        ],
-        data: {
-          duration: {
-            value: 60,
-            units: "seconds",
-          },
-          flags: {
-            ActiveAuras: {
-              isAura: true,
-              aura: "All",
-              radius: "20",
-              alignment: "",
-              type: "",
-              ignoreSelf: false,
-              height: false,
-              hidden: false,
-              onlyOnce: false,
-              displayTemp: true,
-            },
-          },
-        },
-      },
-    ];
-  }
-
-  get override(): IDDBOverrideData {
-    return {
-      data: {
-        flags: {
-          ddbimporter: {
-            effect: {
-              saveOnEntry: true,
-              sequencerFile: "jb2a.fumes.fire.orange",
-              activityIds: ["ddbSpellStormSa1"],
-            },
-          },
-        },
-      },
-    };
-  }
-
-  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
-    return {
-      functionCall: "DDBImporter.effects.AuraAutomations.DamageOnEntry",
-      triggerPoints: ["preActiveEffects"],
-    };
   }
 
 }

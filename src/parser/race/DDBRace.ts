@@ -159,6 +159,14 @@ export default class DDBRace {
     // "Gnomish Lineage",
   ];
 
+  /**
+   * Strict flag equality, except that a numeric id also matches its string form: choice option ids
+   * were written to compendium documents as strings by earlier 7.x releases.
+   */
+  static flagValueMatches(flagValue: unknown, value: unknown): boolean {
+    return flagValue === value || (typeof value === "number" && flagValue === String(value));
+  }
+
   static getGroupName(ids: number[], baseRaceName: string) {
     const ddbGroup = CONFIG.DDB.raceGroups.find((r) => ids.includes(r.id));
     if (ddbGroup) {
@@ -291,6 +299,7 @@ export default class DDBRace {
     const importerFlags: IDDBImporterItemFlags = {
       type: "race",
       entityRaceId: this.race.entityRaceId,
+      entityRaceTypeId: this.race.entityRaceTypeId,
       version: CONFIG.DDBI.version,
       sourceId: this.race.sources.length > 0 ? this.race.sources[0].sourceId : -1, // is homebrew
       baseName: this.race.baseName,
@@ -350,7 +359,7 @@ export default class DDBRace {
 
       const filterFunction = ((i: object) => {
         return Object.entries(flags).every(([key, value]) => {
-          return foundry.utils.getProperty(i, `flags.ddbimporter.${key}`) === value;
+          return DDBRace.flagValueMatches(foundry.utils.getProperty(i, `flags.ddbimporter.${key}`), value);
         });
       });
       const match = findAll
@@ -362,7 +371,7 @@ export default class DDBRace {
   }
 
   getCompendiumIxByFlags<T extends TRaceIndexEntries>(compendiums: string[], flags: Record<string, unknown>): T | null {
-    const match = this.#getCompendiumIxesByFlags<T>(compendiums, flags, true);
+    const match = this.#getCompendiumIxesByFlags<T>(compendiums, flags, false);
     if (match) return match as T;
     return null;
   }
@@ -462,11 +471,13 @@ export default class DDBRace {
   #addWeightSpeeds() {
     if (this.race.weightSpeeds?.normal) {
       this.data.system.movement = {
-        burrow: String(this.race.weightSpeeds.normal.burrow ?? 0),
-        climb: String(this.race.weightSpeeds.normal.climb ?? 0),
-        fly: String(this.race.weightSpeeds.normal.fly ?? 0),
-        swim: String(this.race.weightSpeeds.normal.swim ?? 0),
-        walk: String(this.race.weightSpeeds.normal.walk ?? 0),
+        speeds: {
+          burrow: String(this.race.weightSpeeds.normal.burrow ?? 0),
+          climb: String(this.race.weightSpeeds.normal.climb ?? 0),
+          fly: String(this.race.weightSpeeds.normal.fly ?? 0),
+          swim: String(this.race.weightSpeeds.normal.swim ?? 0),
+          walk: String(this.race.weightSpeeds.normal.walk ?? 0),
+        },
         units: "ft",
         hover: false,
       };
@@ -498,9 +509,9 @@ export default class DDBRace {
       const typeRegex = /you have a flying speed equal to your walking speed/i;
       const flightMatch = trait.description.match(typeRegex);
       const movement = this.data.system.movement;
-      if (flightMatch && movement) {
+      if (flightMatch && movement?.speeds) {
         logger.debug(`Missing flight detected: ${flightMatch[1]}`, flightMatch);
-        movement.fly = movement.walk;
+        movement.speeds.fly = movement.speeds.walk;
       }
     }
   }
@@ -520,7 +531,7 @@ export default class DDBRace {
       // Your Charisma score increases by 2. In addition, one other ability score of your choice increases by 1.
       // Your Constitution score increases by 2, and      one other ability score of your choice increases by 1.
 
-      const update = foundry.utils.duplicate(this.abilityAdvancement.configuration);
+      const update = foundry.utils.duplicate(this.abilityAdvancement.configuration) as unknown as dnd5e.types.Advancement.OfType<"AbilityScoreImprovement">["configuration"];
       const fixedRegex = /Your (\w+) score increases by (\d)/i;
       const fixedMatch = trait.description.match(fixedRegex);
       if (fixedMatch) {
@@ -554,6 +565,7 @@ export default class DDBRace {
   }
 
   #generateAbilityAdvancement() {
+    // console.warn("Ability advancement", {
     //   this: this,
     // })
     if (!this.is2014) return;
@@ -650,7 +662,7 @@ export default class DDBRace {
 
     // use our advancement mock to validate the update before we update advancement
     const update: I5eAdvancementItemChoice = {
-      title: trait.name,
+      name: trait.name,
       hint: trait.snippet ?? trait.description ?? undefined,
       configuration: {
         allowDrops: true,
@@ -687,7 +699,7 @@ export default class DDBRace {
       && foundry.utils.getProperty(i, "flags.ddbimporter.id") === feat.definition.id,
     );
     if (!featMatch) {
-      logger.warn(`Unable to link advancement to feat ${feat.definition.name}. The feat is not in the DDB Feats compendium yet. Run Muncher -> Feats (and optionally Backgrounds/Species/Classes) to populate non-SRD sources.`, { feat });
+      logger.warn(`Unable to link advancement to feat ${feat.definition.name}, this is probably because the feats have not been munched to the compendium`, { feat });
       return;
     }
 
@@ -695,6 +707,7 @@ export default class DDBRace {
     this.featLink.name = feat.definition.name;
     this.featLink.uuid = featMatch.uuid;
 
+    // console.warn("Generated feat advancement link", {
     //   this: this,
     //   trait,
     //   feat,
@@ -706,6 +719,7 @@ export default class DDBRace {
 
     // this update is done later, once everything is built
     // we just add the hints to the feat here
+    // const update = {
     //   value: {
     //     added: {
     //       "0": {
@@ -811,7 +825,7 @@ export default class DDBRace {
     const advancement = AdvancementHelper.createAdvancement(game.dnd5e.documents.advancement.ItemChoiceAdvancement);
 
     const updateData: I5eAdvancementItemChoice = {
-      title: utils.nameString(trait.name),
+      name: utils.nameString(trait.name),
       hint: trait.snippet ?? trait.description ?? "",
       configuration: {
         restriction: {
@@ -829,6 +843,7 @@ export default class DDBRace {
 
     advancement.updateSource(updateData as any);
 
+    // console.warn(`Generated choice advancement for feature ${feature.name}:`, {
     //   advancement,
     //   this: this,
     //   feature,
@@ -915,7 +930,7 @@ export default class DDBRace {
     const advancement = AdvancementHelper.createAdvancement(game.dnd5e.documents.advancement.ItemChoiceAdvancement);
 
     const advancementData: I5eAdvancementItemChoice = {
-      title: utils.nameString(trait.name),
+      name: utils.nameString(trait.name),
       hint: trait.snippet ?? trait.description ?? "",
       configuration: {
         restriction: {
@@ -932,6 +947,7 @@ export default class DDBRace {
     };
     advancement.updateSource(advancementData as any);
 
+    // console.warn(`Generated choice advancement for feature ${feature.name}:`, {
     //   advancement,
     //   this: this,
     //   feature,
@@ -951,7 +967,8 @@ export default class DDBRace {
       .filter(
         (option) =>
           trait.entityTypeId == option.componentTypeId
-          && trait.id == option.componentId,
+          && trait.id == option.componentId
+          && !DICTIONARY.parsing.nonItemChoiceLabels.includes(option.definition.name),
       );
     if (optionMatches.length === 0) return;
     await this.#generateTraitOptionAdvancement(trait, optionMatches);
@@ -1017,6 +1034,10 @@ export default class DDBRace {
   }
 
   #generateConditionAdvancement(trait: IDDBRacialTraitDefinition) {
+    // A munched lineage species grants its chosen lineage trait, which carries the resistance as an
+    // effect. The muncher reads conditions from the description table instead of the modifiers, which
+    // always yields the first lineage row (e.g. Poison for every Tiefling legacy).
+    if (this.isMuncher && this.isLineage && this.lineageTrait?.componentId === trait.id) return;
     // TO DO: Dragonborn Resistance choice advancement
     const mods = DDBModifiers.getModifiers(this.ddbData, "race")
       .filter((mod) => mod.componentId === trait.id && mod.componentTypeId === trait.entityTypeId);
@@ -1066,7 +1087,9 @@ export default class DDBRace {
         if (choiceMatch && traitMatch) {
           const choice = this.#getTraitChoice(trait);
           if (!choice) return false;
-          const choiceOptionMatch = foundry.utils.getProperty(matchFlags, "dndbeyond.choice.optionId") === choice.id;
+          const choiceOptionMatch = DDBRace.flagValueMatches(
+            foundry.utils.getProperty(matchFlags, "dndbeyond.choice.optionId"), choice.id,
+          );
           if (!choiceOptionMatch) return false;
         }
         return traitMatch;
@@ -1164,7 +1187,7 @@ export default class DDBRace {
         },
         value: {},
         level: requiredLevel,
-        title: "Traits",
+        name: "Traits",
         icon: "",
         classRestriction: "",
       };
@@ -1294,6 +1317,7 @@ export default class DDBRace {
         foundry.utils.setProperty(feat, "flags.dnd5e.advancementOrigin", `${this.data._id}.${a._id}`);
       }
 
+      // console.warn("Post feat match for advancement", {
       //   addedFeats,
       // });
 
@@ -1315,9 +1339,12 @@ export default class DDBRace {
   }
 
   // #generateHTMLSenses() {
+  //   const textDescription = AdvancementHelper.stripDescription(this.data.system.description.value);
 
   //   // You can see in dim light within 60 feet of you as if it were bright light, and in darkness as if it were dim light
   //   // You can see in dim light within 120 feet of you as if it were bright light and in darkness as if it were dim light.
+  //   const darkVisionRegex = /you can see in dim light within (\d+) feet of you as if it were bright light/im;
+  //   const darkVisionMatch = textDescription.match(darkVisionRegex);
 
   //   if (darkVisionMatch) {
   //     this.data.system.senses.darkvision = parseInt(darkVisionMatch[1]);
@@ -1325,6 +1352,7 @@ export default class DDBRace {
   // }
 
   #generateSenses() {
+    // const ranges = (this.data.system.senses.ranges ?? {}) as Record<string, any>;
     const ranges: T5eSenseRanges = this.data.system.senses?.ranges ?? {};
     for (const senseName in ranges) {
       const basicOptions = {
@@ -1335,13 +1363,8 @@ export default class DDBRace {
         ...DDBModifiers.filterModifiers((this.ddbData.character?.modifiers?.race ?? []), "set-base", basicOptions),
       ];
       senseModifiers
-        .filter((mod) => {
-          // we remove senses that are granted as part of a choice feature for the species
-          const isChoiceModifier = this.ddbData.character.choices.choiceDefinitions.some((def) =>
-            def.options.some((opt) => opt.id === mod.componentId),
-          );
-          return !isChoiceModifier;
-        })
+        // we remove senses that are granted as part of a choice feature for the species
+        .filter((mod) => !DDBModifiers.isChoiceOptionModifier(this.ddbData, mod))
         .forEach((mod) => {
           const key = senseName as keyof T5eSenseRanges;
           if (Number.isInteger(mod.value) && parseInt(String(mod.value)) > (ranges[key] ?? 0)) {
@@ -1380,7 +1403,7 @@ export default class DDBRace {
         },
       },
       value: {},
-      title: `Breath Weapon Dice`,
+      name: `Breath Weapon Dice`,
       icon: null,
     };
     this._addAdvancement(breathWeapon as unknown as I5eAdvancement);
@@ -1391,7 +1414,7 @@ export default class DDBRace {
     const advancementRecord = this.data.system.advancement ?? {};
     for (const key of Object.keys(advancementRecord)) {
       const advancement = advancementRecord[key];
-      if (advancement.title !== "Celestial Revelation") continue;
+      if (advancement.name !== "Celestial Revelation") continue;
       advancement.type = "ItemGrant";
       // reshape the choice configuration into an ItemGrant configuration
       const configuration = advancement.configuration as Record<string, any>;
@@ -1475,6 +1498,21 @@ export default class DDBRace {
       advancementRecord[id] = advancement;
     }
     return race;
+  }
+
+  /**
+   * Builds the compendium species document for an already parsed character. The mule munch parses
+   * species before their traits are written to the compendium, so it rebuilds each species with this
+   * once the traits exist, otherwise the species would carry no trait advancements.
+   */
+  static async buildPendingSpeciesDocument(ddbCharacter: DDBCharacter): Promise<I5eRaceItem | null> {
+    const ddb = ddbCharacter.source?.ddb;
+    if (!ddb) return null;
+    const traits = ddb.character.race.racialTraits.map((r) => r.definition);
+    const compendiumRacialTraits = await DDBRace.getRacialTraitsLookup(traits, false);
+    const ddbRace = new DDBRace({ ddbCharacter, compendiumRacialTraits });
+    await ddbRace.build();
+    return ddbRace._buildPendingSpeciesDocument();
   }
 
   static async writePendingSpeciesDocuments(races: I5eRaceItem[], update: boolean | null) {

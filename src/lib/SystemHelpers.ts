@@ -9,9 +9,7 @@ export default class SystemHelpers {
     const midiQolInstalled = game.modules?.get("midi-qol")?.active ?? false;
     const daeInstalled = game.modules?.get("dae")?.active ?? false;
 
-    const activeAurasInstalled = game.modules?.get("ActiveAuras")?.active ?? false;
     const auraeffectsInstalled = game.modules?.get("auraeffects")?.active ?? false;
-    const atlInstalled = game.modules?.get("ATL")?.active ?? false;
     const tokenMagicInstalled = game.modules?.get("tokenmagic")?.active ?? false;
     const autoAnimationsInstalled = game.modules?.get("autoanimations")?.active ?? false;
     const chrisModule = game.modules?.get("chris-premades");
@@ -26,9 +24,7 @@ export default class SystemHelpers {
       hasMonster: midiQolInstalled && daeInstalled,
       midiQolInstalled,
       daeInstalled,
-      atlInstalled,
       tokenMagicInstalled,
-      activeAurasInstalled,
       auraeffectsInstalled,
       autoAnimationsInstalled,
       chrisInstalled,
@@ -150,7 +146,8 @@ export default class SystemHelpers {
         return game.dnd5e?.dataModels.journal.RuleJournalPageData.schema.getInitialValue();
       case "dnd-tashas-cauldron.tattoo":
       case "tattoo":
-        return CONFIG.Item.dataModels["dnd-tashas-cauldron.tattoo"].schema.getInitialValue();
+        // module subtype registered at runtime by Tasha's Cauldron, not part of the dnd5e-types item map
+        return (CONFIG.Item.dataModels as Record<string, { schema: { getInitialValue: () => any } }>)["dnd-tashas-cauldron.tattoo"]?.schema.getInitialValue();
       default:
         return undefined;
     }

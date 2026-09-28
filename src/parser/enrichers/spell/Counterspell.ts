@@ -2,7 +2,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Counterspell extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     if (this.is2014) {
       return DDBEnricherData.ACTIVITY_TYPES.CHECK;
     } else {
@@ -10,14 +10,14 @@ export default class Counterspell extends DDBEnricherData {
     }
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (this.is2014) {
       return {
         type: DDBEnricherData.ACTIVITY_TYPES.CHECK,
         data: {
           check: {
             associated: [],
-            ability: ["spellcasting"],
+            ability: "spellcasting",
             dc: {
               calculation: "",
               formula: "",
@@ -30,7 +30,7 @@ export default class Counterspell extends DDBEnricherData {
     }
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       midiManualReaction: true,
     };

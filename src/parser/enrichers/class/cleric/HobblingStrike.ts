@@ -2,18 +2,18 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class HobblingStrike extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (!this.isAction) return null;
     return {
       activationCondition: "Once per turn, when you hit a creature with a weapon attack",
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (!this.isAction) return [];
     return [
       {
@@ -26,13 +26,12 @@ export default class HobblingStrike extends DDBEnricherData {
       {
         name: "Hobbling Strike: Hobbled",
         options: {
-          durationRounds: 1,
+          expiry: "sourceStart",
           description: "Speed halved until the start of the cleric's next turn (Cleric level 14+).",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.multiplyChange("0.5", 50, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0.5", 50),
         ],
-        daeSpecialDurations: ["turnStartSource"],
       },
     ];
   }

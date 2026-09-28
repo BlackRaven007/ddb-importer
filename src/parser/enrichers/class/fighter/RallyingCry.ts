@@ -1,17 +1,17 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class RallyingCry extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.HEAL;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Heroic Rally",
       targetType: "creature",
       data: {
         healing: DDBEnricherData.basicDamagePart({
-          customFormula: "@classes.fighter.level",
+          customFormula: "@classes.fighter.levels",
           types: ["healing"],
         }),
       },

@@ -3,17 +3,18 @@ import _BloodCurse from "./_BloodCurse";
 
 export default class BloodCurseOfBinding extends _BloodCurse {
 
-  get curseName(): string {
+  override get curseName(): string {
     return "Blood Curse of Binding";
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: this.curseName,
+      useActivitySnippet: true,
       targetType: "creature",
       targetCount: 1,
       activationCondition: "Large or smaller creature",
@@ -31,7 +32,7 @@ export default class BloodCurseOfBinding extends _BloodCurse {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -45,20 +46,18 @@ export default class BloodCurseOfBinding extends _BloodCurse {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         // until the end of the caster's next turn
         name: "Bound",
         activityMatch: this.curseName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description: "Your speed is 0 and you can't use reactions.",
         },
-        daeSpecialDurations: ["turnEndSource"],
         changes: [
-          DDBEnricherData.ChangeHelper.customChange("*0", 20, "system.attributes.movement.all"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0", 20),
         ],
       },
       {
@@ -70,7 +69,7 @@ export default class BloodCurseOfBinding extends _BloodCurse {
           description: "Your speed is 0 and you can't use reactions. You can repeat the saving throw at the end of each of your turns, ending the curse on a success.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.customChange("*0", 20, "system.attributes.movement.all"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0", 20),
         ],
         midiChanges: [
           DDBEnricherData.ChangeHelper.customChange(

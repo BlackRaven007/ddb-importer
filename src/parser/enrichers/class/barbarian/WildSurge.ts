@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class WildSurge extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Roll for Surge",
       data: {
@@ -20,7 +20,7 @@ export default class WildSurge extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -249,8 +249,24 @@ export default class WildSurge extends DDBEnricherData {
           },
         },
         overrides: {
-          targetType: "self",
+          targetType: "ally",
           rangeSelf: true,
+          data: {
+            target: {
+              template: {
+                contiguous: false,
+                type: "radius",
+                size: "10",
+                units: "ft",
+              },
+            },
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.applyEffect({
+                effects: "Multicolored Light AC Bonus",
+                auraeffectsNever: true,
+              }),
+            ],
+          },
         },
       },
       {
@@ -340,7 +356,7 @@ export default class WildSurge extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Wild Surge Weapon",
@@ -364,25 +380,24 @@ export default class WildSurge extends DDBEnricherData {
       },
       {
         name: "Multicolored Light AC Bonus",
-        activityMatch: "6: Multicolored Light (AC Bonus)",
+        standalone: true,
+        auraeffectsNever: true,
         changes: [
           DDBEnricherData.ChangeHelper.signedAddChange("1", 20, "system.attributes.ac.bonus"),
         ],
         options: {
           durationSeconds: 60,
         },
-        data: {
-          flags: {
-            ActiveAuras: {
-              aura: "Allies" as const,
-              radius: "10",
-              isAura: true,
-              ignoreSelf: false,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-            },
-          },
+      },
+      {
+        name: "Multicolored Light AC Bonus",
+        activityMatch: "6: Multicolored Light (AC Bonus)",
+        auraeffectsOnly: true,
+        changes: [
+          DDBEnricherData.ChangeHelper.signedAddChange("1", 20, "system.attributes.ac.bonus"),
+        ],
+        options: {
+          durationSeconds: 60,
         },
         auraeffects: {
           applyToSelf: true,
@@ -401,9 +416,8 @@ export default class WildSurge extends DDBEnricherData {
         name: "Bolt of Light (Blinded)",
         activityMatch: "8: Bolt of Light (Save vs Damage)",
         statuses: ["Blinded"],
-        daeSpecialDurations: ["turnStartSource"],
         options: {
-          durationSeconds: 6,
+          expiry: "sourceStart",
         },
       },
     ];

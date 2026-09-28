@@ -7,13 +7,13 @@ import DDBEnricherData from "../data/DDBEnricherData";
  */
 export default class InfernalChallenge extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Initial Save",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -53,7 +53,7 @@ export default class InfernalChallenge extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Infernal Challenge Issued",
@@ -72,7 +72,7 @@ export default class InfernalChallenge extends DDBEnricherData {
           durationSeconds: 60,
         },
         ac5eChanges: [
-          DDBEnricherData.ChangeHelper.addChange(
+          DDBEnricherData.ChangeHelper.ac5eChange(
             "(opponentActor.actorId === effectOriginActor.actorId ? 0 : 1)",
             20,
             "flags.automated-conditions-5e.attack.disadvantage",
@@ -83,12 +83,10 @@ export default class InfernalChallenge extends DDBEnricherData {
         name: "No Running",
         activityMatch: "Move Away Save",
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "targetStart",
         },
-        daeSpecialDurations: ["turnStart"],
         changes: [
-          DDBEnricherData.ChangeHelper.overrideChange("0", 50, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0", 50),
         ],
       },
     ];

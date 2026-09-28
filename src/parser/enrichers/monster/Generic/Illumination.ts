@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class Illumination extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
 
     // The myrmidon sheds bright light in a 20-foot radius and dim light in a 40-foot radius
     // The councilor magically sheds bright light in a 15-foot radius and dim light for an additional 15 feet
@@ -24,6 +24,7 @@ export default class Illumination extends DDBEnricherData {
     const justDimRegex = /sheds dim light in a (?<dim>\d+)-\s?foot radius/i;
     const justDimMatch = justDimRegex.exec(this.ddbParser.strippedHtml ?? "");
 
+    // console.warn("Illumination", {
     //   this: this,
     //   match,
     //   atlACtove: DDBEnricherData.AutoEffects.effectModules().atlInstalled,
@@ -61,6 +62,7 @@ export default class Illumination extends DDBEnricherData {
     //     // foundry.utils.setProperty(this.ddbParser.ddbMonster.npc, "flags.lights.bright", parseInt(match.groups.bright));
     //   }
     //   if (match.groups.dim) {
+    //     const dim = match.groups.bright ? parseInt(match.groups.bright) + parseInt(match.groups.dim) : match.groups.dim;
     //     this.ddbParser.ddbMonster.npc.prototypeToken.light.dim = parseInt(`${dim}`);
     //     // foundry.utils.setProperty(this.ddbParser.ddbMonster.npc, "flags.lights.dim", dim);
     //   }

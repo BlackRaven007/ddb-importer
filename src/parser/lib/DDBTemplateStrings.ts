@@ -1,5 +1,9 @@
-import { utils, logger } from "../../lib/_module";
+import { compileTemplateExpression } from "./DDBTemplateExpression";
+import logger from "../../lib/Logger";
+import utils from "../../lib/Utils";
 import DDBDataUtils from "./DDBDataUtils";
+import { PARSING_FEATURES, TEMPLATE_CORRECTIONS } from "../../config/dictionary/parsing/features";
+import DDBDescriptions from "./DDBDescriptions";
 import { parseTags } from "./DDBReferenceLinker";
 
 interface IDDBTemplateStringDisplayString {
@@ -81,6 +85,10 @@ function parseMatch(
         feature: featureDef,
         scaleValue,
       });
+      // hand the template back verbatim; the caller would otherwise box the bare word
+      // as an inline roll ("[[scalevalue]]") on the sheet
+      result = `{{${match}}}`;
+      linktext = result;
     }
   }
 
@@ -113,6 +121,7 @@ function parseMatch(
   if (result.includes("modifier")) {
     const regexp = /modifier:([a-z]{3})(?:,)?([a-z]{3})?/g;
     // creates array from match groups and dedups
+    // const ability = [...new Set(Array.from(result.matchAll(regexp), (m) => m[1]))];
     const matches = [...result.matchAll(regexp)];
 
     matches.forEach((match) => {
@@ -376,6 +385,13 @@ const getNumber = (theNumber: string | number, signed: "unsigned" | "signed" | s
 };
 
 
+/** Find the replacement formula for a template body DDB ships wrong, if there is one. */
+function correctFeatureTemplate(template: string, featureName: string): string | null {
+  const correction = TEMPLATE_CORRECTIONS.find((entry) =>
+    entry.template === template && featureName.includes(entry.featureNameIncludes));
+  return correction?.formula ?? null;
+}
+
 /**
  * Replaces the matched string with the appropriate value or format, based on the value of p2.
  *
@@ -416,6 +432,8 @@ function fixRollables(text: string): string {
   }
 
   const noRollRegex = /(\[\[\/roll)([\w\s.,@\d+-\\*/()]*(?![0-9]*d[0-9]+)(?!@scale\.)[\w\s.,@\d-+\\*/()]*)(\]\])/g;
+  // const noRollMatches = text.match(noRollRegex);
+  // console.warn("noRollMatches", {text: foundry.utils.duplicate(text), noRollMatches});
   text = text.replaceAll(noRollRegex, replaceRoll);
 
   return text;
@@ -466,7 +484,7 @@ export function parse(
       parsed: null,
       match,
       replacePattern: new RegExp(`{{${escapeRegExp(match)}}}`, "g"),
-      rollMatch: new RegExp(`(?:^|[ "'(+>])(\\d*d\\d\\d*\\s)({{${match}}})(?:$|[., "')+<])`, "g"),
+      rollMatch: new RegExp(`(?:^|[ "'(+>])(\\d*d\\d\\d*\\s)({{${escapeRegExp(match)}}})(?:$|[., "')+<])`, "g"),
       rollMatchTest: false,
       type: null,
       subType: null,
@@ -474,6 +492,58 @@ export function parse(
 
     entry.rollMatchTest = entry.rollMatch.test(result.text);
 
+    const correctedFormula = correctFeatureTemplate(match, featureDefinition.name);
+    if (correctedFormula) {
+      entry.parsed = `[[${correctedFormula}]]`;
+      entry.evalConstraint = correctedFormula;
+      result.text = result.text.replace(entry.replacePattern, entry.parsed);
+      result.resultStrings.push(entry.parsed);
+      result.definitions.push(entry);
+      return;
+    }
+    const constraints = [...match.matchAll(/[@#]([a-z]+)/gi)].map((m) => m[1]);
+    const unknownConstraint = constraints.find((constraint) => !["roundup", "rounddown", "roundown", "min", "max", "signed", "unsigned"].includes(constraint));
+    if (unknownConstraint) {
+      logger.warn(`ddb-importer does not know about template constraint ${unknownConstraint} in {{${match}}}. Please log a bug.`);
+      result.definitions.push(entry);
+      return;
+    }
+    // Which templates the expression compiler (DDBTemplateExpression) handles rather than the
+    // constraint splitter below. The splitter reads "<operand>@<constraint>" with one sign marker
+    // after a "#"; these forms need the full grammar:
+    // - "@rounddown" followed by more arithmetic: "(classlevel/2)@rounddown+1";
+    // - a "#min:" or "#max:" constraint on the whole expression: "modifier:cha+proficiency#min:1";
+    // - a sign marker at the end of a constraint list: "classlevel#min:1,unsigned" (the marker is
+    //   stripped before compiling and applied to the result);
+    // - an "@min:"/"@max:" bound that is itself a template value: "classlevel@max:modifier:cha".
+    const compound = (/@round(?:down|own|up)\s*\)*\s*[+*/-]/).test(match)
+      || (/#(?:min|max):/).test(match) || (/,(?:signed|unsigned)\b/).test(match)
+      || (/@(?:min|max):[^@#]*(?:classlevel|characterlevel|modifier|proficiency|limiteduse|fixedvalue|scalevalue)\b/i).test(match);
+    if (compound) {
+      try {
+        // a template used as a dice count ("{{...}}d6") never takes a sign, whatever the marker says
+        const diceCount = new RegExp(`{{${escapeRegExp(match)}}}\\s*d\\d`).test(result.text);
+        const signed = diceCount
+          ? "unsigned"
+          : match.match(/[#,](signed|unsigned)\b/)?.[1] ?? (match.includes("modifier") ? "signed" : null);
+        const expression = match.replace(/[#,](?:signed|unsigned)\b/g, "");
+        const formula = compileTemplateExpression(expression, (token) => parseMatch(ddb, character, token, feature).parsed);
+        const number = getNumber(formula, signed);
+        // keep the sign outside the inline roll, as the constraint splitter does, unless a dice term precedes it
+        entry.parsed = !entry.rollMatchTest && (/^\+\s/).test(number)
+          ? `+ [[${number.replace(/^\+\s/, "")}]]`
+          : `[[${number}]]`;
+        entry.evalConstraint = formula;
+        result.text = result.text.replace(entry.replacePattern, entry.parsed);
+        result.resultStrings.push(entry.parsed);
+      } catch (error) {
+        logger.warn(`ddb-importer does not know about template value {{${match}}}. Please log a bug.`, error);
+      }
+      result.definitions.push(entry);
+      return;
+    }
+
+    // console.warn("parseTemplateString", { text: foundry.utils.duplicate(text), feature, entry, match, result });
 
     const splitSignedBase = match.split("#");
     const splitSigned = splitSignedBase.length > 1 && ["signed", "unsigned"].includes(splitSignedBase[1])
@@ -489,6 +559,7 @@ export function parse(
         : null;
     const splitMatchAt = splitRemoveUnsigned.split("@");
 
+    // console.warn("splitMatchAt", { splitMatchAt, splitRemoveUnsigned, signed, splitSigned, splitSignedBase, match });
 
     const parsedMatchData = parseMatch(ddb, character, splitRemoveUnsigned, feature);
     const parsedMatch = parsedMatchData.parsed;
@@ -498,8 +569,12 @@ export function parse(
     entry.type = typeSplit[0];
 
     if (typeSplit.length > 1) entry.subType = typeSplit[1];
-    // do we have a dice string, e.g. sneak attack?
-    if (parsedMatch.match(dicePattern) || parsedMatch.includes("@scale")) {
+    if (parsedMatch === `{{${match}}}`) {
+      // parseMatch could not resolve the template and handed it back verbatim; leave it
+      // readable on the sheet rather than boxing the bare word as an inline roll
+      result.text = result.text.replace(entry.replacePattern, parsedMatch);
+    } else if (parsedMatch.match(dicePattern) || parsedMatch.includes("@scale")) {
+      // do we have a dice string, e.g. sneak attack?
       if (parsedMatch.match(dicePattern)) entry.type = "dice";
       entry.parsed = parsedMatch;
       if (splitMatchAt.length > 1) {
@@ -508,6 +583,7 @@ export function parse(
           entry.parsed = addConstraintEvaluations(entry.parsed, splitMatchAt[i]);
         }
       }
+      // console.warn("entry", {
       //   entry,
       //   replacePattern: entry.replacePattern.test(result.text),
       //   match: entry.rollMatch.test(result.text),
@@ -532,12 +608,14 @@ export function parse(
           evalString = evalString.replace(/^\(/, "").replace(/\)$/, "");
         }
         entry.evalString = evalString;
+        // console.warn("evalString", {
         //   evalString,
         //   splitMatchAt,
         // });
         if (splitMatchAt.length > 1) {
           let evalConstraint = `${evalString}`;
           for (let i = 1; i < splitMatchAt.length; i++) {
+            // console.warn(`splitMatch ${i}`, {
             //   evalConstraintPre: `${evalConstraint}`,
             //   matchat: splitMatchAt[i],
             //   isInt: Number.isInteger(Number.parseInt(evalConstraint)),
@@ -545,7 +623,9 @@ export function parse(
             evalConstraint = Number.isInteger(Number.parseInt(evalConstraint)) && !evalConstraint.includes("@")
               ? applyConstraint(evalConstraint, splitMatchAt[i])
               : addConstraintEvaluations(evalConstraint, splitMatchAt[i]);
+            // console.warn(`evalConstraint ${i} post`, `${evalConstraint}`);
           }
+          // console.warn("evalConstraint", evalConstraint);
           entry.evalConstraint = evalConstraint;
           entry.parsed = getNumber(evalConstraint, signed);
         } else {
@@ -597,5 +677,45 @@ export function parse(
     templateStrings.push(result);
   }
 
+  // console.warn(`${feature.name} tempalte`, result);
   return result;
+}
+
+/**
+ * Parse a snippet/description destined for an activity description.
+ * The source is first given back the paragraph structure DDB encodes as literal newlines, then
+ * template tokens are resolved whenever DDB data is available:
+ * - A character when one exists
+ * - otherwise a stub so muncher-side imports still parse
+ * The text passes through unparsed when parsing is impossible or fails.
+ * DDB character-sheet instruction paragraphs are removed, as they are from item descriptions.
+ *
+ * @param {object} args The arguments object.
+ * @param {IDDBData | null} [args.ddbData] The DDB data object, if available.
+ * @param {I5ePCData | I5eMonsterData | null} [args.rawCharacter] The importing actor, if available.
+ * @param {string} args.text The snippet or description text.
+ * @param {TFeatures | TDefinitions | TDDBActionTypes | TDDBFeatureMixinAll} args.feature The owning feature context.
+ * @returns {string} The parsed text, or the raw text when it cannot be parsed.
+ */
+export function parseSnippet({
+  ddbData,
+  rawCharacter,
+  text,
+  feature,
+}: {
+  ddbData?: IDDBData | null;
+  rawCharacter?: I5ePCData | I5eMonsterData | null;
+  text: string;
+  feature: TFeatures | TDefinitions | TDDBActionTypes | TDDBFeatureMixinAll | IDDBCommonDefinition;
+}): string {
+  const html = utils.stripNoteBlocks(DDBDescriptions.snippetToHtml(text), PARSING_FEATURES.DDB_SHEET_NOTE_MARKERS);
+  if (!ddbData) return html;
+  const character = (rawCharacter?.type === "character" ? rawCharacter : { flags: {} }) as I5ePCData;
+  try {
+    // parse() reads feature fields through getProperty with fallbacks
+    return parse(ddbData, character, html, feature as TFeatures | TDefinitions | TDDBActionTypes | TDDBFeatureMixinAll)?.text ?? html;
+  } catch (err) {
+    logger.debug("Snippet template parsing failed, using the unparsed text", { err, text, feature });
+    return html;
+  }
 }

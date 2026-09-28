@@ -2,21 +2,21 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class GreaterDisciplineProtean extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "bonus",
       addItemConsume: true,
-      itemConsumeTargetName: "Blood Potency",
+      itemConsumeTargetName: "feat:blood-potency",
       itemConsumeValue: "2",
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         // extra damage applies only to Unarmed Strikes, so the change is
@@ -27,7 +27,7 @@ export default class GreaterDisciplineProtean extends DDBEnricherData {
           description: "Your Unarmed Strike hits deal an extra 2d6 Slashing damage.",
         },
         ac5eChanges: [
-          DDBEnricherData.ChangeHelper.customChange("bonus=2d6[slashing]; item.name.includes(\"Unarmed\")", 20, "flags.automated-conditions-5e.damage.bonus"),
+          DDBEnricherData.ChangeHelper.ac5eChange("bonus=2d6[slashing]; item.name.includes(\"Unarmed\")", 20, "flags.automated-conditions-5e.damage.bonus"),
         ],
       },
     ];

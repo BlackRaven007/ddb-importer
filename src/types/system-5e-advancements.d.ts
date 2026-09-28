@@ -7,6 +7,8 @@ global {
   interface I5eAdvancementBase {
     _id?: string;
     type?: string;
+    name?: string;
+    /** pre-6.0 spelling of `name`; only read off other modules' documents, dnd5e migrates it away */
     title?: string;
     hint?: string;
     level?: number;
@@ -109,6 +111,8 @@ global {
     subtype?: string;
     list?: string[];
     level?: number | string | null;
+    /** spell school keys, dnd5e 6.0+ */
+    school?: string[];
   }
 
   type TI5eAdvItemChoiceConfigChoices = Record<string, I5eAdvItemChoiceLevelConfig>;
@@ -129,13 +133,14 @@ global {
     configuration: I5eAdvItemChoiceConfig;
     value?: {
       added?: I5eAdvancementItemChoiceValueAdded;
-      replaced?: Record<string, string>;
+      /** keyed by level: the replaced item id and its replacement */
+      replaced?: Record<string, { level: number; original: string | null; replacement?: string | null }>;
     };
   }
 
   interface I5eAdvancementSubclass extends I5eAdvancementBase {
     type: "Subclass";
-    configuration: Record<string, never>;
+    configuration: Record<string, unknown>;
     value: { document?: any; uuid?: string | null };
   }
 

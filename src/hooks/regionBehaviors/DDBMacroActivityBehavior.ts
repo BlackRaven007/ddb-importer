@@ -1,0 +1,179 @@
+import RegionAutomations from "../../effects/auras/RegionAutomations";
+import RegionBehaviorSettings from "../../lib/RegionBehaviorSettings";
+import { resolveRegionActivity } from "../../effects/auras/regionBehaviorUtils";
+import { activityEffectDuration, durationSeconds } from "../../effects/enhancers/Regions/regionDuration";
+import BaseActivityBehavior from "./baseActivityBehavior";
+import { buildMacroBehaviorData, REGION_EVENTS } from "./behaviorData";
+import { createProfilePicker } from "../canvas/regionDisplayPicker";
+import RegionDisplayProfiles from "../../lib/RegionDisplayProfiles";
+
+const { BooleanField, JSONField, SetField, StringField } = foundry.data.fields;
+
+/**
+ * Activity behavior that runs a ddb-importer region automation (damage on
+ * entry, condition on entry, movement damage...) in response to core region
+ * events. Placement creates a core "executeScript" RegionBehavior whose script
+ * dispatches to DDBImporter.effects.AuraAutomations.handleRegionEvent.
+ *
+ */
+export default class DDBMacroActivityBehavior extends BaseActivityBehavior {
+  static override LOCALIZATION_PREFIXES = ["ddb-importer.behaviors.macro"];
+
+  static override defineSchema() {
+    return {
+      function: new StringField({ required: true, blank: false, initial: "useActivity" }),
+      events: new SetField(new StringField()),
+      activity: new StringField(),
+      oncePerTurn: new BooleanField({ initial: true }),
+      excludeSelf: new BooleanField({ initial: false }),
+      enterOn: new StringField({ initial: "auto", choices: ["auto", "movement", "movementOrArea", "any"] }),
+      scale: new BooleanField({ initial: true }),
+      autoRoll: new BooleanField({ initial: false }),
+      groupTargets: new BooleanField({ initial: true }),
+      ownerTurn: new BooleanField({ initial: false }),
+      ownerTurnTargets: new StringField({ initial: "region", choices: ["region", "none"] }),
+      fireOnPlacement: new BooleanField({ initial: false }),
+      deleteAfterUse: new BooleanField({ initial: false }),
+      // the same size/creature-type filters the 5e area-of-effect behaviors carry,
+      // plus an exclusion set for "any creature other than an ooze" wording
+      sizes: new SetField(new StringField()),
+      types: new SetField(new StringField()),
+      excludeTypes: new SetField(new StringField()),
+      macroName: new StringField(),
+      macroParameters: new JSONField({ required: false, initial: "{}" }),
+      args: new JSONField({ required: false, initial: "{}" }),
+      // the region display profile the placed region uses; read by the placement hook,
+      // never by the region behavior (see hooks/canvas/regionDisplayStamp.ts)
+      displayProfile: new StringField({ required: false, blank: true, initial: "" }),
+    };
+  }
+
+  /** Placing activity types that roll for the creatures in their area when used. */
+  static ROLLING_ACTIVITY_TYPES = new Set(["save", "attack", "damage", "heal"]);
+
+  /**
+   * The `enterOn` rule a placed region uses. "auto" becomes "movementOrArea" when the placing
+   * activity rolls for the creatures already in its area, since the region's creation enters would
+   * roll for them again, and "any" otherwise, where those enters are the only thing that reaches
+   * them (a lair action or a utility that only places the area).
+   */
+  static resolveEnterOn(enterOn: TRegionEnterOn | undefined, activity: { type?: string } | null | undefined): TRegionEnterOn {
+    if (enterOn && enterOn !== "auto") return enterOn;
+    return DDBMacroActivityBehavior.ROLLING_ACTIVITY_TYPES.has(activity?.type ?? "") ? "movementOrArea" : "any";
+  }
+
+  override createBehaviorData(activity: any, { token }: { token?: any } = {}) {
+    if (!RegionBehaviorSettings.enabled) return false;
+    const args: Record<string, unknown> = { ...((this.args as Record<string, unknown> | undefined) ?? {}) };
+    // Match the native activity behaviors: ally/enemy targets are relative to
+    // the token that placed the region, falling back to the actor's token data.
+    const { disposition } = token ?? activity.actor?.token ?? activity.actor?.prototypeToken ?? {};
+    // A behavior that fires a sibling activity takes that activity's targeting, so one
+    // Cast can carry an ally arm and an enemy arm (Conjure Celestial's Healing Light
+    // and Searing Light); the placing activity's target is the fallback.
+    const triggered = resolveRegionActivity(activity, {
+      activityId: this.activity,
+      activityName: (args.activityName as string | undefined) ?? "",
+    });
+    args.dispositions = [...this.getDispositions(triggered?.target ?? activity.target, { relativeTo: disposition })];
+    if (this.activity) args.activityId = this.activity;
+    if (this.macroName) args.macroFunction = this.macroName;
+    args.oncePerTurn = this.oncePerTurn;
+    args.excludeSelf = this.excludeSelf;
+    args.enterOn = DDBMacroActivityBehavior.resolveEnterOn(this.enterOn as TRegionEnterOn | undefined, activity);
+    args.scale = this.scale;
+    // the checkbox, or `{"autoRoll": true}` in the arguments JSON, which older hand-built
+    // behaviors carry
+    args.autoRoll = this.autoRoll || args.autoRoll === true;
+    args.groupTargets = this.groupTargets;
+    if (this.ownerTurn) {
+      args.ownerTurn = true;
+      args.ownerTurnTargets = this.ownerTurnTargets;
+      args.fireOnPlacement = this.fireOnPlacement;
+      args.deleteAfterUse = this.deleteAfterUse;
+      if (this.deleteAfterUse && typeof args.fallbackDuration === "number" && args.fallbackDuration > 0) {
+        args.fallbackExpiresAt = game.time.worldTime + args.fallbackDuration;
+        const origin = token ?? activity.actor?.token;
+        const combat =
+          origin?.uuid &&
+          game.combats.find(
+            (entry) => entry.started && entry.combatants.some((combatant) => combatant.token?.uuid === origin.uuid),
+          );
+        if (combat) args.placementCombatId = combat.id;
+      }
+      // Owner-turn lifetimes also work with the optional expiry-cleanup enhancer off. A duration
+      // with no length on the world clock (turns, under dnd5e) gets no timed expiry.
+      const duration = activityEffectDuration(activity);
+      const seconds = duration ? durationSeconds(duration) : null;
+      if (seconds !== null) args.expiresAt = game.time.worldTime + seconds;
+    }
+    if ((this.sizes as Set<string> | undefined)?.size) args.sizes = [...(this.sizes as Set<string>)];
+    if ((this.types as Set<string> | undefined)?.size) args.types = [...(this.types as Set<string>)];
+    if ((this.excludeTypes as Set<string> | undefined)?.size) {
+      args.excludeTypes = [...(this.excludeTypes as Set<string>)];
+    }
+    // the default {} means "no override"; only a filled-in value is passed through
+    if (!foundry.utils.isEmpty(this.macroParameters)) {
+      args.macroParameters = this.macroParameters;
+    }
+    return buildMacroBehaviorData({
+      handler: this.function,
+      events: this.events,
+      args,
+    });
+  }
+
+  override customizeField(field: any, data: any) {
+    if (field.name === "function") {
+      data.options = Object.keys(RegionAutomations.handlers).map((value) => ({
+        value,
+        label: RegionAutomations.handlerLabel(value),
+      }));
+    } else if (field.name === "events") {
+      data.options = REGION_EVENTS.map((value) => ({
+        value,
+        label: game.i18n.localize(`ddb-importer.behaviors.macro.events.${value}`),
+      }));
+    } else if (field.name === "enterOn") {
+      data.options = ["auto", "movement", "movementOrArea", "any"].map((value) => ({
+        value,
+        label: game.i18n.localize(`ddb-importer.behaviors.macro.enterOn.${value}`),
+      }));
+    } else if (field.name === "ownerTurnTargets") {
+      data.options = ["region", "none"].map((value) => ({
+        value,
+        label: game.i18n.localize(`ddb-importer.behaviors.macro.ownerTurnTargets.${value}`),
+      }));
+    } else if (field.name === "sizes") {
+      data.options = Object.entries(CONFIG.DND5E.actorSizes as Record<string, { label: string }>).map(
+        ([value, config]) => ({ value, label: game.i18n.localize(config.label) }),
+      );
+    } else if (field.name === "types" || field.name === "excludeTypes") {
+      data.options = Object.entries(CONFIG.DND5E.creatureTypes as Record<string, { label: string }>).map(
+        ([value, config]) => ({ value, label: game.i18n.localize(config.label) }),
+      );
+    } else if (field.name === "displayProfile") {
+      // hidden while the profiles are switched off; the stored value is kept for when they return
+      if (!RegionDisplayProfiles.enabled) return false;
+      data.input = (_field: unknown, config: { name: string; value?: unknown }) =>
+        createProfilePicker({
+          name: config.name,
+          value: config.value,
+          blank: RegionDisplayProfiles.localize("noProfile"),
+        });
+    } else if (field.name === "activity") {
+      const activities = (
+        this.parent as {
+          item?: { system?: { activities?: Iterable<{ id?: string; _id?: string; name?: string; type?: string }> } };
+        } | null
+      )?.item?.system?.activities;
+      data.options = [
+        { value: "", label: game.i18n.localize("ddb-importer.behaviors.macro.placingActivity") },
+        ...[...(activities ?? [])].map((activity) => ({
+          value: activity.id ?? activity._id ?? "",
+          label: activity.name || (activity.type ?? ""),
+        })),
+      ];
+    }
+  }
+}

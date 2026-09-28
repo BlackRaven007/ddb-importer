@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ApocalypticRevelation extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Activate",
       type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
@@ -12,8 +12,45 @@ export default class ApocalypticRevelation extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
+      {
+        init: {
+          name: "Place Aura",
+          type: DDBEnricherData.ACTIVITY_TYPES.UTILITY,
+        },
+        build: {
+          generateActivation: true,
+          generateTarget: true,
+          generateConsumption: false,
+          activationOverride: {
+            type: "special",
+            condition: "While the aura is active",
+          },
+          targetOverride: {
+            override: true,
+            affects: {
+              type: "enemy",
+            },
+            template: {
+              contiguous: false,
+              type: "radius",
+              size: "5",
+              units: "ft",
+            },
+          },
+        },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.activity({
+                events: ["tokenTurnStart"],
+                activityName: "Blinding Glory",
+              }),
+            ],
+          },
+        },
+      },
       {
         init: {
           name: "Blinding Glory",
@@ -83,7 +120,7 @@ export default class ApocalypticRevelation extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Apocalyptic Revelation",
@@ -93,11 +130,7 @@ export default class ApocalypticRevelation extends DDBEnricherData {
           description: "Blinding Glory: enemies starting their turn within 5 feet must succeed on a Constitution save or be Blinded until the start of their next turn. See the Truth: Truesight with a range of 60 feet. Smite the Heretic: as a Bonus Action, choose a creature within 60 feet; you and your allies have Advantage on attack rolls against it.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("60", 20, "system.attributes.senses.truesight"),
-        ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.overrideChange("truesight", 20, "ATL.sight.visionMode"),
-          DDBEnricherData.ChangeHelper.upgradeChange("60", 20, "ATL.sight.range"),
+          DDBEnricherData.ChangeHelper.upgradeChange("60", 20, "system.attributes.senses.ranges.truesight"),
         ],
       },
       {
@@ -105,7 +138,7 @@ export default class ApocalypticRevelation extends DDBEnricherData {
         activitiesMatch: ["Blinding Glory"],
         statuses: ["blinded"],
         options: {
-          durationRounds: 1,
+          expiry: "targetStart",
           description: "Blinded until the start of its next turn.",
         },
       },

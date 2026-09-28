@@ -5,17 +5,18 @@ export default class BloodCurseOfBloatedAgony extends _BloodCurse {
 
   static DAMAGE_NAME = "Bloated Agony Damage";
 
-  get curseName(): string {
+  override get curseName(): string {
     return "Blood Curse of Bloated Agony";
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: this.curseName,
+      useActivitySnippet: true,
       targetType: "creature",
       targetCount: 1,
       activationType: "bonus",
@@ -23,7 +24,7 @@ export default class BloodCurseOfBloatedAgony extends _BloodCurse {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -62,14 +63,14 @@ export default class BloodCurseOfBloatedAgony extends _BloodCurse {
     ];
   }
 
-  get ignoredConsumptionActivities(): string[] {
+  override get ignoredConsumptionActivities(): string[] {
     return [_BloodCurse.AMPLIFY_NAME, BloodCurseOfBloatedAgony.DAMAGE_NAME];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const swollen = [
-      DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE}`, 20, "system.abilities.str.check.roll.mode"),
-      DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE}`, 20, "system.abilities.dex.check.roll.mode"),
+      DDBEnricherData.ChangeHelper.disadvantageAbilityCheckChange("str"),
+      DDBEnricherData.ChangeHelper.disadvantageAbilityCheckChange("dex"),
     ];
     const description = "Your body has swollen. You have disadvantage on Strength checks and Dexterity checks, and take 1d8 necrotic damage if you make more than one attack during your turn.";
 
@@ -79,11 +80,9 @@ export default class BloodCurseOfBloatedAgony extends _BloodCurse {
         name: "Bloated Agony",
         activityMatch: this.curseName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description,
         },
-        daeSpecialDurations: ["turnEndSource"],
         changes: swollen,
       },
       {

@@ -6,17 +6,19 @@ export default class DefensiveDuelist extends DDBEnricherData {
   //   return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   // }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         options: {
-          durationSeconds: 6,
-          durationTurns: 1,
+          // 2014: "add your proficiency bonus to your AC for that attack" - the current turn is
+          // the ceiling and DAE ends it on the attack; 2024: the bonus lasts until the start of
+          // your next turn and covers further melee attacks
+          expiry: this.is2014 ? "turnEnd" : "sourceStart",
         },
         changes: [
           DDBEnricherData.ChangeHelper.unsignedAddChange("@system.attributes.prof", 20, "system.attributes.ac.bonus"),
         ],
-        daeSpecialDurations: this.is2014 ? ["isAttacked" as const] : [],
+        daeSpecialDurations: this.is2014 ? ["isAttacked"] : [],
         data: {
           flags: {
             dae: {
@@ -30,7 +32,7 @@ export default class DefensiveDuelist extends DDBEnricherData {
   }
 
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 

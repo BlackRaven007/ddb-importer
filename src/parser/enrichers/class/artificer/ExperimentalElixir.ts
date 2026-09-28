@@ -29,11 +29,11 @@ export default class ExperimentalElixir extends DDBEnricherData {
   handler!: DDBItemImporter;
   compendiumFolders!: DDBCompendiumFolders;
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Roll for Experimental Elixir",
       noConsumeTargets: true,
@@ -47,7 +47,7 @@ export default class ExperimentalElixir extends DDBEnricherData {
     };
   }
 
-  get override(): IDDBOverrideData | null {
+  override get override(): IDDBOverrideData | null {
     if (this.is2014) return null;
     return {
       retainResourceConsumption: true,
@@ -400,7 +400,7 @@ export default class ExperimentalElixir extends DDBEnricherData {
             transfer: false,
           },
           changes: [
-            DDBEnricherData.ChangeHelper.addChange(data.bonus ?? "", 20, "system.attributes.movement.walk"),
+            DDBEnricherData.ChangeHelper.addChange(data.bonus ?? "", 20, "system.attributes.movement.speeds.walk"),
           ],
           data: {
             "_id": utils.namedIDStub(name, {
@@ -459,11 +459,11 @@ export default class ExperimentalElixir extends DDBEnricherData {
             durationSeconds: data.duration,
           },
           changes: [
-            DDBEnricherData.ChangeHelper.addChange("1d4", 20, "system.bonuses.abilities.save"),
-            DDBEnricherData.ChangeHelper.addChange("1d4", 20, "system.bonuses.msak.attack"),
-            DDBEnricherData.ChangeHelper.addChange("1d4", 20, "system.bonuses.mwak.attack"),
-            DDBEnricherData.ChangeHelper.addChange("1d4", 20, "system.bonuses.rsak.attack"),
-            DDBEnricherData.ChangeHelper.addChange("1d4", 20, "system.bonuses.rwak.attack"),
+            DDBEnricherData.ChangeHelper.addChange("1d4", 20, "system.rolls.ability.save.bonus"),
+            DDBEnricherData.ChangeHelper.addChange("1d4", 20, "system.rolls.attack.msak.bonus"),
+            DDBEnricherData.ChangeHelper.addChange("1d4", 20, "system.rolls.attack.mwak.bonus"),
+            DDBEnricherData.ChangeHelper.addChange("1d4", 20, "system.rolls.attack.rsak.bonus"),
+            DDBEnricherData.ChangeHelper.addChange("1d4", 20, "system.rolls.attack.rwak.bonus"),
           ],
           data: {
             "_id": utils.namedIDStub(name, {
@@ -491,7 +491,7 @@ export default class ExperimentalElixir extends DDBEnricherData {
             transfer: false,
           },
           changes: [
-            DDBEnricherData.ChangeHelper.addChange(data.bonus ?? "", 20, "system.attributes.movement.fly"),
+            DDBEnricherData.ChangeHelper.addChange(data.bonus ?? "", 20, "system.attributes.movement.speeds.fly"),
           ],
           data: {
             "_id": utils.namedIDStub(name, {
@@ -567,7 +567,7 @@ export default class ExperimentalElixir extends DDBEnricherData {
     return results;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     const base : Partial<IDDBAdditionalActivity>[] = [
       {
         init: {
@@ -619,19 +619,7 @@ export default class ExperimentalElixir extends DDBEnricherData {
   }
 
 
-  get elixirEnchantEffects() {
-    const results = [];
-    for (const row of this.experimentalElixirDetails) {
-      const effect = {
-        name: `Experimental Elixir: ${row.name}`,
-        type: "enchant",
-      };
-      results.push(effect);
-    }
-    return results;
-  }
-
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const baseEffects = [];
 
     baseEffects.push(...this.getElixirEffects);
@@ -718,8 +706,9 @@ export default class ExperimentalElixir extends DDBEnricherData {
 
       for (const row of rows) {
         const cells = row.querySelectorAll("td");
-        if (cells.length < 2)
+        if (cells.length < 2) {
           continue;
+        }
 
         const effectCell = cells[1];
         const strongTag = effectCell.querySelector("strong");
@@ -749,7 +738,7 @@ export default class ExperimentalElixir extends DDBEnricherData {
 
   }
 
-  async cleanup() {
+  override async cleanup() {
     this.handler = new DDBItemImporter("features", [], ExperimentalElixir.featureHandlerOptions);
     if (game.user.isGM) await this.generateElixirs();
     this.linkUpItemUUIDs();

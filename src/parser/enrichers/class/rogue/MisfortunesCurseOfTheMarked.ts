@@ -1,23 +1,19 @@
-import DDBEnricherData from "../../data/DDBEnricherData";
+import Misfortune from "./Misfortune";
 
-export default class MisfortunesCurseOfTheMarked extends DDBEnricherData {
+export default class MisfortunesCurseOfTheMarked extends Misfortune {
 
-  get type() {
-    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
+  override get jinxCost(): number {
+    return 2;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
-      name: "Curse of the Marked",
-      targetType: "creature",
+      ...super.activity,
       activationType: "bonus",
-      addItemConsume: true,
-      itemConsumeTargetName: "Misfortunist",
-      itemConsumeValue: "2",
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Curse of the Marked",
@@ -28,16 +24,6 @@ export default class MisfortunesCurseOfTheMarked extends DDBEnricherData {
         },
       },
     ];
-  }
-
-  get override(): IDDBOverrideData {
-    return {
-      data: {
-        system: {
-          uses: { spent: null, max: "", recovery: [] },
-        },
-      },
-    };
   }
 
 }

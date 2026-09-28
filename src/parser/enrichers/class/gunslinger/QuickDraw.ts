@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class QuickDraw extends DDBEnricherData {
 
-  get clearAutoEffects(): boolean {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Quick Draw",
@@ -15,7 +15,7 @@ export default class QuickDraw extends DDBEnricherData {
         },
         changes: [
           // advantage on initiative rolls
-          DDBEnricherData.ChangeHelper.addChange("1", 20, "system.attributes.init.roll.mode"),
+          DDBEnricherData.ChangeHelper.advantageInitiativeChange(),
         ],
       },
     ];

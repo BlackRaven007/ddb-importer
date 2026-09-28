@@ -8,11 +8,11 @@ export default class RitualReskin extends DDBEnricherData {
 
   static HOUR = 3600;
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Perform Ritual",
       addItemConsume: true,
@@ -29,7 +29,7 @@ export default class RitualReskin extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -127,17 +127,15 @@ export default class RitualReskin extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const options = { durationSeconds: RitualReskin.HOUR };
-    const advantage = `${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`;
-
     return [
       {
         name: "Bull's Buns",
         activityMatch: "Perform Ritual",
         options,
         changes: [
-          DDBEnricherData.ChangeHelper.addChange(advantage, 20, "system.abilities.str.check.roll.mode"),
+          DDBEnricherData.ChangeHelper.advantageAbilityCheckChange("str"),
         ],
       },
       {
@@ -150,7 +148,7 @@ export default class RitualReskin extends DDBEnricherData {
         activityMatch: "Perform Ritual",
         options,
         changes: [
-          DDBEnricherData.ChangeHelper.addChange(advantage, 20, "system.abilities.dex.check.roll.mode"),
+          DDBEnricherData.ChangeHelper.advantageAbilityCheckChange("dex"),
         ],
       },
       {
@@ -158,7 +156,7 @@ export default class RitualReskin extends DDBEnricherData {
         activityMatch: "Perform Ritual",
         options,
         changes: [
-          DDBEnricherData.ChangeHelper.overrideChange("@attributes.movement.walk", 50, "system.attributes.movement.swim"),
+          DDBEnricherData.ChangeHelper.overrideChange("@attributes.movement.speeds.walk", 50, "system.attributes.movement.speeds.swim"),
         ],
       },
       {
@@ -166,7 +164,7 @@ export default class RitualReskin extends DDBEnricherData {
         activityMatch: "Perform Ritual",
         options,
         changes: [
-          DDBEnricherData.ChangeHelper.addChange(advantage, 20, "system.abilities.con.check.roll.mode"),
+          DDBEnricherData.ChangeHelper.advantageAbilityCheckChange("con"),
         ],
       },
       {
@@ -174,8 +172,8 @@ export default class RitualReskin extends DDBEnricherData {
         activityMatch: "Perform Ritual",
         options,
         changes: [
-          DDBEnricherData.ChangeHelper.addChange(advantage, 20, "system.abilities.wis.check.roll.mode"),
-          DDBEnricherData.ChangeHelper.addChange(advantage, 20, "system.attributes.init.roll.mode"),
+          DDBEnricherData.ChangeHelper.advantageAbilityCheckChange("wis"),
+          DDBEnricherData.ChangeHelper.advantageInitiativeChange(),
         ],
       },
     ];

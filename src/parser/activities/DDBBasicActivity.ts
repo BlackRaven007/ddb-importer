@@ -1,6 +1,7 @@
 import { utils, logger } from "../../lib/_module";
-import { SystemHelpers } from "../lib/_module";
-import { Effects } from "../enrichers/_module";
+import { DDBTemplateStrings, SystemHelpers } from "../lib/_module";
+
+import * as Effects from "../enrichers/effects/_module";
 import DDBEnricherData from "../enrichers/data/DDBEnricherData";
 import type DDBActivityFactoryMixin from "./mixins/DDBActivityFactoryMixin";
 
@@ -195,6 +196,8 @@ export default class DDBBasicActivity {
     // you can spend one Hit Die to heal yourself.
     // right now most of these target other creatures
 
+    // const kiPointRegex = /(?:spend|expend) (\d) (?:ki|focus) point/;
+    // const match = this.foundryFeature.system?.description?.value.match(kiPointRegex);
     // if (match) {
     //   targets.push({
     //     type: "itemUses",
@@ -225,6 +228,45 @@ export default class DDBBasicActivity {
     };
   }
 
+  /**
+   * Copy DDB's short snippet onto the activity so its chat card carries rules text rather
+   * than the whole document description. The value written here is not activity-specific -
+   * it is whatever the parent document says - so it is staged for
+   * DDBActivityFactoryMixin._finaliseActivityDescriptions(), which drops it again when it
+   * says nothing the card would not already show.
+   */
+  _generateSnippetDescription(): void {
+    if (utils.getSetting<boolean>("add-ddb-snippets-to-activities") !== true) return;
+
+    const parent = this.ddbParent;
+    if (!parent) return;
+    const rawCharacter = foundry.utils.getProperty(parent, "rawCharacter") as I5ePCData | I5eMonsterData | undefined;
+    // A monster feature's item description IS the feature text, and dnd5e falls back to it
+    // when an activity description is empty, so there is nothing useful to copy.
+    if (rawCharacter?.type === "npc") return;
+
+    const definition = parent.ddbDefinition;
+    if (!definition) return;
+
+    const parsedSnippet = foundry.utils.getProperty(parent, "snippet") as string | undefined;
+    const snippet = parsedSnippet?.trim() || definition.snippet?.trim() || "";
+    const parsedDescription = foundry.utils.getProperty(parent, "description") as string | undefined;
+    const actionDescription = parent.isAction
+      ? parsedDescription?.trim() || definition.description?.trim() || ""
+      : "";
+    const source = snippet || actionDescription;
+    if (!source) return;
+
+    const ddbData = foundry.utils.getProperty(parent, "ddbData") as IDDBData | undefined;
+    const feature = (foundry.utils.getProperty(parent, "ddbFeature") as TDDBFeatureMixinAll | undefined) ?? definition;
+    const value = DDBTemplateStrings.parseSnippet({ ddbData, rawCharacter, text: source, feature });
+
+    this.data.description ??= {};
+    this.data.description.value = value;
+    const inherited = foundry.utils.getProperty(parent, "_inheritedActivityDescriptions") as Set<string> | undefined;
+    inherited?.add(value);
+  }
+
   _generateEnchant(): void {
     logger.debug(`Stubbed enchantment generation for ${this.name}`);
   }
@@ -233,9 +275,14 @@ export default class DDBBasicActivity {
     logger.debug(`Stubbed summon generation for ${this.name}`);
   }
 
+  // Every one of these assigns a CLONE. A parser hands the same `actionData.target`/`save`/`uses`
+  // object to every activity it builds, so assigning by reference makes the activities alias each
+  // other - an enricher override applied to one would silently rewrite its siblings (every section
+  // of the Quiver of Elemental Chaos would share the last section's template).
+
   _generateDuration({ durationOverride = null }: { durationOverride?: I5eActivityDuration | null } = {}): void {
     if (durationOverride) {
-      this.data.duration = durationOverride;
+      this.data.duration = foundry.utils.deepClone(durationOverride);
       this.data.duration.override = true;
     }
   }
@@ -247,21 +294,21 @@ export default class DDBBasicActivity {
 
   _generateRange({ rangeOverride = null }: { rangeOverride?: I5eActivityRange | null } = {}): void {
     if (rangeOverride) {
-      this.data.range = rangeOverride;
+      this.data.range = foundry.utils.deepClone(rangeOverride);
       this.data.range.override = true;
     }
   }
 
   _generateTarget({ targetOverride = null }: { targetOverride?: I5eActivityTarget | null } = {}): void {
     if (targetOverride) {
-      this.data.target = targetOverride;
+      this.data.target = foundry.utils.deepClone(targetOverride);
       this.data.target.override = true;
     }
   }
 
   _generateUses({ usesOverride = null }: { usesOverride?: I5eSystemLimitedUses | I5eConsumableUses | null } = {}): void {
     if (usesOverride) {
-      this.data.uses = usesOverride;
+      this.data.uses = foundry.utils.deepClone(usesOverride);
       this.data.uses.override = true;
     }
   }
@@ -269,7 +316,7 @@ export default class DDBBasicActivity {
   _generateCheck({ checkOverride = null }: { checkOverride?: I5eActivityCheck | null } = {}): void {
     if (!("check" in this.data)) return;
     if (checkOverride) {
-      this.data.check = checkOverride;
+      this.data.check = foundry.utils.deepClone(checkOverride);
     };
   }
 
@@ -345,7 +392,7 @@ export default class DDBBasicActivity {
   _generateSave({ saveOverride = null }: { saveOverride?: I5eActivitySave | null } = {}): void {
     if (!("save" in this.data)) return;
     if (saveOverride) {
-      this.data.save = saveOverride;
+      this.data.save = foundry.utils.deepClone(saveOverride);
       return;
     }
     this.data.save = {
@@ -546,24 +593,28 @@ export default class DDBBasicActivity {
 
     if (generateActivation) this._generateActivation({ activationOverride, noManual: noManualActivation });
     if (generateAttack) this._generateAttack(attackData);
-    if (generateConsumption) this._generateConsumption({
-      targetOverrides: consumptionTargetOverrides,
-      consumptionOverride,
-      additionalTargets,
-      consumeActivity,
-      consumeItem,
-    });
+    if (generateConsumption) {
+      this._generateConsumption({
+        targetOverrides: consumptionTargetOverrides,
+        consumptionOverride,
+        additionalTargets,
+        consumeActivity,
+        consumeItem,
+      });
+    }
     if (generateDescription) this._generateDescription({ overRide: chatFlavor });
     if (generateEffects) this._generateEffects();
     if (generateSave) this._generateSave({ saveOverride });
-    if (generateDamage) this._generateDamage({
-      damageParts,
-      onSave,
-      includeBase: includeBaseDamage,
-      scalingOverride: damageScalingOverride,
-      criticalDamage,
-      allowCritical,
-    });
+    if (generateDamage) {
+      this._generateDamage({
+        damageParts,
+        onSave,
+        includeBase: includeBaseDamage,
+        scalingOverride: damageScalingOverride,
+        criticalDamage,
+        allowCritical,
+      });
+    }
     if (generateEnchant) this._generateEnchant();
     if (generateSummon) {
       this._generateSummon();
@@ -603,6 +654,7 @@ export default class DDBBasicActivity {
       foundry.utils.setProperty(this.data, "flags.ddbimporter.noeffect", true);
     }
     if (img) foundry.utils.setProperty(this.data, "img", img);
+    this._generateSnippetDescription();
     if (data) foundry.utils.mergeObject(this.data, data);
 
   }
@@ -624,6 +676,7 @@ export default class DDBBasicActivity {
     const effects = (await enricher?.createEffects()) ?? [];
     document.effects.push(...effects);
     enricher?.createDefaultEffects();
+    await enricher?.addDocumentAdvancements();
     await enricher?.addDocumentOverride();
     foundry.utils.setProperty(document, `system.activities.${activity.data._id}`, activity.data);
     await enricher?.addAdditionalActivities(enricher?.ddbParser);

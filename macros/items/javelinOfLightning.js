@@ -68,20 +68,23 @@ if (args[0].macroPass === "postActiveEffects") {
   const changes = await canvas.scene.createEmbeddedDocuments("MeasuredTemplate", [templateData]);
   await DDBImporter?.EffectHelper.wait(500);
   const templateDoc = changes[0];
+  // console.warn("TEMPLATE", templateDoc);
   const boltEffectData = {
-    label: `${workflow.item.name}: Bolt Template`,
     name: `${workflow.item.name}: Bolt Template`,
     img: "icons/magic/lightning/bolt-forked-large-blue-yellow.webp",
-    changes: [
-      {
-        key: "flags.dae.deleteUuid",
-        mode: 5,
-        priority: 20,
-        value: templateDoc.uuid,
-      },
-    ],
+    system: {
+      changes: [
+        {
+          key: "flags.dae.deleteUuid",
+          type: "override",
+          priority: 20,
+          value: templateDoc.uuid,
+        },
+      ],
+    },
     duration: {
-      seconds: 1,
+      value: 1,
+      units: "seconds",
     },
   };
   await await DDBImporter.socket.executeAsGM("createEffects", {
@@ -105,14 +108,17 @@ if (args[0].macroPass === "postActiveEffects") {
     if (foundry.utils.hasProperty(lightningBoltData, "flags.itemacro")) delete lightningBoltData.flags.itemacro;
     if (foundry.utils.hasProperty(lightningBoltData, "flags.dae.macro")) delete lightningBoltData.flags.dae.macro;
     lightningBoltData.name +=  ": Bolt";
+    // TODO: pre-activities item shape - these writes are inert on dnd5e 4+; the synthetic
+    // bolt needs a save activity (dex DC 13 flat, 4d6 lightning) built instead
     lightningBoltData.system.damage.parts = [["4d6[lightning]", "lightning"]];
     lightningBoltData.system.actionType = "save";
-    lightningBoltData.system.save.ability = "dex";
-    lightningBoltData.system.save.dc = 13;
-    lightningBoltData.system.save.scaling = "flat";
+    foundry.utils.setProperty(lightningBoltData, "system.save.ability", "dex");
+    foundry.utils.setProperty(lightningBoltData, "system.save.dc", 13);
+    foundry.utils.setProperty(lightningBoltData, "system.save.scaling", "flat");
     const areaSpell = new CONFIG.Item.documentClass(lightningBoltData, { parent: workflow.actor });
     const [config, options] = DDBImporter.EffectHelper.syntheticItemWorkflowOptions({ targets: targetTokens });
 
+    // console.warn("Midi Options", {
     //   areaSpell,
     //   options,
     //   targetTokens,

@@ -1,12 +1,23 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
+/**
+ * Form of the Beast: a 10-minute transformation that lasts 1 hour from warlock level 6. The span
+ * lives on a feature scale value so the activity duration follows the character's level without
+ * a reimport. dnd5e resolves a feature-held scale against the feature's advancement root, so
+ * the override points that at the Warlock item. DDB also ships the same numbers as a level scale
+ * on the subclass, but its key depends on that subclass's identifier.
+ */
 export default class FormOfTheBeast extends DDBEnricherData {
 
-  get type() {
+  static SCALE = "@scale.form-of-the-beast.duration";
+
+  static MINUTES = { 1: 10, 6: 60 };
+
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.HEAL;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Transform",
       activationType: "bonus",
@@ -17,26 +28,47 @@ export default class FormOfTheBeast extends DDBEnricherData {
           bonus: "min(20, @classes.warlock.levels*2)",
           types: ["temphp"],
         }),
+        duration: {
+          value: FormOfTheBeast.SCALE,
+          units: "minute",
+        },
       },
     };
   }
 
-  get effects(): IDDBEffectHint[] {
-    return [{
-      name: "Form of the Beast",
-      activityMatch: "Transform",
-      options: {
-        durationSeconds: 600,
-      },
-      changes: [
-        DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.prc.roll.mode"),
-        DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.ste.roll.mode"),
-        DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.sur.roll.mode"),
-      ],
-    }];
+  override get additionalAdvancements(): I5eAdvancement[] {
+    return [
+      DDBEnricherData.AdvancementBuilder.buildNumberScale({
+        name: "Form of the Beast Duration",
+        identifier: "duration",
+        hint: "How long the transformation lasts, in minutes.",
+        scale: FormOfTheBeast.MINUTES,
+      }),
+    ];
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get effects(): IDDBEffectHint[] {
+    const changes = [
+      DDBEnricherData.ChangeHelper.advantageSkillChange("prc"),
+      DDBEnricherData.ChangeHelper.advantageSkillChange("ste"),
+      DDBEnricherData.ChangeHelper.advantageSkillChange("sur"),
+    ];
+    return [
+      {
+        // no counted duration and no expiry: dnd5e stamps the scaled activity duration on
+        // application, so the effect tracks the level without a reimport
+        name: "Form of the Beast",
+        activityMatch: "Transform",
+        options: {
+          durationSeconds: null,
+          expiry: null,
+        },
+        changes,
+      },
+    ];
+  }
+
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -59,12 +91,16 @@ export default class FormOfTheBeast extends DDBEnricherData {
         },
         overrides: {
           targetType: "creature",
+          noConsumeTargets: true,
           data: {
+            // Unarmed Strikes using the better of Strength and Charisma. The bonus carries that
+            // modifier, so the attack names no ability of its own: dnd5e would add Strength again.
             attack: {
-              ability: "",
+              ability: "none",
               bonus: "max(@abilities.str.mod, @abilities.cha.mod)",
               type: {
-                value: "ranged",
+                value: "melee",
+                classification: "unarmed",
               },
             },
             range: {
@@ -105,12 +141,16 @@ export default class FormOfTheBeast extends DDBEnricherData {
         },
         overrides: {
           targetType: "creature",
+          noConsumeTargets: true,
           data: {
+            // Unarmed Strikes using the better of Strength and Charisma. The bonus carries that
+            // modifier, so the attack names no ability of its own: dnd5e would add Strength again.
             attack: {
-              ability: "",
+              ability: "none",
               bonus: "max(@abilities.str.mod, @abilities.cha.mod)",
               type: {
-                value: "ranged",
+                value: "melee",
+                classification: "unarmed",
               },
             },
             range: {
@@ -133,8 +173,15 @@ export default class FormOfTheBeast extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
+      data: {
+        flags: this.classAdvancementRootFlags("Warlock"),
+        // pins the key the duration scale is read under
+        system: {
+          identifier: "form-of-the-beast",
+        },
+      },
       uses: this._getUsesWithSpent({
         type: "class",
         name: "Form of the Beast",

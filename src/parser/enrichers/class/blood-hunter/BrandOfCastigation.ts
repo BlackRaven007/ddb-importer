@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BrandOfCastigation extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Brand Damage",
       targetType: "creature",
@@ -14,6 +14,7 @@ export default class BrandOfCastigation extends DDBEnricherData {
       activationType: "special",
       activationCondition: "A creature branded by your Crimson Rite weapon damages you",
       allowCritical: false,
+      addItemConsume: true,
       data: {
         damage: {
           parts: [
@@ -27,7 +28,7 @@ export default class BrandOfCastigation extends DDBEnricherData {
     };
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       uses: this._getUsesWithSpent({
         type: "class",

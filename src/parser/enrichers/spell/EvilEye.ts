@@ -2,20 +2,19 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class EvilEye extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
-        // the wording gives no expiry; a cantrip should not hold this open
-        // indefinitely, so it lapses at the start of the caster's next turn
+        // the wording names no turn edge, but DDB ships an explicit 1-round duration, so
+        // use the counted edge rather than inventing a source anchor (a pseudo expiry would
+        // null the duration value)
         name: "Evil Eye: Increased Critical Range",
         ac5eOnly: true,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "turnStart",
         },
-        daeSpecialDurations: ["turnStartSource"],
         ac5eChanges: [
-          DDBEnricherData.ChangeHelper.addChange("set=19", 20, "flags.automated-conditions-5e.grants.attack.criticalThreshold"),
+          DDBEnricherData.ChangeHelper.ac5eChange("set=19", 20, "flags.automated-conditions-5e.grants.attack.criticalThreshold"),
         ],
       },
     ];

@@ -1,12 +1,13 @@
 
 
-import { utils, logger, CompendiumHelper } from "../../lib/_module";
+import { utils, logger, CompendiumHelper, DDBSources, SystemHelpers } from "../../lib/_module";
 
 // Import parsing functions
 import { getSpellCastingAbility, hasSpellCastingAbility, convertSpellCastingAbilityId } from "./ability";
 import DDBSpell from "./DDBSpell";
+import SpellDataUtils, { IDDBSpellLookup } from "./SpellDataUtils";
 import { DICTIONARY } from "../../config/_module";
-import { DDBDataUtils, DDBModifiers } from "../lib/_module";
+import { DDBDataUtils } from "../lib/_module";
 import type DDBCharacter from "../DDBCharacter";
 
 const SPELLIST_ADDITION_MATCHES = [
@@ -26,24 +27,6 @@ interface IHandleGrantedSpellsFlags {
 
 const SPELL_COMPENDIUM_INDEX_FIELDS = ["name", "flags.ddbimporter.definitionId"] as const;
 
-// result of getDDBSpellLookup; `data` is the matched DDB entry (trait, feat, class,
-// class option or inventory item) typed structurally for what call sites read
-interface IDDBSpellLookup {
-  id: number;
-  name: string;
-  classId?: number;
-  componentId?: number | null;
-  limitedUse?: unknown;
-  equipped?: boolean;
-  isAttuned?: boolean;
-  canAttune?: boolean;
-  canEquip?: boolean;
-  data?: {
-    name?: string;
-    definition?: { id?: number; name?: string; description?: string | null };
-  };
-}
-
 interface ISpellCompendiumIndexEntry {
   name: string;
   uuid: string;
@@ -54,7 +37,26 @@ interface ISpellCompendiumIndexEntry {
   };
 }
 
+/**
+ * The 2024 Healer feat rerolls 1s on any die rolled to restore hit points, "with a spell or with
+ * Battle Medic". dnd5e 6 has no rule-change type that can add a die modifier at roll time (only
+ * `dnd5e.bonus` reaches healing rolls), so the reroll is baked onto the healing parts of the
+ * character's spells at parse time instead.
+ */
+export function hasHealingReroll(ddb: IDDBData): boolean {
+  return (ddb.character.feats ?? []).some((feat) =>
+    feat.definition?.name === "Healer"
+    && (feat.definition.sources ?? []).some((source) => DDBSources.is2024Source(source)),
+  );
+}
+
 export default class CharacterSpellFactory {
+
+  // dnd5e die-modifier suffix: "1d8" -> "1d8r1", rerolling a 1 once
+  static HEALING_REROLL_MODIFIERS = ["r1"];
+
+  // Elemental Adept treats a 1 on a damage die as a 2: "8d6" -> "8d6min2"
+  static ELEMENTAL_ADEPT_MODIFIERS = ["min2"];
 
   processed: I5eSpellItem[] = [];
 
@@ -79,7 +81,8 @@ export default class CharacterSpellFactory {
   ddb: IDDBData;
   ddbCharacter: DDBCharacter;
   proficiencyModifier: number;
-  healingBoost: number;
+  healingReroll: boolean;
+  elementalAdeptTypes: string[];
   levelSlots: boolean;
   pactSlots: boolean;
   hasSlots: boolean;
@@ -97,9 +100,13 @@ export default class CharacterSpellFactory {
     this.character = ddbCharacter.raw.character;
     this.proficiencyModifier = this.character.flags?.ddbimporter?.dndbeyond?.profBonus ?? 0;
     this.characterAbilities = this.character.flags?.ddbimporter?.dndbeyond?.effectAbilities ?? undefined;
-    this.healingBoost = DDBModifiers
-      .filterBaseModifiers(this.ddb, "bonus", { subType: "spell-group-healing" })
-      .reduce((a, b) => a + parseInt(String(b.value)), 0);
+    // AC5e applies the Healer reroll at roll time, so only one of the two channels should activate
+    // (the Healer enricher's ac5eOnly effect covers the AC5e case).
+    this.healingReroll = hasHealingReroll(this.ddb) && !SystemHelpers.effectModules().ac5eInstalled;
+    // likewise the Elemental Adept enricher's ac5eOnly effect covers the AC5e case
+    this.elementalAdeptTypes = SystemHelpers.effectModules().ac5eInstalled
+      ? []
+      : DDBDataUtils.getElementalAdeptTypes(this.ddb);
     this.slots = foundry.utils.getProperty(this.character, "system.spells") as I5eSpellSlots;
     this.levelSlots = utils.arrayRange(9, 1, 1).some((i) => {
       const slot = this.slots[`spell${i}` as keyof I5eSpellSlots];
@@ -119,154 +126,91 @@ export default class CharacterSpellFactory {
     return utils.calculateModifier(abilityValue);
   }
 
+  /**
+   * dnd5e 6 `system.sourceItem` (`type:identifier`) for a spell granted by a feature document the
+   * importer builds: species traits and feats are `feat` items and backgrounds `background` items,
+   * each carrying the identifier DDBFeatureMixin stamps from its DDB name. dnd5e resolves it through
+   * `Actor#identifiedItems` for the sheet's source subtitle and `SpellData#classIdentifier`.
+   */
+  static featureSourceItem(documentType: "feat" | "background", name: string): string {
+    return `${documentType}:${utils.referenceNameString(name.toLowerCase())}`;
+  }
+
   static getDDBSpellLookup(ddb: IDDBData, type: string, id: number | null): IDDBSpellLookup | undefined {
-    let lookup: IDDBSpellLookup | undefined;
-
-    switch (type) {
-      case "race": {
-        let match = ddb.character.race.racialTraits.find((t) => {
-          return t.definition.id === id;
-        });
-        // id may be a race *option* id (e.g. an ASI choice) attached to a trait,
-        // not the trait id itself. Resolve option.definition.id -> option.componentId -> trait.
-        if (!match) {
-          const option = (ddb.character.options?.race ?? []).find((o) => o.definition.id === id);
-          if (option) {
-            match = ddb.character.race.racialTraits.find((t) => t.definition.id === option.componentId);
-          }
-        }
-        if (match) {
-          lookup = {
-            id: match.definition.id,
-            name: match.definition.name,
-            data: match,
-          };
-        }
-        break;
-      }
-      case "feat": {
-        const match = ddb.character.feats.find((f) => {
-          return f.definition.id === id;
-        });
-        if (match) {
-          lookup = {
-            id: match.definition.id,
-            name: match.definition.name,
-            componentId: match.componentId,
-            data: match,
-          };
-        }
-        break;
-      }
-      case "class": {
-        const match1 = ddb.character.classes.find((c) => {
-          return c.definition.id === id;
-        });
-        if (match1) {
-          lookup = {
-            id: match1.definition.id,
-            name: match1.definition.name,
-            data: match1,
-          };
-          break;
-        }
-        const match2 = ddb.character.classes.find((c) => {
-          return c.subclassDefinition && c.subclassDefinition.id === id;
-        });
-        if (match2?.subclassDefinition) {
-          lookup = {
-            id: match2.subclassDefinition.id,
-            name: match2.subclassDefinition.name,
-            data: match2.subclassDefinition,
-          };
-          break;
-        }
-        break;
-      }
-      case "classFeature": {
-        for (const c of ddb.character.classes) {
-          if (c.subclassDefinition && c.subclassDefinition.id === id) {
-            for (const option of ddb.classOptions) {
-
-              if (option.classId === c.subclassDefinition.id) {
-                lookup = {
-                  id: option.id,
-                  name: option.name,
-                  classId: c.subclassDefinition.id,
-                  data: option,
-                };
-                break;
-              }
-            }
-          }
-          if (lookup) break;
-
-          const match1 = c.classFeatures.find((f) => {
-            return f.definition.id === id;
-          });
-          if (match1) {
-            lookup = {
-              id: match1.definition.id,
-              name: match1.definition.name,
-              classId: match1.definition.classId,
-              componentId: match1.definition.componentId,
-              data: match1,
-            };
-            break;
-          }
-
-          for (const option of ddb.classOptions) {
-            if (option.classId === c.definition.id && option.id === id) {
-              lookup = {
-                id: option.id,
-                name: option.name,
-                classId: c.definition.id,
-                data: option,
-              };
-              break;
-            }
-          }
-        }
-        if (lookup) break;
-        const optionMatch = ddb.character.options.class?.find((o) => {
-          return o.definition.id === id;
-        });
-        if (optionMatch) {
-          lookup = {
-            id: optionMatch.definition.id,
-            name: optionMatch.definition.name,
-            componentId: optionMatch.componentId,
-            data: optionMatch,
-          };
-        }
-        break;
-      }
-      case "item": {
-        const match = ddb.character.inventory.find((i) => {
-          return i.definition.id === id;
-        });
-        if (match) {
-          lookup = {
-            id: match.definition.id,
-            name: match.definition.name,
-            limitedUse: match.limitedUse,
-            equipped: match.equipped,
-            isAttuned: match.isAttuned,
-            canAttune: match.definition.canAttune,
-            canEquip: match.definition.canEquip,
-            data: match,
-          };
-        }
-        break;
-      }
-      // no default
-    }
-
-    return lookup;
+    return SpellDataUtils.getDDBSpellLookup(ddb, type, id);
   }
 
   getLookup(type: string, id: number | null) {
     return CharacterSpellFactory.getDDBSpellLookup(this.ddb, type, id);
+  }
+
+  /** Class features whose picks are spellbook spells the wizard always has prepared. */
+  static MASTERED_SPELL_FEATURES = ["Spell Mastery", "Signature Spells"];
+
+  /**
+   * Spell definition ids picked for Spell Mastery / Signature Spells through the features'
+   * "Choose a Spell" choices (the option id is the spell definition id).
+   */
+  static masteredSpellChoiceIds(ddb: IDDBData): Set<number> {
+    const featureIds = new Set<number>();
+    for (const klass of ddb.character?.classes ?? []) {
+      for (const feature of klass.classFeatures ?? []) {
+        if (CharacterSpellFactory.MASTERED_SPELL_FEATURES.includes(utils.nameString(feature.definition?.name ?? ""))) {
+          featureIds.add(feature.definition.id);
+        }
+      }
+    }
+    const ids = new Set<number>();
+    if (featureIds.size === 0) return ids;
+    for (const choice of ddb.character?.choices?.class ?? []) {
+      if (featureIds.has(choice.componentId) && typeof choice.optionValue === "number") ids.add(choice.optionValue);
+    }
+    return ids;
+  }
+
+  /**
+   * A wizard's Spell Mastery or Signature Spells pick. DDB flags the pick on the class spell
+   * list entry, or only records the choice on the feature; both are read. The pick is always
+   * prepared and keeps its slot casting for higher levels; the free cast is the feature's
+   * cast activity (wizard/_MasteredSpells).
+   */
+  static isMasteredSpell(spell: IDDBSpellEntry, choiceIds: Set<number>): boolean {
+    if (spell.baseLevelAtWill === true || spell.isSignatureSpell === true || spell.atWillLimitedUseLevel !== null) return true;
+    return spell.definition?.id !== undefined && choiceIds.has(spell.definition.id);
+  }
+
+  /**
+   * DDB moves a Spell Mastery / Signature Spells pick off the wizard's spell list and hangs it on
+   * the feature as a slot-less copy (with a 1/SR limited use for a signature spell). That copy
+   * is the only one in the payload, so it is parsed as the always-prepared spellbook spell
+   * instead: slot casting for higher levels, no uses.
+   */
+  static asMasteredSpellbookSpell(spell: IDDBSpellEntry): IDDBSpellEntry {
+    return {
+      ...spell,
+      usesSpellSlot: true,
+      alwaysPrepared: true,
+      limitedUse: null,
+    };
+  }
+
+  /**
+   * A spell DDB attaches to a class feature listed in FEATURE_SPELLS_IGNORE is the feature's own
+   * casting (no spell slot, or a limited use) and is provided by the feature's enricher as a cast
+   * activity instead. Features such as Wondrous Alteration or Faithful Steed also ship a plain
+   * always-prepared copy that spends a slot; that copy is the spellbook entry and is kept.
+   */
+  static isIgnoredFeatureSpell(featureName: string | undefined, spell: IDDBSpellEntry): boolean {
+    if (!featureName) return false;
+    if (!DICTIONARY.parsing.featureSpellsIgnore.includes(utils.nameString(featureName))) return false;
+    return !spell.usesSpellSlot || Boolean(spell.limitedUse);
+  }
+
+  _masteredSpellChoiceIds: Set<number> | null = null;
+
+  get masteredSpellChoiceIds(): Set<number> {
+    this._masteredSpellChoiceIds ??= CharacterSpellFactory.masteredSpellChoiceIds(this.ddb);
+    return this._masteredSpellChoiceIds;
   }
 
   _getSpellCount(name: string) {
@@ -283,7 +227,6 @@ export default class CharacterSpellFactory {
     spell,
     spellCastingAbility,
     abilityModifier,
-    cantripBoost,
     unPreparedCantrip = null,
   }: {
     classInfo: IDDBClass;
@@ -292,9 +235,13 @@ export default class CharacterSpellFactory {
     spell: IDDBSpellEntry;
     spellCastingAbility: string;
     abilityModifier: number;
-    cantripBoost: boolean;
     unPreparedCantrip?: boolean | null;
   }) {
+    if (CharacterSpellFactory.isMasteredSpell(spell, this.masteredSpellChoiceIds)) {
+      spell.alwaysPrepared = true;
+      spell.usesSpellSlot = true;
+    }
+
     // add some data for the parsing of the spells into the data structure
     const flagData: IParseSpellFlagData = {
       ddbimporter: {
@@ -309,11 +256,9 @@ export default class CharacterSpellFactory {
           ability: spellCastingAbility,
           mod: abilityModifier,
           dc: 8 + this.proficiencyModifier + abilityModifier,
-          cantripBoost,
           overrideDC: false,
           id: spell.id ?? undefined,
           entityTypeId: spell.entityTypeId ?? undefined,
-          healingBoost: this.healingBoost,
           usesSpellSlot: spell.usesSpellSlot,
           forceMaterial: classInfo.definition.name === "Artificer",
           homebrew: spell.definition.isHomebrew,
@@ -342,7 +287,7 @@ export default class CharacterSpellFactory {
       unPreparedCantrip,
       flagData,
     });
-    foundry.utils.setProperty(parsedSpell, "system.sourceClass", DDBDataUtils.classIdentifierName(classInfo.definition.name));
+    foundry.utils.setProperty(parsedSpell, "system.sourceItem", `class:${DDBDataUtils.classIdentifierName(classInfo.definition.name)}`);
     const duplicateSpell = this._generated.class.findIndex(
       (existingSpell) => {
         const existingName = (existingSpell.flags.ddbimporter?.originalName ?? existingSpell.name);
@@ -413,14 +358,6 @@ export default class CharacterSpellFactory {
       }
       logger.debug("Spell parsing, class info", classInfo);
 
-      const cantripBoost
-        = DDBModifiers.getChosenClassModifiers(this.ddb).filter(
-          (mod) =>
-            mod.type === "bonus"
-            && mod.subType === `${classInfo.definition.name.toLowerCase()}-cantrip-damage`
-            && (mod.restriction === null || mod.restriction === ""),
-        ).length > 0;
-
       const rawSpells = [
         ...playerClass.spells,
         ...(playerClass.alwaysPreparedSpells ?? []),
@@ -435,11 +372,13 @@ export default class CharacterSpellFactory {
 
       const removeIds = [];
 
-      if (utils.getSetting<boolean>("character-update-policy-remove-2024"))
+      if (utils.getSetting<boolean>("character-update-policy-remove-2024")) {
         removeIds.push(24);
+      }
 
-      if (utils.getSetting<boolean>("character-update-policy-remove-legacy"))
+      if (utils.getSetting<boolean>("character-update-policy-remove-legacy")) {
         removeIds.push(23, 26);
+      }
 
       const targetSpells: IDDBSpellEntry[] = removeIds.length > 0
         ? this.removeSpellsBySourceCategoryIds(rawSpells, removeIds)
@@ -454,7 +393,6 @@ export default class CharacterSpellFactory {
           spell,
           spellCastingAbility,
           abilityModifier,
-          cantripBoost,
         });
       }
     }
@@ -484,14 +422,6 @@ export default class CharacterSpellFactory {
       }
       logger.debug("Spell parsing, class info", classInfo);
 
-      const cantripBoost
-        = DDBModifiers.getChosenClassModifiers(this.ddb).filter(
-          (mod) =>
-            mod.type === "bonus"
-            && mod.subType === `${classInfo.definition.name.toLowerCase()}-cantrip-damage`
-            && (mod.restriction === null || mod.restriction === ""),
-        ).length > 0;
-
       const allCantrips = (playerClass.cantrips ?? []).map((cantrip) => {
         cantrip.unPreparedCantrip = true;
         return cantrip;
@@ -503,11 +433,13 @@ export default class CharacterSpellFactory {
 
       const removeIds = [];
 
-      if (utils.getSetting<boolean>("character-update-policy-remove-2024"))
+      if (utils.getSetting<boolean>("character-update-policy-remove-2024")) {
         removeIds.push(24);
+      }
 
-      if (utils.getSetting<boolean>("character-update-policy-remove-legacy"))
+      if (utils.getSetting<boolean>("character-update-policy-remove-legacy")) {
         removeIds.push(23, 26);
+      }
 
       const targetSpells = removeIds.length > 0
         ? this.removeSpellsBySourceCategoryIds(filteredCantrips, removeIds)
@@ -522,7 +454,6 @@ export default class CharacterSpellFactory {
           spell,
           spellCastingAbility,
           abilityModifier,
-          cantripBoost,
           unPreparedCantrip: spell.unPreparedCantrip ?? null,
         });
       }
@@ -531,12 +462,17 @@ export default class CharacterSpellFactory {
 
 
   async generateSpecialClassSpells() {
-    for (const spell of this.ddb.character.spells.class ?? []) {
-      if (!spell.definition) continue;
+    for (const rawSpell of this.ddb.character.spells.class ?? []) {
+      if (!rawSpell.definition) continue;
       // If the spell has an ability attached, use that
       let spellCastingAbility: T5eAbility;
-      const featureId = DDBDataUtils.determineActualFeatureId(this.ddb, spell.componentId);
+      const featureId = DDBDataUtils.determineActualFeatureId(this.ddb, rawSpell.componentId);
       const classInfo = this.getLookup("classFeature", featureId);
+
+      const mastered = classInfo !== undefined
+        && CharacterSpellFactory.MASTERED_SPELL_FEATURES.includes(utils.nameString(classInfo.name))
+        && CharacterSpellFactory.isMasteredSpell(rawSpell, this.masteredSpellChoiceIds);
+      const spell = mastered ? CharacterSpellFactory.asMasteredSpellbookSpell(rawSpell) : rawSpell;
 
       logger.debug("Class spell parsing, class info", classInfo);
       // Sometimes there are spells here which don't have an class Info
@@ -553,7 +489,7 @@ export default class CharacterSpellFactory {
 
       logger.debug("Class spell, class found?", klass);
 
-      if (DICTIONARY.parsing.featureSpellsIgnore.includes(classInfo.name)) {
+      if (CharacterSpellFactory.isIgnoredFeatureSpell(classInfo.name, spell)) {
         logger.debug(`Skipping ${spell.definition.name} for ${classInfo.name} as included in feature`);
         continue;
       }
@@ -587,13 +523,6 @@ export default class CharacterSpellFactory {
       const abilityModifier = this._getAbilityModifier(spellCastingAbility);
 
       const klassName = klass?.definition?.name;
-      const cantripBoost
-        = DDBModifiers.getChosenClassModifiers(this.ddb).filter(
-          (mod) =>
-            mod.type === "bonus"
-            && mod.subType === `${klassName?.toLowerCase()}-cantrip-damage`
-            && (mod.restriction === null || mod.restriction === ""),
-        ).length > 0;
 
       // add some data for the parsing of the spells into the data structure
       const flagData: IParseSpellFlagData = {
@@ -610,8 +539,6 @@ export default class CharacterSpellFactory {
             overrideDC: false,
             id: spell.id ?? undefined,
             entityTypeId: spell.entityTypeId ?? undefined,
-            healingBoost: this.healingBoost,
-            cantripBoost,
             usesSpellSlot: spell.usesSpellSlot,
             forceMaterial: klass?.definition?.name === "Artificer",
             homebrew: spell.definition.isHomebrew,
@@ -641,7 +568,7 @@ export default class CharacterSpellFactory {
           generateSummons: this.generateSummons,
           flagData,
         });
-        if (flagData.ddbimporter.dndbeyond.class) foundry.utils.setProperty(parsedSpell, "system.sourceClass", DDBDataUtils.classIdentifierName(flagData.ddbimporter.dndbeyond.class));
+        if (flagData.ddbimporter.dndbeyond.class) foundry.utils.setProperty(parsedSpell, "system.sourceItem", `class:${DDBDataUtils.classIdentifierName(flagData.ddbimporter.dndbeyond.class)}`);
         this._granted.class.push(parsedSpell);
 
         // check for class granted spells here
@@ -664,8 +591,9 @@ export default class CharacterSpellFactory {
           namePostfix: `${this._getSpellCount(spell.definition.name)}`,
           generateSummons: this.generateSummons,
         });
-        if (flagData.ddbimporter.dndbeyond.class)
-          foundry.utils.setProperty(parsedSpell, "system.sourceClass", DDBDataUtils.classIdentifierName(flagData.ddbimporter.dndbeyond.class));
+        if (flagData.ddbimporter.dndbeyond.class) {
+          foundry.utils.setProperty(parsedSpell, "system.sourceItem", `class:${DDBDataUtils.classIdentifierName(flagData.ddbimporter.dndbeyond.class)}`);
+        }
         this._generated.class[duplicateSpell] = parsedSpell;
       } else {
         // we'll emit a console message if it doesn't match this case for future debugging
@@ -791,7 +719,6 @@ export default class CharacterSpellFactory {
             overrideDC: false,
             id: spell.id ?? undefined,
             entityTypeId: spell.entityTypeId ?? undefined,
-            healingBoost: this.healingBoost,
             usesSpellSlot: spell.usesSpellSlot,
             homebrew: spell.definition.isHomebrew,
             alwaysPrepared: spell.alwaysPrepared,
@@ -812,6 +739,10 @@ export default class CharacterSpellFactory {
         generateSummons: this.generateSummons,
         flagData,
       });
+      // the granting racial trait is imported as a feat item; the fallback lookup names no document
+      if (raceInfo.data) {
+        foundry.utils.setProperty(parsedSpell, "system.sourceItem", CharacterSpellFactory.featureSourceItem("feat", raceInfo.name));
+      }
       // this._generated.race.push(parsedSpell);
       this._granted.race.push(parsedSpell);
     }
@@ -863,7 +794,6 @@ export default class CharacterSpellFactory {
             overrideDC: false,
             id: spell.id ?? undefined,
             entityTypeId: spell.entityTypeId ?? undefined,
-            healingBoost: this.healingBoost,
             usesSpellSlot: spell.usesSpellSlot,
             homebrew: spell.definition.isHomebrew,
             alwaysPrepared: spell.alwaysPrepared,
@@ -889,6 +819,9 @@ export default class CharacterSpellFactory {
         generateSummons: this.generateSummons,
         flagData,
       });
+      if (featInfo.data) {
+        foundry.utils.setProperty(parsedSpell, "system.sourceItem", CharacterSpellFactory.featureSourceItem("feat", featInfo.name));
+      }
       // if (spell.definition.level === 0) {
       //   this._generated.feat.push(parsedSpell);
       // } else {
@@ -924,7 +857,6 @@ export default class CharacterSpellFactory {
             overrideDC: false,
             id: spell.id ?? undefined,
             entityTypeId: spell.entityTypeId ?? undefined,
-            healingBoost: this.healingBoost,
             usesSpellSlot: spell.usesSpellSlot,
             homebrew: spell.definition.isHomebrew,
             alwaysPrepared: spell.alwaysPrepared,
@@ -944,6 +876,11 @@ export default class CharacterSpellFactory {
         generateSummons: this.generateSummons,
         flagData,
       });
+      const background = this.ddb.character.background;
+      const backgroundName = background?.definition?.name ?? background?.customBackground?.name;
+      if (backgroundName) {
+        foundry.utils.setProperty(parsedSpell, "system.sourceItem", CharacterSpellFactory.featureSourceItem("background", backgroundName));
+      }
       this._generated.background.push(parsedSpell);
     }
   }
@@ -991,6 +928,35 @@ export default class CharacterSpellFactory {
     }
   }
 
+  /**
+   * Bake the 2024 Healer feat's healing-die reroll onto the character's healing spells, flagging
+   * each spell it changed. Every import re-parses the spells, so there is never a stale reroll to
+   * strip when the feat goes away or AC5e turns up.
+   */
+  _applyHealingRerolls() {
+    if (!this.healingReroll) return;
+    for (const spell of this.processed) {
+      const applied = SpellDataUtils.applyHealingDieModifiers(spell, CharacterSpellFactory.HEALING_REROLL_MODIFIERS);
+      if (applied) foundry.utils.setProperty(spell, "flags.ddbimporter.healingReroll", true);
+    }
+  }
+
+  /**
+   * Bake Elemental Adept's "treat a 1 as a 2" onto the damage parts of the character's spells that
+   * deal the chosen damage type, recording the stamped types on each spell it changed. Every import
+   * re-parses the spells, so a dropped feat or changed type leaves nothing to strip.
+   */
+  _applyElementalAdept() {
+    if (this.elementalAdeptTypes.length === 0) return;
+    const modifiers = CharacterSpellFactory.ELEMENTAL_ADEPT_MODIFIERS;
+    for (const spell of this.processed) {
+      // a part is only stamped when every damage type it offers is a chosen one
+      if (SpellDataUtils.applyDamageDieModifiers(spell, modifiers, this.elementalAdeptTypes)) {
+        foundry.utils.setProperty(spell, "flags.ddbimporter.elementalAdept", [...this.elementalAdeptTypes]);
+      }
+    }
+  }
+
   async generateCharacterSpells() {
     // each class has an entry here, each entry has spells
     // we loop through each class and process
@@ -1014,6 +980,9 @@ export default class CharacterSpellFactory {
     await this._setCompendiumSource();
 
     this.processed = Object.values(this._generated).flat();
+
+    this._applyHealingRerolls();
+    this._applyElementalAdept();
 
     return this.processed.sort((a, b) => a.name.localeCompare(b.name));
   }

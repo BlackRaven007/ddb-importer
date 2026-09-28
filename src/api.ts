@@ -30,6 +30,7 @@ import { createStorage } from "./hooks/ready/storage";
 import { sqliteCipherRaw } from "./lib/SqliteCipher";
 import NativeAdventureMunch from "./muncher/adventure/native/NativeAdventureMunch";
 import DDBKeyChangeDialog from "./apps/DDBKeyChangeDialog";
+import RegionExpiryCleanup from "./effects/enhancers/Regions/RegionExpiryCleanup";
 import { migrateJournalsToDDBSheet } from "./hooks/ready/migration/migration_5_6_0_journals";
 import { migration } from "./hooks/ready/migraton";
 import SpellListFactory from "./parser/spells/SpellListFactory";
@@ -47,6 +48,11 @@ import DDBStickerBrowser from "./apps/DDBStickerBrowser";
 import DDBQuickplay from "./muncher/adventure/DDBQuickplay";
 import DDBPartySync from "./apps/DDBPartySync";
 import DDBAdventures from "./muncher/DDBAdventures";
+import SceneCopyApp from "./apps/SceneCopyApp";
+import SceneCopyBatchApp from "./apps/SceneCopyBatchApp";
+import DDBRegionDisplayProfiles from "./apps/DDBRegionDisplayProfiles";
+import DDBRegionDisplayConfig from "./apps/DDBRegionDisplayConfig";
+import { sceneFieldGroups } from "./apps/lib/sceneFieldCopy";
 // import { libWrapper } from "../vendor/libwrapper/shim";
 
 function resetSecrets() {
@@ -102,13 +108,14 @@ async function updateDDBCharacters(debug = false) {
     if (ddbImported && actor.type === "character") {
       lib.logger.info(`Updating ${actor.name} to DDB`);
       if (debug) lib.logger.error(`Updating ${actor.name} to DDB`, { actor });
-      await updateDDBCharacter(actor as TSyncCharacterActor);
+      await updateDDBCharacter(actor as unknown as TSyncCharacterActor);
     }
   }
 }
 
 
 export const API_BASE = {
+  socket: undefined as unknown as import("./hooks/socket/sockets").DDBSocket,
   notification: lib.Notifications.NOTIFICATION_API,
   hint: lib.Notifications.HINT_API,
   // libWrapper,
@@ -142,6 +149,20 @@ export const API_BASE = {
     DDBKeyChangeDialog: DDBKeyChangeDialog,
     DDBDebug: lib.DDBDebug,
     DDBPartySync,
+    SceneCopyApp,
+    SceneCopyBatchApp,
+    DDBRegionDisplayProfiles,
+    DDBRegionDisplayConfig,
+  },
+  scenes: {
+    // single scene Copy Scene Fields dialog
+    openCopyFields: (scene: Scene) => new SceneCopyApp(scene).render({ force: true }),
+    // batch dialog, optionally seeded, e.g. { sourceFolder: "Adventures/Old Adventure", targetFolder: "New Adventure" }
+    openBatchCopyFields: (options: ISceneCopyBatchOptions = {}) => SceneCopyBatchApp.open(options),
+    // the same batch copy without the dialog; resolves to one result per scene pair
+    batchCopyFields: (options: ISceneCopyBatchOptions) => SceneCopyBatchApp.copy(options),
+    // the selectable field and group ids accepted by `fields`
+    copyFieldGroups: (scenes: Scene[] = []) => sceneFieldGroups(scenes),
   },
   lib: {
     CPRHelper: External.ChrisPremadesHelper,
@@ -251,13 +272,24 @@ export const API_BASE = {
   importCacheLoad: ParserLib.DDBReferenceLinker.importCacheLoad,
   resetCompendiumActorImages,
   createStorage,
+  proxyCache: {
+    clear: lib.DDBProxyCache.clear,
+    stats: lib.DDBProxyCache.stats,
+    list: lib.DDBProxyCache.list,
+    // run an import with cache reads skipped; results are still written so the cache refreshes. The
+    // in-memory layers are dropped first, otherwise they would answer before the bypass is consulted.
+    bypass: <T>(fn: () => Promise<T>): Promise<T> => lib.DDBRunContext.runWith({ bypassProxyCache: true }, async () => {
+      lib.DDBProxyCache.invalidateSessionCaches();
+      return fn();
+    }),
+  },
 
   generateItemMacroFlag: lib.DDBMacros.generateItemMacroFlag,
   EffectHelper: DDBEffectHelper,
   DialogHelper: lib.DialogHelper,
   effects: {
     helpers: DDBEffectHelper,
-    // these are now in DDBEffectHelper, wrapped here for historical reasons
+    // aliases of DDBEffectHelper functions, kept for macros that call them through this api
     addSaveAdvantageToTarget: DDBEffectHelper.addSaveAdvantageToTarget,
     attachSequencerFileToTemplate: DDBEffectHelper.attachSequencerFileToTemplate,
     checkCollision: DDBEffectHelper.checkCollision,
@@ -274,6 +306,17 @@ export const API_BASE = {
     selectTargetsWithinX: DDBEffectHelper.selectTargetsWithinX,
     wait: DDBEffectHelper.wait,
     AuraAutomations,
+    // Activity-placed template (Region) cleanup. `scanAllScenes()` is the macro entry point:
+    // it sweeps every scene, views the ones with candidates, and prompts scene by scene.
+    RegionExpiry: {
+      scanAllScenes: () => RegionExpiryCleanup.scanAllScenes(),
+      scanCurrentScene: () => RegionExpiryCleanup.scanCurrentScene(),
+      sweepScene: (scene?: any) => RegionExpiryCleanup.sweepScene(scene),
+      trackedRegions: (scene?: any) => RegionExpiryCleanup.trackedRegions(scene),
+      report: () => RegionExpiryCleanup.report(),
+      forget: () => RegionExpiryCleanup.forget(),
+      cleanup: RegionExpiryCleanup,
+    },
   },
   executeDDBMacro: lib.DDBMacros.executeDDBMacro,
   // macro tools
@@ -303,6 +346,17 @@ export const API_BASE = {
     // every Quickplay-imported tile's raw DDB values, current placement, and
     // computed-at-import diagnostics.
     dumpQuickplay: (scene: any) => DDBQuickplay.dumpScene(scene),
+    // Region expiry cleanup diagnostics. `report()` explains why the watcher is or is not
+    // acting and how each activity-placed region currently resolves; `forget()` clears the
+    // session's "keep" decisions so kept templates are offered again. The user-facing entry
+    // points live on `DDBImporter.effects.RegionExpiry`.
+    regionExpiry: {
+      report: () => RegionExpiryCleanup.report(),
+      forget: () => RegionExpiryCleanup.forget(),
+      findTemplatesForEffect: (effect: any) => RegionExpiryCleanup.findTemplatesForEffect(effect),
+      governingEffect: (region: any) => RegionExpiryCleanup.governingEffect(region),
+      cleanup: RegionExpiryCleanup,
+    },
   },
   DICTIONARY: config.DICTIONARY,
   // STATUS lived on SETTINGS until activeUpdate moved to the updater; kept here

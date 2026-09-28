@@ -132,6 +132,7 @@ export async function getEldritchCannons2014({
     };
   }
 
+  // console.warn("EldritchCannon result", results);
   logger.verbose("Eldritch Cannon results", results);
   return results;
 }

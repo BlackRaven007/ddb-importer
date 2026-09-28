@@ -1,11 +1,11 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class PlanarWarrior extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Mark Target",
       activationType: "bonus",
@@ -31,7 +31,7 @@ export default class PlanarWarrior extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -67,19 +67,21 @@ export default class PlanarWarrior extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Marked by Planar Warrior",
+        statuses: ["Marked"],
         activityMatch: "Mark Target",
         options: {
-          durationTurns: 1,
+          // "until the end of the current turn" - the ranger's, whoever carries the mark
+          expiry: "turnEnd",
         },
       },
     ];
   }
 
-  get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
+  override get setMidiOnUseMacroFlag(): IDDBSetMidiOnUseMacroFlag {
     return {
       type: "feat",
       name: "planarWarrior.js",
@@ -87,7 +89,7 @@ export default class PlanarWarrior extends DDBEnricherData {
     };
   }
 
-  get itemMacro(): IDDBItemMacro {
+  override get itemMacro(): IDDBItemMacro {
     return {
       type: "feat",
       name: "planarWarrior.js",

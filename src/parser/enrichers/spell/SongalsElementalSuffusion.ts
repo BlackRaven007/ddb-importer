@@ -2,7 +2,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class SongalsElementalSuffusion extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Save vs Damage",
       targetType: "enemy",
@@ -10,6 +10,8 @@ export default class SongalsElementalSuffusion extends DDBEnricherData {
       noConsumeTargets: true,
       data: {
         sort: 2,
+        // used on later turns while concentrating, so it must not start (and replace) the concentration
+        duration: { override: true, units: "inst", concentration: false },
         target: {
           override: true,
           template: {
@@ -23,7 +25,7 @@ export default class SongalsElementalSuffusion extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -45,7 +47,7 @@ export default class SongalsElementalSuffusion extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         activityMatch: "Cast",
@@ -53,7 +55,7 @@ export default class SongalsElementalSuffusion extends DDBEnricherData {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("30", 20, "system.attributes.movement.fly"),
+          DDBEnricherData.ChangeHelper.upgradeChange("30", 20, "system.attributes.movement.speeds.fly"),
           DDBEnricherData.ChangeHelper.upgradeChange("true", 2, "system.attributes.movement.hover"),
         ],
       },
@@ -65,7 +67,7 @@ export default class SongalsElementalSuffusion extends DDBEnricherData {
     ];
   }
 
-  get combineDamageTypes() {
+  override get combineDamageTypes(): boolean {
     return true;
   }
 

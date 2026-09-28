@@ -1,9 +1,33 @@
 import { DICTIONARY } from "../../config/_module";
-import { logger, utils, Utils } from "../../lib/_module";
+import logger from "../../lib/Logger";
+import utils from "../../lib/Utils";
 import DDBDataUtils from "./DDBDataUtils";
 import type { IExcludedEffectModifier } from "../../config/dictionary/effects/excluded";
 
 export default class DDBModifiers {
+
+  /**
+   * DDB entity type ids carried by modifiers that were granted by a CHOSEN OPTION
+   * (e.g. a species sense choice such as the 2024 Faerie, or a class feature option).
+   * Option ids live in their own small id space, so a bare componentId match against
+   * choiceDefinitions option ids collides with unrelated racial traits / feats
+   * (Hill Dwarf darkvision componentId 6 vs Fighting Style option id 6).
+   */
+  static CHOICE_OPTION_ENTITY_TYPE_IDS = [
+    258900837, // class feature / feat option
+    306912077, // species trait option
+  ];
+
+  /**
+   * Is this modifier granted by a chosen option? Requires BOTH the option id match
+   * and an option entity type on the modifier, so trait/feat ids cannot collide.
+   */
+  static isChoiceOptionModifier(ddb: IDDBData, mod: IModifiersMod | IDDBModifier): boolean {
+    if (!DDBModifiers.CHOICE_OPTION_ENTITY_TYPE_IDS.includes(Number(mod.componentTypeId))) return false;
+    return (ddb.character.choices?.choiceDefinitions ?? []).some((def) =>
+      def.options.some((opt) => opt.id === mod.componentId),
+    );
+  }
 
   static getEffectExcludedModifiers(type: ICoreSourceTypes, features: boolean, ac: boolean) {
     const EXCLUDED = DICTIONARY.effects.excludedModifiers;
@@ -213,6 +237,7 @@ export default class DDBModifiers {
   static isModAGrantedFeatMod(ddb: IDDBData, mod: IModifiersMod,
     { classFeatureIds = null, classId = null, requiredLevel = null, exactLevel = null }: IModFilterOptions = {},
   ) {
+    // const klassFeatureIds = classFeatureIds ? classFeatureIds : DDBDataUtils.getClassFeatureIds(ddb, { classId, requiredLevel, exactLevel });
     const feats: IDDBClassFeatureGrantedFeat[] = [];
     ddb.character.classes.forEach((klass) => {
       const validClass = classId === null
@@ -295,6 +320,7 @@ export default class DDBModifiers {
   ) {
     const klassFeatureIds = classFeatureIds ? classFeatureIds : DDBDataUtils.getClassFeatureIds(ddb, { classId, requiredLevel, exactLevel });
     const isClassFeature = DDBModifiers.isModClassFeature(ddb, mod, { classFeatureIds: klassFeatureIds, classId, requiredLevel, exactLevel });
+    // console.warn("isClassFeature", {isClassFeature, mod, klassFeatureIds, classId, requiredLevel, exactLevel});
     if (isClassFeature) return true;
     const isClassOption = DDBModifiers.isModClassOption(ddb, mod, { classFeatureIds: klassFeatureIds, classId, requiredLevel, exactLevel });
     if (isClassOption) return true;
@@ -304,6 +330,7 @@ export default class DDBModifiers {
     // new class feature choice
     const isOptionalClassChoice = DDBModifiers.isModOptionalClassChoice(ddb, mod, { classFeatureIds: klassFeatureIds, classId, requiredLevel, exactLevel });
     if (isOptionalClassChoice) return true;
+    // console.warn("isClassFeature2", {isClassFeature, mod, klassFeatureIds, classId, requiredLevel, exactLevel, isClassOption, isOptionalClassOption, isOptionalClassChoice});
     const isFeatMod = DDBModifiers.isModAGrantedFeatMod(ddb, mod, { classFeatureIds: klassFeatureIds, classId, requiredLevel, exactLevel });
     return isFeatMod;
   }
@@ -326,6 +353,7 @@ export default class DDBModifiers {
         return filterOnFeatureIds.includes(id);
       });
     // get items we are going to interact on
+    // console.warn("getChosenTypeModifiers", {
     //   mods: DDBModifiers.getModifiers(ddb, type, includeExcludedEffects, effectOnly, useUnfilteredModifiers),
     //   classFeatureIds,
     // });
@@ -341,6 +369,7 @@ export default class DDBModifiers {
         && DDBModifiers.isModAChosenClassMod(ddb, mod, { classFeatureIds, classId, requiredLevel, exactLevel }),
       );
 
+    // console.warn("getChosenClassModifiers", {classFeatureIds, modifiers});
     return modifiers;
   }
 
@@ -432,30 +461,29 @@ export default class DDBModifiers {
         }
       }
       if (die) {
-        const mod = die.diceString;
-        diceString += diceString === "" ? mod : " + " + mod;
         if (die.diceString) {
-          const mod = die.diceString + modBonus + fixedBonus;
+          // DDB's diceString already includes die.fixedValue
+          const mod = modBonus !== 0 ? `${die.diceString} + ${modBonus}` : die.diceString;
           diceString += diceString === "" ? mod : " + " + mod;
         } else if (fixedBonus) {
-          sum = Utils.stringIntAdder(sum, fixedBonus + modBonus);
+          sum = utils.stringIntAdder(sum, fixedBonus + modBonus);
         }
       } else if (modifier.fixedValue) {
-        sum = Utils.stringIntAdder(sum, modifier.fixedValue);
+        sum = utils.stringIntAdder(sum, modifier.fixedValue);
       } else if (modifier.value) {
-        sum = Utils.stringIntAdder(sum, modifier.value);
+        sum = utils.stringIntAdder(sum, modifier.value);
       } else if (modBonus !== 0) {
-        sum = Utils.stringIntAdder(sum, modBonus);
+        sum = utils.stringIntAdder(sum, modBonus);
       }
       if (modifier.modifierTypeId === 1 && modifier.bonusTypes.includes(1)) {
         // prof bonus
         const profBonus = foundry.utils.getProperty(character, "flags.ddbimporter.dndbeyond.profBonus") as number ?? 0;
-        sum = Utils.stringIntAdder(sum, profBonus);
+        sum = utils.stringIntAdder(sum, profBonus);
       }
 
     });
     if (diceString !== "") {
-      sum = diceString + " + " + sum;
+      sum = sum === "" ? diceString : `${diceString} + ${sum}`;
     }
 
     sum = `${sum}`.trim().replace(/\+\s*\+/, "+").replace(/^\+\s*/, "");

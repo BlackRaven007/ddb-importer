@@ -61,6 +61,7 @@ export default class DDBCompanionFactory {
       updateCompanions: true,
       updateImages: false,
     };
+    // console.warn("html", html);
     this.options = Object.assign({}, defaultOptions, options);
     this.html = html;
     this.doc = new DOMParser().parseFromString(html.replaceAll("\n", ""), "text/html");
@@ -97,9 +98,18 @@ export default class DDBCompanionFactory {
     this.itemHandler = null;
   }
 
+  /**
+   * Opens the summons compendium. Without one (the audit harness, a broken setup) the companions
+   * still parse so the origin document keeps its summon activity, they just cannot be stored.
+   */
   async init() {
-    await this.summonsManager.init();
-    this.itemHandler = this.summonsManager.itemHandler;
+    try {
+      await this.summonsManager.init();
+      this.itemHandler = this.summonsManager.itemHandler;
+    } catch (err) {
+      logger.error(`Unable to open the summons compendium, companions for ${this.originName} will not be stored: ${utils.errorMessage(err)}`);
+      this.itemHandler = null;
+    }
   }
 
   get data(): I5eMonsterData[] {
@@ -109,6 +119,19 @@ export default class DDBCompanionFactory {
   static MULTI_2014 = DICTIONARY.companions.MULTI_COMPANIONS_2014;
 
   static MULTI_2024 = DICTIONARY.companions.MULTI_COMPANIONS_2024;
+
+  /**
+   * The forms of a multi-companion stat block that its text actually names. A table entry may
+   * list the forms of several printings (Summon Plant's GHPG and Arcana Unleashed sets), and
+   * building a form the block never mentions yields a bad actor. When the text
+   * names none of them the whole list is kept, so a block that describes its forms elsewhere
+   * still builds every form.
+   */
+  static subTypesInBlock(name: string, text: string): string[] {
+    const subTypes = DDBCompanionFactory.MULTI_2024[name] ?? [];
+    const present = subTypes.filter((subType) => new RegExp(`\\b${subType}\\b`, "i").test(text));
+    return present.length > 0 ? present : subTypes;
+  }
 
   async #buildCompanion(block: HTMLElement, options: IDDBCompanionMixinOptions = {}) {
     logger.debug("Beginning companion parse", { block });
@@ -131,6 +154,7 @@ export default class DDBCompanionFactory {
         : null;
       const summonMatch = isEqual(companionSummons, existingSummons);
 
+      // console.warn("Companion Parsed DISCOVERY", {
       //   ddbCompanion,
       //   companionSummons,
       //   existingSummons,
@@ -158,8 +182,10 @@ export default class DDBCompanionFactory {
 
     await this.init();
 
+    // console.warn(this.doc);
     const statBlockDivs = this.doc.querySelectorAll("div.stat-block-background, div.stat-block-finder, div.basic-text-frame");
 
+    // console.warn("statblkc divs", { statBlockDivs, athis: this });
     for (const block of statBlockDivs) {
       const name = (block
         .querySelector("p.Stat-Block-Styles_Stat-Block-Title")
@@ -170,6 +196,7 @@ export default class DDBCompanionFactory {
         .map((w) => utils.capitalize(w.trim()))
         .join(" ");
 
+      // console.warn("Processing Companion", { name, block });
       if (name && name in DDBCompanionFactory.MULTI_2014) {
         for (const subType of DDBCompanionFactory.MULTI_2014[name]) {
           await this.#buildCompanion(block as HTMLElement, { name, subType });
@@ -187,11 +214,12 @@ export default class DDBCompanionFactory {
 
     await this.init();
 
+    // console.warn(this.doc);
     const statBlockDivs = this.doc.querySelectorAll("div.stat-block");
 
     for (const block of statBlockDivs) {
       const name = (block
-        .querySelector("h4.compendium-hr, h5.compendium-hr, h4")
+        .querySelector("h3.compendium-hr, h4.compendium-hr, h5.compendium-hr, h4")
         ?.textContent ?? "")
         .trim()
         .toLowerCase()
@@ -200,7 +228,7 @@ export default class DDBCompanionFactory {
         .join(" ");
 
       if (name && name in DDBCompanionFactory.MULTI_2024) {
-        for (const subType of DDBCompanionFactory.MULTI_2024[name]) {
+        for (const subType of DDBCompanionFactory.subTypesInBlock(name, block.textContent ?? "")) {
           await this.#buildCompanion(block as HTMLElement, { name, subType });
         }
       } else {
@@ -301,6 +329,7 @@ export default class DDBCompanionFactory {
 
     const results = [];
 
+    // console.warn("Updating companions", { updateCompanions, existingCompanions, companions });
     for (const companion of updateCompanions) {
       const companionId = companion.flags?.ddbimporter?.id;
       if (!companionId) {
@@ -492,6 +521,7 @@ export default class DDBCompanionFactory {
   }
 
   async addCRSummoning(activity: I5eSummonActivity) {
+    // console.warn("Adding CR Summoning", {
     //   this: this,
     //   originName: this.originName,
     //   activity,
@@ -504,6 +534,7 @@ export default class DDBCompanionFactory {
         },
         profiles: CR_DATA[this.originName].profiles,
         creatureTypes: CR_DATA[this.originName].creatureTypes,
+        ...(CR_DATA[this.originName].match ? { match: CR_DATA[this.originName].match } : {}),
       }
       : DICTIONARY.companions.FIND_FAMILIAR_MATCHES.includes(this.originName)
         ? await getFindFamiliarActivityData(activity, this.options)
@@ -514,7 +545,12 @@ export default class DDBCompanionFactory {
       logger.warn(`No origin document for ${this.originName}, unable to add CR summoning`);
       return;
     }
+    // mergeObject replaces arrays, so a creature type restriction the enricher already stated
+    // (Wild Companion's familiar is fey only) would be lost to the generic familiar options
+    const ownCreatureTypes = activity.creatureTypes?.length ? [...activity.creatureTypes] : null;
     const activityData = foundry.utils.mergeObject(activity, summonsData);
+    if (ownCreatureTypes) activityData.creatureTypes = ownCreatureTypes;
+    // console.warn("Final summons Activity Data", foundry.utils.deepClone(activityData));
     const activityId = activity._id;
     if (activityId && "activities" in this.originDocument.system) {
       delete this.originDocument.system.activities[activityId];

@@ -2,19 +2,19 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class AccursedSpecter extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SUMMON;
   }
 
-  get summonsFunction() {
+  override get summonsFunction(): ((data: ICompanionData) => Promise<ICompanionResult>) | null {
     return DDBImporter.lib.DDBSummonsInterface.getAccursedSpecter;
   }
 
-  get generateSummons() {
+  override get generateSummons(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       noTemplate: true,
       profileKeys: [{ count: 1, name: "Specter2014" }],
@@ -35,15 +35,15 @@ export default class AccursedSpecter extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Accursed Specter - Attack Bonus",
         changes: [
-          DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.mod", 20, "system.bonuses.mwak.attack"),
-          DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.mod", 20, "system.bonuses.rwak.attack"),
-          DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.mod", 20, "system.bonuses.msak.attack"),
-          DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.mod", 20, "system.bonuses.rsak.attack"),
+          DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.mod", 20, "system.rolls.attack.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.mod", 20, "system.rolls.attack.rwak.bonus"),
+          DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.mod", 20, "system.rolls.attack.msak.bonus"),
+          DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.mod", 20, "system.rolls.attack.rsak.bonus"),
         ],
       },
     ];

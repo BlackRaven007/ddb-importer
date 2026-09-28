@@ -340,9 +340,11 @@ export default class DDBQuickplayTokens {
       // Snap the token to the grid cell whose area it most overlaps. The
       // Foundry grid runs in canvas coords starting at (0, 0); sceneXPad /
       // sceneYPad are the image-origin offset, NOT the grid origin.
+      //
       // For tokens >= 1 cell (Medium, Large, Huge, etc.) we use the
       // standard round((centre - halfSize) / gridSize) * gridSize, which
       // picks the cell/block that maximises area overlap.
+      //
       // For sub-cell tokens (Tiny with width 0.5) that formula has a
       // different threshold: with halfSize = gridSize/4, the rounding flip
       // sits at 75% into a cell instead of at the cell boundary, so a
@@ -371,7 +373,7 @@ export default class DDBQuickplayTokens {
       const stub: ITokenStub = {
         x: stubX,
         y: stubY,
-        hidden: !!t.hidden,
+        hidden: true,
         locked: !!t.locked,
         name: baseName,
         level: DEFAULT_LEVEL_ID,

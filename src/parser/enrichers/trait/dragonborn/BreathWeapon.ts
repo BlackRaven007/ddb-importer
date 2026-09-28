@@ -2,12 +2,12 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BreathWeapon extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     if (!this.isAction) return DDBEnricherData.ACTIVITY_TYPES.NONE;
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       rangeSelf: true,
     };
@@ -15,6 +15,8 @@ export default class BreathWeapon extends DDBEnricherData {
 
 
   // get override(): IDDBOverrideData {
+  //   console.warn(this);
+  //   const uses = this._getUsesWithSpent({
   //     type: "race",
   //     name: this.data.name,
   //   });
@@ -27,7 +29,7 @@ export default class BreathWeapon extends DDBEnricherData {
   //   };
   // }
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 

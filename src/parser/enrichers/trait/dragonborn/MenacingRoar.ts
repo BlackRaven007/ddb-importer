@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class MenacingRoar extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       activationType: "bonus",
@@ -40,16 +40,15 @@ export default class MenacingRoar extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Frightened",
         statuses: ["Frightened"],
         options: {
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description: "Frightened until the end of your next turn.",
         },
-        daeSpecialDurations: ["turnEndSource"],
       },
     ];
   }

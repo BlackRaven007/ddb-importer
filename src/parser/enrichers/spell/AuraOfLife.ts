@@ -2,67 +2,40 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class AuraOfLife extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get effects(): IDDBEffectHint[] {
-    return [
-      {
-        changes: [
-          DDBEnricherData.ChangeHelper.damageResistanceChange("necrotic"),
+  override get addAutoAdditionalActivities(): boolean {
+    return false;
+  }
+
+  override get activity(): IDDBActivityData {
+    // the effect covers the automatable part (necrotic resistance); the max-HP floor and
+    // the 1 HP regain for downed allies stay on the description
+    return {
+      name: "Cast",
+      data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.applyEffect({
+            effects: DDBEnricherData.SRDEffects.spell("auraOfLife"),
+          }),
         ],
       },
-      {
-        noCreate: true,
-        daeOnly: true,
-        activeAurasOnly: true,
-        auraeffectsOnly: true,
-        macroChanges: [
-          { macroValues: "@token", macroType: "spell", macroName: "auraOfLife.js" },
-        ],
-        data: {
-          flags: {
-            dae: {
-              macroRepeat: "startEveryTurn",
-              selfTarget: true,
-              selfTargetAlways: true,
-            },
-            ActiveAuras: {
-              isAura: true,
-              aura: "Allies",
-              radius: "30",
-              alignment: "",
-              type: "",
-              ignoreSelf: false,
-              height: false,
-              hidden: false,
-              onlyOnce: false,
-              displayTemp: true,
+    };
+  }
+
+  override get override(): IDDBOverrideData {
+    return {
+      data: {
+        system: {
+          target: {
+            affects: {
+              type: "ally",
             },
           },
         },
-        auraeffects: {
-          applyToSelf: true,
-          bestFormula: "",
-          canStack: false,
-          collisionTypes: ["move"],
-          combatOnly: false,
-          disableOnHidden: true,
-          distanceFormula: `30`,
-          disposition: 1,
-          evaluatePreApply: true,
-          overrideName: "",
-          script: "",
-        },
       },
-    ];
-  }
-
-  get itemMacro(): IDDBItemMacro {
-    return {
-      type: "spell",
-      name: "auraOfLife.js",
     };
   }
 

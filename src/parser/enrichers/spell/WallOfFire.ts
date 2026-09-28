@@ -2,15 +2,23 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class WallOfFire extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Place Wall",
       splitDamage: true,
       data: {
+        // the 10 ft zone beside the chosen side is larger than the wall region; the GM
+        // handles that band manually, the region covers entering or ending a turn in the wall
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter", "tokenTurnEnd"],
+            activityName: "Damage",
+          }),
+        ],
         img: "icons/magic/fire/flame-burning-fence.webp",
         target: {
           override: true,
@@ -26,7 +34,7 @@ export default class WallOfFire extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -45,12 +53,24 @@ export default class WallOfFire extends DDBEnricherData {
             template: {
               count: "1",
               contiguous: false,
-              type: "cylinder",
+              // "a ringed wall up to 20 feet in diameter, 20 feet high, and 1 foot thick"
+              type: "ring",
               size: "10",
+              width: "1",
               height: "20",
               units: "ft",
             },
             affects: {},
+          },
+        },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.activity({
+                events: ["tokenEnter", "tokenTurnEnd"],
+                activityName: "Damage",
+              }),
+            ],
           },
         },
       },
@@ -60,6 +80,7 @@ export default class WallOfFire extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.DAMAGE,
         },
         build: {
+          generateDuration: true,
           img: "icons/magic/fire/flame-burning-skeleton-explosion.webp",
           generateDamage: true,
           generateConsumption: false,
@@ -80,7 +101,7 @@ export default class WallOfFire extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       noTemplate: true,
     };

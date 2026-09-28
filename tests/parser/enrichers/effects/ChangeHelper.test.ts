@@ -1,4 +1,10 @@
 import ChangeHelper from "../../../../src/parser/enrichers/effects/ChangeHelper";
+import { installActivityConfigStubs } from "../../../_fixtures/ddb/stubs";
+
+// the roll mode helpers read CONFIG.Dice.D20Roll.ADV_MODE
+beforeAll(() => {
+  installActivityConfigStubs();
+});
 
 describe("ChangeHelper.change", () => {
   it("returns a change object with the given params", () => {
@@ -150,6 +156,30 @@ describe("ChangeHelper.downgradeChange", () => {
   });
 });
 
+describe("ChangeHelper.ac5eChange", () => {
+  it("returns type ac5e and defaults phase to initial", () => {
+    const result = ChangeHelper.ac5eChange("once; 1", 20, "flags.automated-conditions-5e.attack.disadvantage");
+    expect(result).toEqual({
+      key: "flags.automated-conditions-5e.attack.disadvantage",
+      value: "once; 1",
+      type: "ac5e",
+      priority: 20,
+      phase: "initial",
+    });
+  });
+
+  it("honours an explicit final phase", () => {
+    const result = ChangeHelper.ac5eChange("1", 50, "flags.automated-conditions-5e.attack.advantage", "final");
+    expect(result.phase).toBe("final");
+    expect(result.priority).toBe(50);
+  });
+
+  it("stringifies and trims the value", () => {
+    expect(ChangeHelper.ac5eChange(18, 20, "flags.automated-conditions-5e.attack.criticalThreshold").value).toBe("18");
+    expect(ChangeHelper.ac5eChange("  bonus=2  ", 20, "flags.automated-conditions-5e.damage.bonus").value).toBe("bonus=2");
+  });
+});
+
 describe("ChangeHelper.tokenMagicFXChange", () => {
   it("returns a tokenMagic custom change", () => {
     const result = ChangeHelper.tokenMagicFXChange("glow");
@@ -174,44 +204,32 @@ describe("ChangeHelper.damageResistanceChange", () => {
   });
 });
 
-describe("ChangeHelper.atlChange", () => {
-  it("maps legacy ATL.dimLight to ATL.light.dim", () => {
-    const result = ChangeHelper.atlChange("ATL.dimLight", "override", "30");
-    expect(result.key).toBe("ATL.light.dim");
+describe("ChangeHelper.tokenChange", () => {
+  it("translates legacy ATL.dimLight to the native token light key", () => {
+    const result = ChangeHelper.tokenChange("ATL.dimLight", "override", "30");
+    expect(result.key).toBe("token.light.dim");
   });
 
-  it("maps legacy ATL.brightLight to ATL.light.bright", () => {
-    const result = ChangeHelper.atlChange("ATL.brightLight", "override", "15");
-    expect(result.key).toBe("ATL.light.bright");
+  it("translates the other legacy ATL light aliases", () => {
+    expect(ChangeHelper.tokenChange("ATL.brightLight", "override", "15").key).toBe("token.light.bright");
+    expect(ChangeHelper.tokenChange("ATL.lightAnimation", "override", "{}").key).toBe("token.light.animation");
+    expect(ChangeHelper.tokenChange("ATL.lightColor", "override", "#ff0000").key).toBe("token.light.color");
+    expect(ChangeHelper.tokenChange("ATL.lightAlpha", "override", "0.5").key).toBe("token.light.alpha");
+    expect(ChangeHelper.tokenChange("ATL.lightAngle", "override", "360").key).toBe("token.light.angle");
   });
 
-  it("maps legacy ATL.lightAnimation to ATL.light.animation", () => {
-    const result = ChangeHelper.atlChange("ATL.lightAnimation", "override", "{}");
-    expect(result.key).toBe("ATL.light.animation");
+  it("translates a modern ATL key prefix to token", () => {
+    const result = ChangeHelper.tokenChange("ATL.sight.range", "upgrade", "60");
+    expect(result.key).toBe("token.sight.range");
   });
 
-  it("maps legacy ATL.lightColor to ATL.light.color", () => {
-    const result = ChangeHelper.atlChange("ATL.lightColor", "override", "#ff0000");
-    expect(result.key).toBe("ATL.light.color");
-  });
-
-  it("maps legacy ATL.lightAlpha to ATL.light.alpha", () => {
-    const result = ChangeHelper.atlChange("ATL.lightAlpha", "override", "0.5");
-    expect(result.key).toBe("ATL.light.alpha");
-  });
-
-  it("maps legacy ATL.lightAngle to ATL.light.angle", () => {
-    const result = ChangeHelper.atlChange("ATL.lightAngle", "override", "360");
-    expect(result.key).toBe("ATL.light.angle");
-  });
-
-  it("passes through non-legacy keys unchanged", () => {
-    const result = ChangeHelper.atlChange("ATL.light.dim", "upgrade", "60");
-    expect(result.key).toBe("ATL.light.dim");
+  it("passes native token keys through unchanged", () => {
+    const result = ChangeHelper.tokenChange("token.light.dim", "upgrade", "60");
+    expect(result.key).toBe("token.light.dim");
   });
 
   it("includes type, value, and priority", () => {
-    const result = ChangeHelper.atlChange("ATL.dimLight", "override", "30", 25);
+    const result = ChangeHelper.tokenChange("ATL.dimLight", "override", "30", 25);
     expect(result.type).toBe("override");
     expect(result.value).toBe("30");
     expect(result.priority).toBe(25);
@@ -251,5 +269,268 @@ describe("ChangeHelper overtime saveDC", () => {
     });
     expect(result.value).toContain("saveDC=@attributes.spell.dc,");
     expect(result.value).not.toContain("[object Object]");
+  });
+});
+
+describe("ChangeHelper trait change helpers", () => {
+  it("damageVulnerabilityChange lowercases and targets dv", () => {
+    const result = ChangeHelper.damageVulnerabilityChange("Cold");
+    expect(result).toEqual({ key: "system.traits.dv.value", value: "cold", type: "add", priority: 20 });
+  });
+
+  it("damageImmunityChange lowercases and targets di", () => {
+    const result = ChangeHelper.damageImmunityChange("Poison");
+    expect(result).toEqual({ key: "system.traits.di.value", value: "poison", type: "add", priority: 20 });
+  });
+
+  it("conditionImmunityChange lowercases and targets ci", () => {
+    const result = ChangeHelper.conditionImmunityChange("Paralyzed");
+    expect(result).toEqual({ key: "system.traits.ci.value", value: "paralyzed", type: "add", priority: 20 });
+  });
+
+  it("honours a non-default priority", () => {
+    expect(ChangeHelper.damageImmunityChange("healing", 30).priority).toBe(30);
+  });
+});
+
+describe("ChangeHelper roll mode helpers", () => {
+  it("exposes the dnd5e advantage modes", () => {
+    expect(ChangeHelper.ADVANTAGE).toBe(1);
+    expect(ChangeHelper.DISADVANTAGE).toBe(-1);
+    expect(ChangeHelper.NORMAL).toBe(0);
+  });
+
+  it("builds an ability check advantage change", () => {
+    expect(ChangeHelper.advantageAbilityCheckChange("str")).toEqual({
+      key: "system.abilities.str.check.roll.mode",
+      value: "1",
+      type: "add",
+      priority: 20,
+    });
+  });
+
+  it("builds an ability save disadvantage change", () => {
+    expect(ChangeHelper.disadvantageAbilitySaveChange("wis")).toEqual({
+      key: "system.abilities.wis.save.roll.mode",
+      value: "-1",
+      type: "add",
+      priority: 20,
+    });
+  });
+
+  it("builds skill, initiative and death save changes", () => {
+    expect(ChangeHelper.advantageSkillChange("prc").key).toBe("system.skills.prc.roll.mode");
+    expect(ChangeHelper.disadvantageSkillChange("ste").value).toBe("-1");
+    expect(ChangeHelper.disadvantageInitiativeChange().key).toBe("system.attributes.init.roll.mode");
+    expect(ChangeHelper.advantageDeathSaveChange().key).toBe("system.attributes.death.roll.mode");
+    expect(ChangeHelper.advantageDeathSaveChange().value).toBe("1");
+  });
+
+  it("builds per-ability attack roll mode changes", () => {
+    expect(ChangeHelper.advantageAbilityAttackChange("str")).toEqual({
+      key: "system.abilities.str.attack.roll.mode",
+      value: "1",
+      type: "add",
+      priority: 20,
+    });
+    expect(ChangeHelper.disadvantageAbilityAttackChange("str").value).toBe("-1");
+    expect(ChangeHelper.abilityAttackRollModeChange("dex", ChangeHelper.NORMAL, 5)).toMatchObject({
+      key: "system.abilities.dex.attack.roll.mode",
+      value: "0",
+      priority: 5,
+    });
+  });
+
+  it("builds actor-level attack roll mode changes", () => {
+    expect(ChangeHelper.disadvantageAttackChange()).toEqual({
+      key: "system.rolls.attack.mode",
+      value: "-1",
+      type: "add",
+      priority: 20,
+    });
+    expect(ChangeHelper.advantageAttackChange("rwak")).toEqual({
+      key: "system.rolls.attack.rwak.mode",
+      value: "1",
+      type: "add",
+      priority: 20,
+    });
+    expect(ChangeHelper.attackRollModeChange(ChangeHelper.NORMAL, "msak", 5)).toMatchObject({
+      key: "system.rolls.attack.msak.mode",
+      value: "0",
+      priority: 5,
+    });
+  });
+
+  it("builds actor-level check and save roll mode changes", () => {
+    expect(ChangeHelper.allChecksRollModeChange(ChangeHelper.DISADVANTAGE)).toEqual({
+      key: "system.rolls.ability.check.mode",
+      value: "-1",
+      type: "add",
+      priority: 20,
+    });
+    expect(ChangeHelper.allSavesRollModeChange(ChangeHelper.ADVANTAGE, 8)).toEqual({
+      key: "system.rolls.ability.save.mode",
+      value: "1",
+      type: "add",
+      priority: 8,
+    });
+  });
+
+  it("honours a non-default priority", () => {
+    expect(ChangeHelper.disadvantageAbilityCheckChange("int", 8).priority).toBe(8);
+  });
+
+  it("accepts a mode decided at runtime", () => {
+    const mode = ChangeHelper.DISADVANTAGE;
+    expect(ChangeHelper.abilityCheckRollModeChange("cha", mode)).toEqual({
+      key: "system.abilities.cha.check.roll.mode",
+      value: "-1",
+      type: "add",
+      priority: 20,
+    });
+    expect(ChangeHelper.rollModeChange("system.attributes.concentration.roll.mode", mode, 5)).toEqual({
+      key: "system.attributes.concentration.roll.mode",
+      value: "-1",
+      type: "add",
+      priority: 5,
+    });
+  });
+});
+
+describe("ChangeHelper rule changes", () => {
+  it("builds a bonus rule change whose key is the category, not a data path", () => {
+    expect(ChangeHelper.ruleBonusChange("damage", "1d6")).toEqual({
+      key: "damage",
+      value: "1d6",
+      type: "dnd5e.bonus",
+      priority: 20,
+    });
+  });
+
+  it("strips a leading + from rule values", () => {
+    expect(ChangeHelper.ruleBonusChange("attack", "+ 2").value).toBe("2");
+  });
+
+  it("omits conditions unless asked for them", () => {
+    expect(ChangeHelper.ruleAdvantageChange("save").conditions).toBeUndefined();
+  });
+
+  it("serialises conditions as a JSON string", () => {
+    const change = ChangeHelper.ruleAdvantageChange("check", {
+      conditions: { k: "roll.skill", o: "in", v: ["itm", "prf", "per"] },
+    });
+    expect(change).toEqual({
+      key: "check",
+      value: "1",
+      type: "dnd5e.advantage",
+      priority: 20,
+      conditions: "{\"k\":\"roll.skill\",\"o\":\"in\",\"v\":[\"itm\",\"prf\",\"per\"]}",
+    });
+    expect(JSON.parse(change.conditions!)).toEqual({ k: "roll.skill", o: "in", v: ["itm", "prf", "per"] });
+  });
+
+  it("serialises an array of filters, which the system reads as an AND", () => {
+    const change = ChangeHelper.ruleDisadvantageChange("attack", {
+      priority: 30,
+      conditions: [{ k: "roll.attack.type", v: "ranged" }, ChangeHelper.notStatusFilter("prone")],
+    });
+    expect(change.value).toBe("-1");
+    expect(change.priority).toBe(30);
+    expect(JSON.parse(change.conditions!)).toEqual([
+      { k: "roll.attack.type", v: "ranged" },
+      { o: "NOT", v: { k: "statuses.prone", o: "gte", v: 1 } },
+    ]);
+  });
+
+  it("matches an absent status with NOT rather than a null comparison", () => {
+    expect(ChangeHelper.notStatusFilter("incapacitated")).toEqual({
+      o: "NOT",
+      v: { k: "statuses.incapacitated", o: "gte", v: 1 },
+    });
+  });
+
+  it("tests for a spell with a spell-only field, cantrips included", () => {
+    expect(ChangeHelper.SPELL_FILTER).toEqual({ k: "item.level", o: "gte", v: 0 });
+    expect(ChangeHelper.LEVELLED_SPELL_FILTER).toEqual({ k: "item.level", o: "gte", v: 1 });
+  });
+});
+
+describe("ChangeHelper.healingBonusChange", () => {
+  it("emits an unconditional healing rule by default", () => {
+    expect(ChangeHelper.healingBonusChange("1d4")).toEqual({
+      key: "healing",
+      value: "1d4",
+      type: "dnd5e.bonus",
+      priority: 20,
+    });
+  });
+
+  it("accepts a condition as its third argument", () => {
+    const change = ChangeHelper.healingBonusChange("1d4", 20, ChangeHelper.LEVELLED_SPELL_FILTER);
+    expect(JSON.parse(change.conditions!)).toEqual({ k: "item.level", o: "gte", v: 1 });
+  });
+});
+
+describe("ChangeHelper cantrip and class-spell filters", () => {
+  it("matches a cantrip by an exact level of 0, which only spells carry", () => {
+    expect(ChangeHelper.CANTRIP_FILTER).toEqual({ k: "item.level", o: "exact", v: 0 });
+  });
+
+  it("matches the granting class through dnd5e's derived classIdentifier", () => {
+    expect(ChangeHelper.classSpellFilter("druid")).toEqual({ k: "item.classIdentifier", o: "exact", v: "druid" });
+  });
+});
+
+
+describe("ChangeHelper status filters", () => {
+  it("reads the roller's own status; the count form covers concentrating and exhaustion", () => {
+    expect(ChangeHelper.statusFilter("bloodied")).toEqual({ k: "statuses.bloodied", o: "gte", v: 1 });
+  });
+
+  it("exposes the attack-shape filters the midi mwak/rwak scopes map onto", () => {
+    expect(ChangeHelper.WEAPON_ATTACK_FILTER).toEqual({ k: "roll.attack.classification", o: "exact", v: "weapon" });
+    expect(ChangeHelper.SPELL_ATTACK_FILTER).toEqual({ k: "roll.attack.classification", o: "exact", v: "spell" });
+    expect(ChangeHelper.MELEE_ATTACK_FILTER).toEqual({ k: "roll.attack.type", o: "exact", v: "melee" });
+    expect(ChangeHelper.RANGED_ATTACK_FILTER).toEqual({ k: "roll.attack.type", o: "exact", v: "ranged" });
+    expect(ChangeHelper.MELEE_WEAPON_ATTACK_FILTER).toEqual([
+      { k: "roll.attack.classification", o: "exact", v: "weapon" },
+      { k: "roll.attack.type", o: "exact", v: "melee" },
+    ]);
+    expect(ChangeHelper.RANGED_WEAPON_ATTACK_FILTER).toEqual([
+      { k: "roll.attack.classification", o: "exact", v: "weapon" },
+      { k: "roll.attack.type", o: "exact", v: "ranged" },
+    ]);
+  });
+
+  it("scopes a monk weapon rule to unarmed, flagged, simple melee or light martial melee weapons", () => {
+    const filter = ChangeHelper.MONK_WEAPON_FILTER;
+    expect(filter.o).toBe("OR");
+    expect(filter.v).toEqual([
+      { k: "roll.attack.classification", o: "in", v: ["unarmed", "natural"] },
+      { k: "item.flags.ddbimporter.dndbeyond.isMonkWeapon", o: "exact", v: true },
+      { k: "item.type.value", o: "exact", v: "simpleM" },
+      { o: "AND", v: [
+        { k: "item.type.value", o: "exact", v: "martialM" },
+        { k: "item.properties", o: "has", v: "lgt" },
+      ] },
+    ]);
+  });
+
+  it("writes clamped adds and subtracts in the dnd5e 6 delta/limit form", () => {
+    expect(ChangeHelper.clampedAddChange("+2", 20, 5, "system.abilities.str.value")).toEqual({
+      key: "system.abilities.str.value", type: "add", value: "2<=20", priority: 5,
+    });
+    expect(ChangeHelper.clampedSubtractChange("-10", 0, 20, "system.attributes.movement.walk")).toEqual({
+      key: "system.attributes.movement.walk", type: "subtract", value: "10>=0", priority: 20,
+    });
+  });
+
+  it("hides and reveals items through the items.hidden key", () => {
+    expect(ChangeHelper.hiddenItemChange("wild-shape")).toEqual({
+      key: "items.hidden", type: "add", value: "wild-shape", priority: 20,
+    });
+    expect(ChangeHelper.revealedItemChange("wild-shape")).toEqual({
+      key: "items.hidden", type: "subtract", value: "wild-shape", priority: 30,
+    });
   });
 });

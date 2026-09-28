@@ -2,13 +2,13 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Slasher extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       type: DDBEnricherData.ACTIVITY_TYPES.NONE,
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -41,7 +41,7 @@ export default class Slasher extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Slashed: Hamstrung",
@@ -49,20 +49,19 @@ export default class Slasher extends DDBEnricherData {
           description: "Speed penalty until the start of the origins next turn",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.signedAddChange("-10", 20, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.movementBonusChange("-10", 20),
         ],
         activitiesMatch: ["Hamstring"],
       },
       {
         name: "Slashed: Enhanced Critical",
         options: {
-          durationSeconds: 6,
+          expiry: "sourceStart",
           description: "Disadvantage on attack rolls until the start of the origins next turn",
         },
         activitiesMatch: ["Enhanced Critical"],
-        daeSpecialDurations: ["turnStartSource"],
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.disadvantage.attack.all"),
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleDisadvantageChange("attack"),
         ],
       },
       {
@@ -71,7 +70,7 @@ export default class Slasher extends DDBEnricherData {
         options: {
           transfer: true,
           durationSeconds: undefined,
-          durationRounds: undefined,
+          expiry: null,
         },
         damageBonusMacroChanges: [
           { macroType: "feat", macroName: "slasher.js", document: this.data },
@@ -79,16 +78,14 @@ export default class Slasher extends DDBEnricherData {
         data: {
           duration: {
             value: null,
-            expiry: null,
             expired: undefined,
           },
         },
-        daeSpecialDurations: [],
       },
     ];
   }
 
-  get itemMacro(): IDDBItemMacro {
+  override get itemMacro(): IDDBItemMacro {
     return {
       type: "feat",
       name: "slasher.js",

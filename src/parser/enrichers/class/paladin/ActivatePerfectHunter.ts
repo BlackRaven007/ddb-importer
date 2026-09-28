@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ActivatePerfectHunter extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       data: {
@@ -13,7 +13,7 @@ export default class ActivatePerfectHunter extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -52,7 +52,7 @@ export default class ActivatePerfectHunter extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       name: "Perfect Hunter",
       statuses: ["invisible"],
@@ -61,16 +61,16 @@ export default class ActivatePerfectHunter extends DDBEnricherData {
         description: "Devour: weapon attacks deal an extra 1d8 Necrotic damage that ignores Necrotic Resistance and Immunity. Sunder: Immunity to the Grappled, Paralyzed, and Restrained conditions. Vanish: you have the Invisible condition.",
       },
       changes: [
-        DDBEnricherData.ChangeHelper.unsignedAddChange("1d8[necrotic]", 20, "system.bonuses.mwak.damage"),
-        DDBEnricherData.ChangeHelper.unsignedAddChange("1d8[necrotic]", 20, "system.bonuses.rwak.damage"),
-        DDBEnricherData.ChangeHelper.unsignedAddChange("grappled", 20, "system.traits.ci.value"),
-        DDBEnricherData.ChangeHelper.unsignedAddChange("paralyzed", 20, "system.traits.ci.value"),
-        DDBEnricherData.ChangeHelper.unsignedAddChange("restrained", 20, "system.traits.ci.value"),
+        DDBEnricherData.ChangeHelper.unsignedAddChange("1d8[necrotic]", 20, "system.rolls.damage.mwak.bonus"),
+        DDBEnricherData.ChangeHelper.unsignedAddChange("1d8[necrotic]", 20, "system.rolls.damage.rwak.bonus"),
+        DDBEnricherData.ChangeHelper.conditionImmunityChange("grappled"),
+        DDBEnricherData.ChangeHelper.conditionImmunityChange("paralyzed"),
+        DDBEnricherData.ChangeHelper.conditionImmunityChange("restrained"),
       ],
     }];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 

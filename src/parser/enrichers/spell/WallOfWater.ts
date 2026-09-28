@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class WallOfWater extends DDBEnricherData {
 
-  get type() {
-    return DDBEnricherData.ACTIVITY_TYPES.SAVE;
+  override get type(): IDDBActivityType | null {
+    return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Place Wall",
       data: {
@@ -20,11 +20,14 @@ export default class WallOfWater extends DDBEnricherData {
             units: "ft",
           },
         },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.difficultTerrain({ types: ["liquid"] }),
+        ],
       },
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -40,18 +43,28 @@ export default class WallOfWater extends DDBEnricherData {
             template: {
               count: "1",
               contiguous: false,
-              type: "sphere",
+              // the ringed wall: 20 ft diameter, 20 ft high, 1 ft thick
+              type: "ring",
               size: "10",
+              width: "1",
+              height: "20",
               units: "ft",
             },
             affects: {},
+          },
+        },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.difficultTerrain({ types: ["liquid"] }),
+            ],
           },
         },
       },
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       noTemplate: true,
     };

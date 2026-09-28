@@ -2,19 +2,30 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class MistyStep extends DDBEnricherData {
 
-  get type() {
-    return DDBEnricherData.ACTIVITY_TYPES.DDBMACRO;
+  override get type(): IDDBActivityType | null {
+    return DDBEnricherData.ACTIVITY_TYPES.TELEPORT;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
+      activationType: "bonus",
+      overrideActivation: true,
       data: {
         name: "Misty Step",
-        macro: {
-          name: "Misty Step Macro",
-          function: "ddb.spell.mistyStep",
-          visible: false,
-          parameters: "",
+        range: {
+          override: true,
+          value: "30",
+          units: "ft",
+          special: "",
+        },
+        target: {
+          override: true,
+          prompt: false,
+          affects: {
+            count: "1",
+            type: "self",
+          },
+          template: {},
         },
       },
     };

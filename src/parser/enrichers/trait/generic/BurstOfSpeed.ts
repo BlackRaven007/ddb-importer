@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BurstOfSpeed extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "special",
@@ -14,16 +14,16 @@ export default class BurstOfSpeed extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Burst of Speed",
         options: {
-          durationTurns: 1,
+          expiry: "turnEnd",
           description: "Your Speed increases by 30 feet until the end of the turn.",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("30", 30, "system.attributes.movement.walk"),
+          DDBEnricherData.ChangeHelper.movementBonusChange("30", 30),
         ],
       },
     ];

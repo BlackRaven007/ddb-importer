@@ -1,11 +1,21 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
+import _StormAura from "./_StormAura";
 
-export default class StormAuraSea extends DDBEnricherData {
-  get type() {
+export default class StormAuraSea extends _StormAura {
+
+  override get element(): string {
+    return "lightning";
+  }
+
+  override get tundra(): string {
+    return "Sea";
+  }
+
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       activationType: "bonus",
       rangeSelf: true,
@@ -14,7 +24,7 @@ export default class StormAuraSea extends DDBEnricherData {
           parts: [
             DDBEnricherData.basicDamagePart({
               customFormula: "@scale.storm-herald.storm-aura-sea",
-              types: ["lightning"],
+              types: [this.element],
             }),
           ],
         },

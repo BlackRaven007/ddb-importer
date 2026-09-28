@@ -65,7 +65,9 @@ function makeEnricher(fields: Record<string, any> = {}): any {
   return enricher;
 }
 
+// =============================================================================
 // _getNameHint
+// =============================================================================
 describe("DDBEnricherFactoryMixin._getNameHint", () => {
   it("uses an exact NAME_HINTS entry", () => {
     const e = makeEnricher({ name: "Rage" });
@@ -148,7 +150,9 @@ describe("DDBEnricherFactoryMixin._getNameHint", () => {
   });
 });
 
+// =============================================================================
 // Delegating getters
+// =============================================================================
 describe("DDBEnricherFactoryMixin delegating getters", () => {
   const stubValues: Record<string, any> = {
     type: "attack",
@@ -265,7 +269,9 @@ describe("DDBEnricherFactoryMixin.ddbMacroDescription", () => {
   });
 });
 
+// =============================================================================
 // getFeatureActionsName
+// =============================================================================
 describe("DDBEnricherFactoryMixin.getFeatureActionsName", () => {
   const FEATURE_ID = 111;
   const FEATURE_ENTITY_TYPE_ID = 222;
@@ -428,7 +434,9 @@ describe("DDBEnricherFactoryMixin.getFeatureActionsName", () => {
   });
 });
 
+// =============================================================================
 // _addDefaultActionMatchedActivities
+// =============================================================================
 describe("DDBEnricherFactoryMixin._addDefaultActionMatchedActivities", () => {
   function makeFeature(name: string, activityId: string): any {
     return {
@@ -503,5 +511,24 @@ describe("DDBEnricherFactoryMixin._addDefaultActionMatchedActivities", () => {
     const added = Object.keys(e.data.system.activities).filter((k) => !k.match(/Ne\d$/));
     expect(added).toEqual(["abcdefghijklNe10"]);
     expect(added[0]).toHaveLength(16);
+  });
+
+  it("carries the replaceActivityUses flag over from the absorbed action document", () => {
+    // the consumption link pass only resolves named itemUses targets on flagged documents
+    const e = makeActivityEnricher();
+    const action = makeFeature("Nature's Sanctuary", "abcdefghijklm001");
+    action.flags.ddbimporter.replaceActivityUses = true;
+    e.defaultActionFeatures = { "Nature's Sanctuary": [action] };
+    e._addDefaultActionMatchedActivities();
+    expect(e.data.flags.ddbimporter.replaceActivityUses).toBe(true);
+  });
+
+  it("leaves replaceActivityUses unset when the absorbed action does not carry it", () => {
+    const e = makeActivityEnricher();
+    e.defaultActionFeatures = {
+      "Predatory Strike": [makeFeature("Predatory Strike (STR)", "abcdefghijklm001")],
+    };
+    e._addDefaultActionMatchedActivities();
+    expect(e.data.flags.ddbimporter.replaceActivityUses).toBeUndefined();
   });
 });

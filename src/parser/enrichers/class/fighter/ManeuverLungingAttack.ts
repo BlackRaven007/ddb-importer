@@ -3,11 +3,11 @@ import Maneuver from "./Maneuver";
 
 export default class ManeuverLungingAttack extends Maneuver {
 
-  get type() {
+  override get type(): IDDBActivityType {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Lunge",
       activationType: "special",
@@ -15,17 +15,17 @@ export default class ManeuverLungingAttack extends Maneuver {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       this.extraDamageActivity(),
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Lunging Attack Bonus Damage",
-        daeSpecialDurations: ["1Attack" as const],
+        daeSpecialDurations: ["1Attack"],
         data: {
           duration: {
             value: 6,
@@ -34,7 +34,7 @@ export default class ManeuverLungingAttack extends Maneuver {
           },
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.bonuses.mwak.damage"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange(this.diceString, 20, "system.rolls.damage.mwak.bonus"),
         ],
       },
     ];

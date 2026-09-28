@@ -2,21 +2,21 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ArcaneJolt extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get addToDefaultAdditionalActivities() {
+  override get addToDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.isAction
       ? DDBEnricherData.ACTIVITY_TYPES.DAMAGE
       : DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (!this.isAction) return null;
     return {
       name: "Destructive Energy",
@@ -37,7 +37,7 @@ export default class ArcaneJolt extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     if (this.isAction) return [];
     return [
       {

@@ -1,7 +1,7 @@
 import { utils } from "../../../lib/_module";
 import { SUMMONS_ACTOR_STUB } from "./_data";
 
-export function getMageHands(): ICompanionResult {
+export async function getMageHands(): Promise<ICompanionResult> {
 
   return {
     MageHandRed: {
@@ -19,7 +19,7 @@ export function getMageHands(): ICompanionResult {
         "system": {
           "attributes": {
             "movement": {
-              "fly": "30",
+              "speeds": { "fly": "30" },
             },
           },
         },
@@ -40,7 +40,7 @@ export function getMageHands(): ICompanionResult {
         "system": {
           "attributes": {
             "movement": {
-              "fly": "30",
+              "speeds": { "fly": "30" },
             },
           },
         },
@@ -61,7 +61,7 @@ export function getMageHands(): ICompanionResult {
         "system": {
           "attributes": {
             "movement": {
-              "fly": "30",
+              "speeds": { "fly": "30" },
             },
           },
         },
@@ -82,7 +82,7 @@ export function getMageHands(): ICompanionResult {
         "system": {
           "attributes": {
             "movement": {
-              "fly": "30",
+              "speeds": { "fly": "30" },
             },
           },
         },
@@ -104,7 +104,7 @@ export function getMageHands(): ICompanionResult {
         "system": {
           "attributes": {
             "movement": {
-              "fly": "30",
+              "speeds": { "fly": "30" },
             },
           },
         },
@@ -128,7 +128,7 @@ export function getMageHands(): ICompanionResult {
         "system": {
           "attributes": {
             "movement": {
-              "fly": "30",
+              "speeds": { "fly": "30" },
             },
           },
         },

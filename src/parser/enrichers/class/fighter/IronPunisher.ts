@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class IronPunisher extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Stance: Iron Punisher",
@@ -12,8 +12,13 @@ export default class IronPunisher extends DDBEnricherData {
           disabled: true,
           description: "While in this stance, your melee weapon attacks have advantage, but all attacks against you also have advantage.",
         },
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack", {
+            conditions: DDBEnricherData.ChangeHelper.MELEE_WEAPON_ATTACK_FILTER,
+          }),
+        ],
+        // the incoming-attack half modifies other creatures' rolls, which only midi can do
         midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.mwak"),
           DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.grants.advantage.attack.all"),
         ],
       },

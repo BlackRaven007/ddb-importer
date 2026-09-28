@@ -2,13 +2,14 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ChannelDivinityTwilightSanctuary extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.isAction
       ? DDBEnricherData.ACTIVITY_TYPES.NONE
       : DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
+    // const template = DDBEnricherData.AutoEffects.effectModules().atlInstalled
     //   ? {
     //     count: "",
     //     type: "",
@@ -26,25 +27,31 @@ export default class ChannelDivinityTwilightSanctuary extends DDBEnricherData {
       name: "Activate",
       id: "activateEyesOfNi",
       addItemConsume: true,
-      targetType: "self",
+      targetType: "ally",
       rangeSelf: true,
       data: {
         target: {
           template: {
             count: "",
-            type: "",
-            size: "",
+            type: "radius",
+            size: "30",
             width: "",
             height: "",
             units: "ft",
           },
         },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenTurnEnd"],
+            activityName: "Temp HP",
+          }),
+        ],
       },
     };
   }
 
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -69,6 +76,15 @@ export default class ChannelDivinityTwilightSanctuary extends DDBEnricherData {
             bonus: "@classes.cleric.levels",
             type: "tempHP",
           }),
+          // the region takes its dispositions from this activity; "you or any creature of your choice"
+          targetOverride: {
+            override: true,
+            affects: {
+              count: "1",
+              type: "ally",
+            },
+            template: {},
+          },
         },
         overrides: {
           noConsumeTargets: true,
@@ -77,7 +93,7 @@ export default class ChannelDivinityTwilightSanctuary extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const changes = [
       DDBEnricherData.ChangeHelper.upgradeChange("30", 20, "token.light.dim"),
       DDBEnricherData.ChangeHelper.overrideChange("#ffffff", 20, "token.light.color"),
@@ -99,7 +115,7 @@ export default class ChannelDivinityTwilightSanctuary extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       ignoredConsumptionActivities: ["Temp HP"],
     };

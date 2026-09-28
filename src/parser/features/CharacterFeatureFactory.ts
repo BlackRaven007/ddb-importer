@@ -1,5 +1,5 @@
 import { DICTIONARY } from "../../config/_module";
-import { logger, utils, DDBCompendiumFolders, DDBItemImporter, DDBSources } from "../../lib/_module";
+import { DDBEffectImporter, logger, utils, DDBCompendiumFolders, DDBItemImporter, DDBSources } from "../../lib/_module";
 import DDBAction from "./DDBAction";
 import DDBAttackAction from "./DDBAttackAction";
 import DDBFeatureMixin from "./DDBFeatureMixin";
@@ -65,12 +65,6 @@ export default class CharacterFeatureFactory {
   };
   rawCharacter: I5ePCData;
   spellLinks: IDDBSpellLink[];
-  spellAdvancementsForce: {
-    class: string[];
-    background: string[];
-    race: string[];
-    feat: string[];
-  };
   spellsGranted: Record<string, ISpellsGranted[]>;
   pendingCompendiumDocuments: {
     features: T5eFeatureMixinDataTypes[];
@@ -108,13 +102,6 @@ export default class CharacterFeatureFactory {
 
     this.spellsGranted = {};
 
-    this.spellAdvancementsForce = {
-      class: [],
-      background: [],
-      race: [],
-      feat: [], // these are now always processed.
-    };
-
     this.excludedOriginFeatures = this.ddbData.character.optionalOrigins
       .map((f) => f.affectedRacialTraitId)
       .filter((id): id is number => Boolean(id));
@@ -129,15 +116,34 @@ export default class CharacterFeatureFactory {
     };
   }
 
+  // DDB names the leveled repeats of a feature with a level prefix ("9: Critical Shot").
+  // DDBFeatureMixin strips that prefix from the document name but leaves originalName
+  // intact, so a FORCE_DUPLICATE_* entry keyed on the feature's real name never matches
+  // the repeats it exists to suppress.
+  static LEVEL_PREFIX_MATCH = /^\d+: (.*)$/;
+
+  /** the name to test against the FORCE_DUPLICATE_* lists, level prefix removed */
+  static duplicateCheckName(doc: T5eFeatureMixinDataTypes): string {
+    const name = doc.flags?.ddbimporter?.originalName ?? doc.name;
+    return CharacterFeatureFactory.LEVEL_PREFIX_MATCH.exec(name)?.[1].trim() ?? name;
+  }
+
+  // DDB ships some features twice, once for the builder and once for the sheet, and the sheet
+  // copy carries crud the builder copy does not (a stripped note's leftover <hr>, &nbsp;,
+  // different wrapping). Comparing rendered text rather than markup keeps those pairs matched,
+  // otherwise the caller treats the second copy as a new level's text and appends it whole.
   static isDuplicateFeature(items: T5eFeatureMixinDataTypes[], item: T5eFeatureMixinDataTypes, { matchClass = false } = {}) {
     const forceFeatureClassMatch = matchClass || CharacterFeatureFactory.FORCE_FEATURE_CLASS_MATCH.includes(item.flags?.ddbimporter?.originalName ?? item.name);
+    const itemDescription = utils.renderLesserString(item.system.description?.value ?? "");
     return items.some((dup: any) => {
       const classMatched = !forceFeatureClassMatch || (forceFeatureClassMatch
         && foundry.utils.hasProperty(dup.flags.ddbimporter, "class")
         && foundry.utils.hasProperty(item.flags.ddbimporter ?? {}, "class")
         && dup.flags.ddbimporter.class === item.flags.ddbimporter?.class);
 
-      return dup.name === item.name && dup.system.description.value === item.system.description?.value && classMatched;
+      return dup.name === item.name
+        && utils.renderLesserString(dup.system.description?.value ?? "") === itemDescription
+        && classMatched;
     });
   }
 
@@ -319,6 +325,7 @@ export default class CharacterFeatureFactory {
   }
 
   actionParsed(action: TDDBActionTypes) {
+    // const attacksAsFeatures = game.settings.get("ddb-importer", "character-update-policy-use-actions-as-features");
     // originalName holds the raw DDB name, the document name may be a DDB custom name
     const rawName = utils.nameString(action.name);
     const customName = DDBDataUtils.getName(this.ddbData, action, this.rawCharacter);
@@ -388,11 +395,14 @@ export default class CharacterFeatureFactory {
         || DDBAction.KEEP_ACTIONS_STARTSWITH.some((a) => utils.nameString(action.name).startsWith(a))),
       )
       .filter((action) => {
+        // const displayAsAttack = DDBDataUtils.displayAsAttack(this.ddbData, action, this.rawCharacter);
         // lets grab other actions and add, make sure we don't get attack based ones that haven't parsed
         const isParsed = this.actionParsed(action);
+        // console.warn("isParsed", { action, ddbname: name, isParsed });
         return !isParsed;
       });
 
+    // console.warn("otherActions", {
     //   classActions,
     //   parsedActions: deepClone(this.parsed.actions),
     //   actionsToBuild,
@@ -655,13 +665,12 @@ export default class CharacterFeatureFactory {
     // only background features get advancements for now
     if (type === "background") {
       ddbFeature.generateBackgroundAbilityScoreAdvancement();
+      // console.warn("Generating background advancements", ddbFeature);
       await ddbFeature.generateAdvancements();
       await ddbFeature.buildBackgroundFeatAdvancements();
       await ddbFeature._generateBackgroundEquipment();
     } else if (type === "feat") {
       ddbFeature.generateFeatAbilityScoreAdvancement();
-    } else if(type === "race") {
-      await ddbFeature._generateSpellAdvancements();
     }
     const choiceFeatures = ddbFeature.isChoiceFeature
       ? await DDBChoiceFeature.buildChoiceFeatures(ddbFeature)
@@ -676,38 +685,6 @@ export default class CharacterFeatureFactory {
     return results;
   }
 
-  fixAcEffects(type: keyof CharacterFeatureFactory["parsed"] = "features") {
-    const armorResults = this.ddbCharacter.armor.results;
-    if (!armorResults) {
-      logger.warn("fixAcEffects: no armor calculation results available, skipping AC effect fixes");
-      return;
-    }
-    for (const feature of this.parsed[type]) {
-      logger.debug(`Checking ${feature.name} for AC effects`);
-      for (const effect of (feature.effects ?? [])) {
-        const changes = effect.system?.changes ?? [];
-        if (
-          !["Custom", "Unarmored"].includes(armorResults.maxType)
-          && (
-            (changes.filter((c) => c.key.startsWith("system.attributes.ac")).length >= 2
-            && changes.some((change) => change.key === "system.attributes.ac.formula")
-            && changes.some((change) => change.key === "system.attributes.ac.calc"))
-            || (changes.filter((c) => c.key.startsWith("system.attributes.ac")).length === 1
-              && changes.some((change) => change.key === "system.attributes.ac.calc"))
-          )
-        ) {
-          if ((feature.flags.ddbimporter?.type === "race" && armorResults.maxType === "Natural")
-            || (feature.flags.ddbimporter?.type === "class" && armorResults.maxType === "Unarmored Defense")
-          ) {
-            effect.disabled = false;
-          } else {
-            logger.debug(`Disabling AC effect on ${feature.name} as not applicable for armor type ${armorResults.maxType}`);
-            effect.disabled = true;
-          }
-        }
-      }
-    }
-  }
 
   async _buildRacialTraits(type: keyof CharacterFeatureFactory["parsed"] = "features") {
     logger.debug("Parsing racial traits");
@@ -733,7 +710,7 @@ export default class CharacterFeatureFactory {
         const existingFeature = CharacterFeatureFactory.getNameMatchedFeature(this.parsed[type], item);
         const duplicateFeature = CharacterFeatureFactory.isDuplicateFeature(this.parsed[type], item)
           // ||
-          || CharacterFeatureFactory.FORCE_DUPLICATE_FEATURE.includes(item.flags.ddbimporter?.originalName ?? item.name);
+          || CharacterFeatureFactory.FORCE_DUPLICATE_FEATURE.includes(CharacterFeatureFactory.duplicateCheckName(item));
         logger.debug(`Processing racial trait ${item.name}`, {
           trait,
           existingFeature,
@@ -857,37 +834,72 @@ export default class CharacterFeatureFactory {
 
   _setLevelScales(type: keyof CharacterFeatureFactory["parsed"] = "features") {
     for (const feature of this.parsed[type] as (T5eFeatureMixinDataTypes)[]) {
-      if (foundry.utils.hasProperty(feature, "flags.ddbimporter.skipScale")) continue;
+      CharacterFeatureFactory.applyLevelScale(feature, this.ddbCharacter.raw.classes);
+    }
+  }
 
-      if (DICTIONARY.parsing.levelScale.LEVEL_SCALE_EXCLUSIONS.includes(feature.name)) continue;
+  /**
+   * The class or subclass carrying a dice ScaleValue named like the feature, looked up on the
+   * feature's own class and subclass before the character's other classes, so a multiclass
+   * character with two same-named scales gets its own. Number, distance and other scale types
+   * count uses, points, dice pools or ranges (Channel Divinity, Moxie, Infernal Conduit) and are
+   * never damage.
+   */
+  static findLevelScaleClass(
+    feature: T5eFeatureMixinDataTypes,
+    classes: (I5eClassItem | I5eSubclassItem)[],
+  ): I5eClassItem | I5eSubclassItem | undefined {
+    const featureName = utils.referenceNameString(feature.name).toLowerCase();
+    const ownNames = [feature.flags?.ddbimporter?.subClass, feature.flags?.ddbimporter?.class].filter(Boolean);
+    const ordered = [
+      ...classes.filter((klass) => ownNames.includes(klass.name)),
+      ...classes.filter((klass) => !ownNames.includes(klass.name)),
+    ];
+    return ordered.find((klass) =>
+      Object.values(klass.system.advancement ?? {}).some((advancement) =>
+        advancement.type === "ScaleValue"
+        && advancement.configuration?.identifier === featureName
+        && (advancement as I5eAdvancementScaleValue).configuration?.type === "dice",
+      ));
+  }
 
-      const featureName = utils.referenceNameString(feature.name).toLowerCase();
-      const scaleKlass = this.ddbCharacter.raw.classes.find((klass) =>
-        Object.values(klass.system.advancement ?? {})
-          .some((advancement) => advancement.type === "ScaleValue"
-            && advancement.configuration?.identifier === featureName,
-          ));
+  /** A damage part the scale may fill: its custom formula is off or empty. */
+  static isUnsetDamagePart(part: I5eDamagePart | undefined): part is I5eDamagePart {
+    return !!part && (!part.custom?.enabled || !part.custom.formula);
+  }
 
-      if (!scaleKlass) continue;
+  /**
+   * Upgrades the damage of a feature named like one of its class's dice ScaleValues (Dread
+   * Ambusher's 2d6 becoming 2d8 at 11th level) to that scale. Only the first part of an
+   * activity that already deals damage, and only while no formula has been chosen for it:
+   * adding a part put damage on activities that deal none (Turn Undead), and overwriting one
+   * dropped the modifiers and multipliers enrichers write (Starry Form's + Wisdom).
+   */
+  static applyLevelScale(
+    feature: T5eFeatureMixinDataTypes,
+    classes: (I5eClassItem | I5eSubclassItem)[],
+  ): void {
+    if (foundry.utils.hasProperty(feature, "flags.ddbimporter.skipScale")) return;
+    if (DICTIONARY.parsing.levelScale.LEVEL_SCALE_EXCLUSIONS.includes(feature.name)) return;
 
-      const identifier = utils.referenceNameString(scaleKlass.system.identifier ?? "").toLowerCase();
-      const damage = SystemHelpers.buildDamagePart({
-        damageString: `@scale.${identifier}.${featureName}`,
-      });
-      if (foundry.utils.hasProperty(feature, "system.damage.base")) {
+    const scaleKlass = CharacterFeatureFactory.findLevelScaleClass(feature, classes);
+    if (!scaleKlass) return;
+
+    const featureName = utils.referenceNameString(feature.name).toLowerCase();
+    const identifier = utils.referenceNameString(scaleKlass.system.identifier ?? "").toLowerCase();
+    const damage = SystemHelpers.buildDamagePart({
+      damageString: `@scale.${identifier}.${featureName}`,
+    });
+    if (foundry.utils.hasProperty(feature, "system.damage.base")) {
+      const base = foundry.utils.getProperty(feature, "system.damage.base") as I5eDamagePart | undefined;
+      if (CharacterFeatureFactory.isUnsetDamagePart(base)) {
         foundry.utils.setProperty(feature, "system.damage.base.custom", damage.custom);
-      } else if (foundry.utils.hasProperty(feature, "system.activities")) {
-        for (const [key, activity] of Object.entries(feature.system.activities)) {
-          if ("damage" in activity && activity.damage) {
-            const parts = activity.damage.parts ?? [];
-            if (parts.length === 0) {
-              activity.damage.parts = [damage];
-            } else {
-              parts[0].custom = damage.custom;
-            }
-          }
-          feature.system.activities[key] = activity;
-        }
+      }
+    } else if (foundry.utils.hasProperty(feature, "system.activities")) {
+      for (const activity of Object.values(feature.system.activities)) {
+        if (!("damage" in activity) || !activity.damage) continue;
+        const part = activity.damage.parts?.[0];
+        if (CharacterFeatureFactory.isUnsetDamagePart(part)) part.custom = damage.custom;
       }
     }
   }
@@ -911,27 +923,53 @@ export default class CharacterFeatureFactory {
     // now we loop over class features and add to list, removing any that match racial traits, e.g. Darkvision
     logger.debug("Removing matching traits");
     this._ddbClassFeatures.data.forEach((doc) => {
-      const forceFeatureClassMatch = CharacterFeatureFactory.FORCE_FEATURE_CLASS_MATCH.includes(doc.flags.ddbimporter?.originalName ?? doc.name);
-      const existingFeature = CharacterFeatureFactory.getNameMatchedFeature(this.parsed.features, doc, { matchClass: forceFeatureClassMatch });
-      const duplicateFeature = CharacterFeatureFactory.isDuplicateFeature(this.parsed.features, doc)
-        || CharacterFeatureFactory.FORCE_DUPLICATE_FEATURE.includes(doc.flags.ddbimporter?.originalName ?? doc.name);
-      if (existingFeature && !duplicateFeature) {
-        if (CharacterFeatureFactory.FORCE_DUPLICATE_OVERWRITE.includes(doc.flags.ddbimporter?.originalName ?? doc.name)) {
-          if (existingFeature.system.description) {
-            existingFeature.system.description.value = `${doc.system.description?.value ?? ""}`;
-          }
-        } else {
-          const klassAdjustment = `<h3>${doc.flags.ddbimporter?.dndbeyond?.class}</h3>${doc.system.description?.value ?? ""}`;
-          if (existingFeature.system.description) existingFeature.system.description.value += klassAdjustment;
-        }
-      } else if (!existingFeature) {
-        this.parsed.features.push(doc);
-      }
+      CharacterFeatureFactory.mergeClassFeature(this.parsed.features, doc);
     });
+  }
+
+  /**
+   * A FORCE_DUPLICATE_OVERWRITE copy replaces the surviving feature's text and hands over its
+   * summon link: DDB's sheet-hidden Vestige Companion copy is the one carrying the stat block, so
+   * the actors it parsed would otherwise be dropped with it. Shared by every duplicate pass
+   * (DDBClassFeatures' class and subclass passes run before the factory's).
+   */
+  static overwriteDuplicateFeature(existingFeature: T5eFeatureMixinDataTypes, doc: T5eFeatureMixinDataTypes): void {
+    if (existingFeature.system.description) {
+      existingFeature.system.description.value = `${doc.system.description?.value ?? ""}`;
+    }
+    if ("activities" in existingFeature.system && "activities" in doc.system) {
+      DDBChoiceFeature.foldChoiceSummons(existingFeature.system.activities, doc.system.activities);
+    }
+  }
+
+  /**
+   * Adds a built class feature to the list, or folds it into a same-named feature already there:
+   * a second class contributing the feature appends its text under a class heading, a
+   * FORCE_DUPLICATE_OVERWRITE name replaces the text outright, and an exact duplicate is dropped.
+   * An overwriting copy also hands over its summon link: DDB's sheet-hidden Vestige Companion copy
+   * is the one carrying the stat block, so its parsed actors would otherwise be lost with it.
+   */
+  static mergeClassFeature(features: T5eFeatureMixinDataTypes[], doc: T5eFeatureMixinDataTypes): void {
+    const forceFeatureClassMatch = CharacterFeatureFactory.FORCE_FEATURE_CLASS_MATCH.includes(doc.flags.ddbimporter?.originalName ?? doc.name);
+    const existingFeature = CharacterFeatureFactory.getNameMatchedFeature(features, doc, { matchClass: forceFeatureClassMatch });
+    const duplicateCheckName = CharacterFeatureFactory.duplicateCheckName(doc);
+    const duplicateFeature = CharacterFeatureFactory.isDuplicateFeature(features, doc)
+      || CharacterFeatureFactory.FORCE_DUPLICATE_FEATURE.includes(duplicateCheckName);
+    if (existingFeature && !duplicateFeature) {
+      if (CharacterFeatureFactory.FORCE_DUPLICATE_OVERWRITE.includes(duplicateCheckName)) {
+        CharacterFeatureFactory.overwriteDuplicateFeature(existingFeature, doc);
+      } else {
+        const klassAdjustment = `<h3>${doc.flags.ddbimporter?.dndbeyond?.class}</h3>${doc.system.description?.value ?? ""}`;
+        if (existingFeature.system.description) existingFeature.system.description.value += klassAdjustment;
+      }
+    } else if (!existingFeature) {
+      features.push(doc);
+    }
   }
 
 
   async processFeatures() {
+    // const ddbFeatures = new DDBFeatures({
     //   ddbCharacter: this.ddbCharacter,
     //   ddbData: this.ddbData,
     //   rawCharacter: this.rawCharacter,
@@ -949,7 +987,6 @@ export default class CharacterFeatureFactory {
     for (const feature of this.parsed.features) {
       await DDBFeatureMixin.finalFixes(feature);
     }
-    this.fixAcEffects();
     this.processed.features = foundry.utils.deepClone(this.parsed.features);
 
     this.updateIds("features");
@@ -1243,6 +1280,7 @@ export default class CharacterFeatureFactory {
         const featureFlagType = foundry.utils.getProperty(feature, "flags.ddbimporter.type") as string;
         const actionFlagType = foundry.utils.getProperty(action, "flags.ddbimporter.type") as string;
         const replacedActionName = originalActionName.replace(replaceRegex, `${featureNamePrefix}:`);
+        // console.warn(`Checking "${originalActionName}" against "${originalFeatureName}"`, {
         //   action,
         //   feature,
         //   replacedActionName,
@@ -1280,6 +1318,10 @@ export default class CharacterFeatureFactory {
 
         foundry.utils.setProperty(action, "flags.ddbimporter.featureMeta", featureMatch.flags.ddbimporter);
 
+        // the action replaces the feature in the output, so standalone (compendium)
+        // effects stashed during the feature's enrichment must survive on the action
+        DDBEffectImporter.mergeStandaloneEffects(action, featureMatch);
+
         logger.debug(`Found match for ${originalActionName} and ${featureMatch.name}`, {
           action: foundry.utils.deepClone(action),
           feature: foundry.utils.deepClone(featureMatch),
@@ -1287,6 +1329,7 @@ export default class CharacterFeatureFactory {
         if ("activities" in action.system && "activities" in featureMatch.system) {
           if (Object.keys(action.system.activities).length === 0) {
             for (const [key, activity] of Object.entries(featureMatch.system.activities)) {
+              // console.warn(`Checking activity ${key}`, activity);
               if (!action.system.activities[key]) {
                 action.system.activities[key] = activity;
                 continue;
@@ -1387,21 +1430,15 @@ export default class CharacterFeatureFactory {
     });
   }
 
-  async _addSpellAdvancementTypeWithFilter(type: TGrantedSpellTypeOrigins, filters: string[] = []) {
-    logger.debug(`Adding spell advancements for type ${type} with filters`, { type, filters, this: this });
+  /** Adds the spell advancements of every processed feature of one granted-spell origin type. */
+  async _addSpellAdvancementsForType(type: TGrantedSpellTypeOrigins) {
+    logger.debug(`Adding spell advancements for type ${type}`, { type, this: this });
     if (!this.spellsGranted[type]) this.spellsGranted[type] = [];
     const featuresToCheck: { feature: T5eFeatureMixinDataTypes; type: TGrantedSpellTypeOrigins; version: T5eRulesVersion }[] = [];
     for (const feature of this.processed.features) {
       if (foundry.utils.getProperty(feature, "flags.ddbimporter.type") !== type) continue;
-      if (filters.length > 0) {
-        const featureName = utils.referenceNameString(feature.name).toLowerCase();
-        const filterMatch = filters.some((f) => featureName.includes(utils.referenceNameString(f).toLowerCase()));
-        if (!filterMatch) {
-          logger.verbose(`Feature ${feature.name} does not match any filters, skipping`, { feature, filters });
-          continue;
-        }
-      }
 
+      // console.warn(`Adding spell advancements for feature ${feature.name} of type ${type}`, {
       //   feature: foundry.utils.deepClone(feature),
       //   type,
       //   addToAdvancements: true,
@@ -1421,12 +1458,15 @@ export default class CharacterFeatureFactory {
       });
     }
 
+    // console.warn("Features to check", {
     //   featuresToCheckDeep: foundry.utils.deepClone(featuresToCheck),
     //   this: this,
     //   grantedSpells: this.spellsGranted[type],
     // });
-    for (const spell of this.ddbCharacter._spellParser._granted[type]) {
+    for (const spell of this.ddbCharacter._spellParser._granted[type] ?? []) {
       const spellName = foundry.utils.getProperty(spell, "flags.ddbimporter.originalName") as string ?? spell.name;
+      // a second pass over the same type must not put the spell on the sheet again
+      if (this.ddbCharacter.raw.spells.includes(spell)) continue;
 
       if (this.spellsGranted[type].some((sg) =>
         featuresToCheck.some((f) => {
@@ -1438,6 +1478,7 @@ export default class CharacterFeatureFactory {
         })
         && sg.spells.includes(spellName.toLowerCase()))
       ) {
+        // console.warn(`Spell ${spell.name} already granted via feature, skipping`, {
         //   spell,
         //   allwaysPrepared: spell.system.prepared ===  CONFIG.DND5E.spellPreparationStates.always.value,
         //   method: spell.system.method,
@@ -1460,22 +1501,7 @@ export default class CharacterFeatureFactory {
     logger.debug("Adding Spell Advancements from Feature Factory", { types, this: this });
     for (const type of types) {
       this.spellsGranted[type] = [];
-      await this._addSpellAdvancementTypeWithFilter(type);
-    }
-
-    for (const feature of this.processed.features) {
-      const featureType = foundry.utils.getProperty(feature, "flags.ddbimporter.type") as TGrantedSpellTypeOrigins;
-      const forceSpellAdvancement = foundry.utils.getProperty(feature, "flags.ddbimporter.forceSpellAdvancement") as boolean;
-      if (featureType && forceSpellAdvancement) {
-        if (!this.spellAdvancementsForce[featureType]) this.spellAdvancementsForce[featureType] = [];
-        this.spellAdvancementsForce[featureType].push(feature.name);
-      }
-    }
-
-    for (const [type, filters] of Object.entries(this.spellAdvancementsForce)) {
-      if (filters.length > 0) {
-        await this._addSpellAdvancementTypeWithFilter(type as TGrantedSpellTypeOrigins, filters);
-      }
+      await this._addSpellAdvancementsForType(type);
     }
   }
 

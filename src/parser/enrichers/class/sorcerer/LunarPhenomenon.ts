@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class LunarPhenomenon extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Full Moon: Save",
       activationType: "bonus",
@@ -37,7 +37,7 @@ export default class LunarPhenomenon extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -210,7 +210,7 @@ export default class LunarPhenomenon extends DDBEnricherData {
               {
                 type: "itemUses",
                 value: "5",
-                target: "Sorcery Points",
+                target: "feat:sorcery-points",
                 scaling: { allowed: false, max: "" },
               },
             ],
@@ -220,24 +220,24 @@ export default class LunarPhenomenon extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Blinded",
         statuses: ["Blinded"],
         activityMatch: "Full Moon: Save",
         options: {
-          durationRounds: 1,
+          expiry: "targetEnd",
         },
       },
       {
         name: "New Moon: Speed Reduced",
         activityMatch: "New Moon",
         changes: [
-          DDBEnricherData.ChangeHelper.downgradeChange("0", 100, "system.attributes.movement.all"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0", 100),
         ],
         options: {
-          durationRounds: 1,
+          expiry: "targetEnd",
         },
       },
       {
@@ -245,7 +245,7 @@ export default class LunarPhenomenon extends DDBEnricherData {
         statuses: ["Invisible"],
         activityMatch: "New Moon: Invisibility",
         options: {
-          durationRounds: 1,
+          expiry: "sourceEnd",
         },
       },
       {
@@ -253,14 +253,13 @@ export default class LunarPhenomenon extends DDBEnricherData {
         activityMatch: "Crescent Moon",
         changes: DDBEnricherData.allDamageTypes().map((type) => DDBEnricherData.ChangeHelper.damageResistanceChange(type)),
         options: {
-          durationRounds: 1,
+          expiry: "sourceStart",
         },
-        daeSpecialDurations: ["turnStartSource"],
       },
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       replaceActivityUses: true,
       uses: {

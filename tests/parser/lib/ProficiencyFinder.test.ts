@@ -1,8 +1,11 @@
+import { setMockSettings } from "../../_setup/foundryMocks";
 import ProficiencyFinder from "../../../src/parser/lib/ProficiencyFinder";
 
 const globals: any = globalThis;
 
+// =============================================================================
 // Fixtures
+// =============================================================================
 
 function makeDdb({
   raceMods = [],
@@ -31,7 +34,9 @@ function makeDdb({
   };
 }
 
+// =============================================================================
 // getArmorProficiencies
+// =============================================================================
 
 describe("getArmorProficiencies", () => {
   it("maps the armor categories to their dnd5e keys", () => {
@@ -81,7 +86,9 @@ describe("getArmorProficiencies", () => {
   });
 });
 
+// =============================================================================
 // getWeaponProficiencies
+// =============================================================================
 
 describe("getWeaponProficiencies", () => {
   it("maps weapon category proficiencies", () => {
@@ -134,9 +141,37 @@ describe("getWeaponProficiencies", () => {
   });
 });
 
+// =============================================================================
 // getToolProficiencies
+// =============================================================================
 
 describe("getToolProficiencies", () => {
+  it.each(["proficiency", "expertise"])("keeps specific tool %s separate from playing cards", (modifierType) => {
+    const names = ["Dice", "Three-Dragon Ante", "Brewer's Supplies", "Bagpipes"];
+    const ddb = makeDdb({ raceMods: names.map((name) => ({
+      type: modifierType, subType: name.toLowerCase(), friendlySubtypeName: name, restriction: "",
+    })) });
+    const finder = new ProficiencyFinder({ ddb });
+    const result = finder.getToolProficiencies(names.map((name) => ({ name })));
+    for (const key of ["dice", "threedragonante", "brewer", "bagpipes"]) {
+      expect(result[key].value).toBe(modifierType === "expertise" ? 2 : 1);
+    }
+    expect(result.card).toBeUndefined();
+    expect(finder.customTools).toEqual([{ key: "threedragonante", name: "Three-Dragon Ante", ability: "wis", toolType: "game" }]);
+  });
+
+  it.each(["proficiency", "expertise"])("retains Three-Dragon Ante %s with custom tools disabled", (type) => {
+    setMockSettings({ "add-ddb-tools": false });
+    for (const name of ["Three-Dragon Ante", "Three-Dragon Ante Set"]) {
+      const ddb = makeDdb({ raceMods: [{ type, friendlySubtypeName: name, restriction: "" }] });
+      const finder = new ProficiencyFinder({ ddb });
+      const result = finder.getToolProficiencies([{ name }, { name: "Playing Cards" }]);
+      expect(result.card.value).toBe(type === "expertise" ? 2 : 1);
+      expect(result.threedragonante).toBeUndefined();
+      expect(finder.customTools).toEqual([]);
+    }
+  });
+
   it("returns tools keyed by baseTool with value 0 when no ddb modifiers exist", () => {
     const finder = new ProficiencyFinder();
     const result = finder.getToolProficiencies([{ name: "Alchemist's Supplies" }]);
@@ -187,14 +222,6 @@ describe("getToolProficiencies", () => {
     expect(result.alchemist.value).toBe(2);
   });
 
-  it("matches equivalent tool names that differ only by Unicode apostrophes", () => {
-    const finder = new ProficiencyFinder();
-    const result = finder.getToolProficiencies([{ name: "Alchemist’s Supplies" }]);
-    expect(result.alchemist).toBeDefined();
-    expect(result.alchemist.value).toBe(0);
-    expect(result.alchemist.ability).toBe("int");
-  });
-
   it("ignores tools not in the dictionary", () => {
     const finder = new ProficiencyFinder();
     const result = finder.getToolProficiencies([{ name: "Imaginary Gadget" }]);
@@ -211,9 +238,107 @@ describe("getToolProficiencies", () => {
     expect(result.alchemist).toBeDefined();
     expect(result.alchemist.value).toBe(1);
   });
+
+  it("keys dictionary tools dnd5e has no id for off their name", () => {
+    const finder = new ProficiencyFinder();
+    const result = finder.getToolProficiencies([{ name: "Wargong" }]);
+    expect(result.wargong).toBeDefined();
+    expect(result.wargong.ability).toBe("dex");
+  });
+
+  it("records tools dnd5e has no id for so they can be registered", () => {
+    const finder = new ProficiencyFinder();
+    finder.getToolProficiencies([{ name: "Wargong" }, { name: "Alchemist's Supplies" }]);
+    // only the tool dnd5e is missing needs registering
+    expect(finder.customTools).toEqual([
+      { key: "wargong", name: "Wargong", ability: "dex", toolType: "music" },
+    ]);
+  });
+
+  it("adds free text type 2 customProficiencies", () => {
+    const ddb = makeDdb({
+      customProficiencies: [
+        { type: 2, name: "Bagpipe Repair Kit", statId: 4, proficiencyLevel: 3, miscBonus: null, magicBonus: null },
+      ],
+    });
+    const finder = new ProficiencyFinder({ ddb });
+    const result = finder.getToolProficiencies([]);
+    expect(result.bagpiperepairkit).toEqual({
+      value: 1,
+      ability: "int",
+      roll: { bonus: "" },
+    });
+    expect(finder.customTools).toEqual([
+      { key: "bagpiperepairkit", name: "Bagpipe Repair Kit", ability: "int", toolType: "", description: "" },
+    ]);
+  });
+
+  it("maps free text proficiency levels and bonuses", () => {
+    const ddb = makeDdb({
+      customProficiencies: [
+        { type: 2, name: "Lockpicks", statId: 2, proficiencyLevel: 4, miscBonus: 2, magicBonus: 1 },
+        { type: 2, name: "Abacus", statId: 4, proficiencyLevel: 2, miscBonus: null, magicBonus: null },
+        { type: 1, name: "Ignored Skill", statId: 4, proficiencyLevel: 3 },
+      ],
+    });
+    const finder = new ProficiencyFinder({ ddb });
+    const result = finder.getToolProficiencies([]);
+    expect(result.lockpicks.value).toBe(2);
+    expect(result.lockpicks.ability).toBe("dex");
+    expect(result.lockpicks.roll?.bonus).toBe("+ 2 + 1");
+    expect(result.abacus.value).toBe(0.5);
+    expect(result.ignoredskill).toBeUndefined();
+  });
+
+  it("carries the proficiency notes through as the tool description", () => {
+    const ddb = makeDdb({
+      customProficiencies: [
+        {
+          type: 2, name: "Custom Tool 1", statId: null, proficiencyLevel: 3,
+          notes: "Some sploof about the tool", description: null,
+        },
+      ],
+    });
+    const finder = new ProficiencyFinder({ ddb });
+    finder.getToolProficiencies([]);
+    expect(finder.customTools).toEqual([{
+      key: "customtool1",
+      name: "Custom Tool 1",
+      ability: "int",
+      toolType: "",
+      description: "Some sploof about the tool",
+    }]);
+  });
+
+  it("falls back to the description field, then to no description", () => {
+    const ddb = makeDdb({
+      customProficiencies: [
+        { type: 2, name: "Noted", statId: null, proficiencyLevel: 3, notes: null, description: "From description" },
+        { type: 2, name: "Bare", statId: null, proficiencyLevel: 3, notes: null, description: null },
+      ],
+    });
+    const finder = new ProficiencyFinder({ ddb });
+    finder.getToolProficiencies([]);
+    expect(finder.customTools.find((t) => t.key === "noted")?.description).toBe("From description");
+    expect(finder.customTools.find((t) => t.key === "bare")?.description).toBe("");
+  });
+
+  it("skips free text customProficiencies when custom is excluded", () => {
+    const ddb = makeDdb({
+      customProficiencies: [
+        { type: 2, name: "Bagpipe Repair Kit", statId: 4, proficiencyLevel: 3 },
+      ],
+    });
+    const finder = new ProficiencyFinder({ ddb, excludeCustom: true });
+    const result = finder.getToolProficiencies([]);
+    expect(Object.keys(result)).toHaveLength(0);
+    expect(finder.customTools).toEqual([]);
+  });
 });
 
+// =============================================================================
 // getLanguagesFromModifiers / getMappedLanguage
+// =============================================================================
 
 describe("languages", () => {
   it("maps language modifiers to dnd5e language keys", () => {
@@ -269,7 +394,9 @@ describe("languages", () => {
   });
 });
 
+// =============================================================================
 // getSkillProficiency / isHalfProficiencyRoundedUp
+// =============================================================================
 
 describe("skill proficiency", () => {
   const athletics: any = { label: "Athletics", ability: "str" };

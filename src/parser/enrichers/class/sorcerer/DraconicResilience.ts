@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class DraconicResilience extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const acType = this.is2014 ? "draconic" : "unarmoredBard";
     return [
       {
@@ -10,7 +10,7 @@ export default class DraconicResilience extends DDBEnricherData {
         changesOverwrite: true,
         changes: [
           DDBEnricherData.ChangeHelper.unsignedAddChange("1 * @classes.sorcerer.levels", 20, "system.attributes.hp.bonuses.overall"),
-          DDBEnricherData.ChangeHelper.overrideChange(acType, 20, "system.attributes.ac.calc"),
+          DDBEnricherData.ChangeHelper.acCalcsAddChange(acType, 20),
         ],
       },
     ];

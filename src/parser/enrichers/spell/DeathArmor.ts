@@ -3,7 +3,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
 export default class DeathArmor extends DDBEnricherData {
 
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Save vs Damage",
       removeSpellSlotConsume: true,
@@ -14,11 +14,11 @@ export default class DeathArmor extends DDBEnricherData {
     };
   }
 
-  get addAutoAdditionalActivities() {
+  override get addAutoAdditionalActivities(): boolean {
     return false;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -29,33 +29,50 @@ export default class DeathArmor extends DDBEnricherData {
           generateAttack: false,
           onsave: false,
           noeffect: true,
+          generateTarget: true,
+          targetOverride: {
+            override: true,
+            affects: {
+              type: "enemy",
+            },
+            template: {
+              contiguous: false,
+              type: "radius",
+              size: "5",
+              units: "ft",
+            },
+          },
         },
         overrides: {
           activationType: "special",
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.applyEffect({
+                effects: "Inky Aura (Death Armor)",
+                auraeffectsNever: true,
+              }),
+            ],
+          },
         },
       },
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
+      {
+        name: "Inky Aura (Death Armor)",
+        standalone: true,
+        auraeffectsNever: true,
+        options: {
+          description: "Within 5 feet of the armored caster's inky aura: melee hits against the caster trigger the Save vs Damage activity.",
+        },
+      },
       {
         name: "Inky Aura (Death Armor)",
         options: {},
         activityMatch: "Cast",
-        data: {
-          flags: {
-            ActiveAuras: {
-              aura: "Enemy",
-              radius: "5",
-              isAura: true,
-              ignoreSelf: true,
-              inactive: false,
-              hidden: false,
-              displayTemp: true,
-            },
-          },
-        },
+        auraeffectsOnly: true,
         auraeffects: {
           applyToSelf: false,
           bestFormula: "",

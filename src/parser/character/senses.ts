@@ -32,8 +32,10 @@ DDBCharacter.prototype.getSenses = function getSenses(this: DDBCharacter, { incl
         if (s && sense.distance && Number.isInteger(sense.distance)) {
           const senseType = s.name.toLowerCase() as TSenseType;
           senses.ranges[senseType] = parseInt(String(sense.distance));
+        } else if (s) {
+          special.push(`${s.name} (${sense.distance})`);
         } else {
-          senses.special += `${sense.distance}; `;
+          special.push(String(sense.distance));
         }
       });
   }
@@ -43,11 +45,8 @@ DDBCharacter.prototype.getSenses = function getSenses(this: DDBCharacter, { incl
     const basicOptions = { subType: senseName, includeExcludedEffects: includeEffects };
     DDBModifiers
       .filterBaseModifiers(ddb, "set-base", basicOptions)
-      .filter((mod) =>
-        !ddb.character.choices.choiceDefinitions.some((def) =>
-          def.options.some((opt) => opt.id === mod.componentId),
-        ),
-      )
+      // skip senses granted by a chosen option (those ride on the choice feature)
+      .filter((mod) => !DDBModifiers.isChoiceOptionModifier(ddb, mod))
       .forEach((sense) => {
         const senseKey = senseName as TSenseType;
         if (Number.isInteger(sense.value) && parseInt(String(sense.value)) > senses.ranges[senseKey]) {
@@ -83,11 +82,7 @@ DDBCharacter.prototype.getSenses = function getSenses(this: DDBCharacter, { incl
   };
   DDBModifiers
     .filterBaseModifiers(ddb, "sense", magicalBonusFilters)
-    .filter((mod) =>
-      !ddb.character.choices.choiceDefinitions.some((def) =>
-        def.options.some((opt) => opt.id === mod.componentId),
-      ),
-    )
+    .filter((mod) => !DDBModifiers.isChoiceOptionModifier(ddb, mod))
     .forEach((mod) => {
       const hasSense = mod.subType in senses.ranges;
       if (hasSense && mod.value && Number.isInteger(mod.value)) {

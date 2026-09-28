@@ -69,6 +69,7 @@ export default class GenericSpellFactory {
     notifier?: ((message: string, options?: any) => void) | null;
   } = {}) {
 
+    // console.warn("GenericSpellFactory.getItemSpells", { ddb, character });
 
     const items = [];
     const proficiencyModifier = character.flags?.ddbimporter?.dndbeyond?.profBonus ?? 0;

@@ -2,15 +2,15 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class DancingShadows extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities(): boolean {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.isAction ? DDBEnricherData.ACTIVITY_TYPES.UTILITY : DDBEnricherData.ACTIVITY_TYPES.NONE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       activationType: "bonus",
@@ -37,7 +37,7 @@ export default class DancingShadows extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (!this.isAction) return [];
     return [
       {
@@ -46,7 +46,7 @@ export default class DancingShadows extends DDBEnricherData {
           durationSeconds: 60,
           description: "Allied creatures in the sphere of shifting shadows have Half Cover, and creatures outside it have Disadvantage on Wisdom (Perception) checks to perceive anything inside. Ends early if you are Incapacitated or die.",
         },
-        statuses: ["HalfCover"],
+        statuses: ["CoverHalf"],
       },
     ];
   }

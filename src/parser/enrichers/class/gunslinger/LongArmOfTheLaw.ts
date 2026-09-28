@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class LongArmOfTheLaw extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       targetCount: 1,
@@ -16,17 +16,16 @@ export default class LongArmOfTheLaw extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Hobbled",
         options: {
-          durationRounds: 1,
+          expiry: "targetEnd",
           description: "Cannot move on its next turn unless it first takes the Disengage action.",
         },
-        daeSpecialDurations: ["turnEnd"],
         changes: [
-          DDBEnricherData.ChangeHelper.customChange("*0", 20, "system.attributes.movement.all"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0", 20),
         ],
       },
     ];

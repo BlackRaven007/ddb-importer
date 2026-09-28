@@ -2,20 +2,20 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class ConjureAnimals extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     if (this.is2014) return null;
     return DDBEnricherData.ACTIVITY_TYPES.SUMMON;
   }
 
-  get summonsFunction() {
+  override get summonsFunction(): ((data: ICompanionData) => Promise<ICompanionResult>) | null {
     return DDBImporter.lib.DDBSummonsInterface.getConjureAnimals2024;
   }
 
-  get generateSummons() {
+  override get generateSummons(): boolean {
     return !this.is2014;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (this.is2014) return null;
     return {
       type: DDBEnricherData.ACTIVITY_TYPES.SUMMON,
@@ -40,7 +40,7 @@ export default class ConjureAnimals extends DDBEnricherData {
     };
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         flags: {

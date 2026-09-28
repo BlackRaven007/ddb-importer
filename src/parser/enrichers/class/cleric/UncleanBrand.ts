@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class UncleanBrand extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (!this.isAction) return null;
     return {
       addItemConsume: true,
@@ -16,7 +16,7 @@ export default class UncleanBrand extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (!this.isAction) return [];
     return [
       {
@@ -26,7 +26,7 @@ export default class UncleanBrand extends DDBEnricherData {
           description: "Disadvantage on saving throws against the cleric's spells, and Vulnerability to Fire damage the cleric deals (even if normally Resistant or Immune).",
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("fire", 20, "system.traits.dv.value"),
+          DDBEnricherData.ChangeHelper.damageVulnerabilityChange("fire"),
         ],
         midiChanges: [
           DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.disadvantage.ability.save.all"),

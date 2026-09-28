@@ -2,14 +2,15 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class LicenseToKill extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       targetCount: 1,
+      rangeType: "any",
       activationType: "special",
       activationCondition: "You deal damage with a Ranged weapon (Risk Dice explode on their highest number)",
       addItemConsume: true,
@@ -21,7 +22,7 @@ export default class LicenseToKill extends DDBEnricherData {
           parts: [
             DDBEnricherData.basicDamagePart({
               customFormula: "1@scale.gunslinger.risk.die",
-              types: ["bludgeoning", "piercing", "slashing"],
+              types: DDBEnricherData.allDamageTypes(),
             }),
           ],
         },

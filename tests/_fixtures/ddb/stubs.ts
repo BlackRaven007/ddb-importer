@@ -69,13 +69,13 @@ class FakeActivityDocument {
         break;
       case "save":
         data.damage = damage();
-        data.save = { ability: [], dc: { calculation: "", formula: "" } };
+        data.save = { ability: [], bonus: "", dc: { calculation: "", formula: "" }, visible: true };
         break;
       case "heal":
         data.healing = { custom: { enabled: false, formula: "" }, number: null, denomination: null, bonus: "", types: [] };
         break;
       case "check":
-        data.check = { ability: "", associated: [], dc: { calculation: "", formula: "" } };
+        data.check = { ability: "", associated: [], bonus: "", dc: { calculation: "", formula: "" }, visible: true };
         break;
       case "utility":
         data.roll = { formula: "", name: "", prompt: false, visible: false };
@@ -90,6 +90,9 @@ class FakeActivityDocument {
         data.creatureTypes = [];
         data.match = { proficiency: false, attacks: false, saves: false };
         data.bonuses = { ac: "", hd: "", hp: "", attackDamage: "", saveDamage: "", healing: "" };
+        break;
+      case "teleport":
+        data.teleport = { override: false, units: "ft", value: "" };
         break;
       case "enchant":
         data.enchant = { self: false };
@@ -124,22 +127,10 @@ const ACTIVITY_TYPE_KEYS = [
   "heal",
   "save",
   "summon",
+  "teleport",
   "transform",
   "utility",
 ];
-
-/**
- * Under vitest the parser/enrichers module cycle can leave the
- * DDBEnricherData.AutoEffects / ChangeHelper static initialisers undefined
- * (the effects barrel is still in TDZ when the class evaluates). Re-point
- * them at the loaded modules so loaded enrichers behave as in production.
- */
-export async function repairEnricherDataStatics(): Promise<void> {
-  const { default: DDBEnricherData } = await import("../../../src/parser/enrichers/data/DDBEnricherData");
-  const effects = await import("../../../src/parser/enrichers/effects/_module");
-  if (!DDBEnricherData.AutoEffects) (DDBEnricherData as any).AutoEffects = effects.AutoEffects;
-  if (!DDBEnricherData.ChangeHelper) (DDBEnricherData as any).ChangeHelper = effects.ChangeHelper;
-}
 
 /**
  * Adds activityTypes/abilities stubs to the global CONFIG.DND5E from

@@ -3,24 +3,25 @@ import _BloodCurse from "./_BloodCurse";
 
 export default class BloodCurseOfTheAnxious extends _BloodCurse {
 
-  get curseName(): string {
+  override get curseName(): string {
     return "Blood Curse of the Anxious";
   }
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: this.curseName,
+      useActivitySnippet: true,
       targetType: "creature",
       targetCount: 1,
       activationType: "bonus",
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -33,7 +34,7 @@ export default class BloodCurseOfTheAnxious extends _BloodCurse {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     // "checks made against the cursed creature" is not a roll the system makes
     // against a target, so the base curse is a marker effect only
     const description = "Charisma (Intimidation) checks made against you have advantage.";
@@ -41,26 +42,25 @@ export default class BloodCurseOfTheAnxious extends _BloodCurse {
     return [
       {
         name: "Cursed: Anxious",
+        statuses: ["Cursed"],
         activityMatch: this.curseName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description,
         },
-        daeSpecialDurations: ["turnEndSource"],
       },
       {
         name: "Cursed: Anxious (Amplified)",
+        statuses: ["Cursed"],
         activityMatch: this.amplifiedName,
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "sourceEnd",
           description: `${description} Your next Wisdom saving throw before the curse ends has disadvantage.`,
         },
         // no isSave.wis special duration exists, so this expires on any save
-        daeSpecialDurations: ["turnEndSource", "isSave"],
+        daeSpecialDurations: ["isSave"],
         changes: [
-          DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE}`, 20, "system.abilities.wis.save.roll.mode"),
+          DDBEnricherData.ChangeHelper.disadvantageAbilitySaveChange("wis"),
         ],
       },
     ];

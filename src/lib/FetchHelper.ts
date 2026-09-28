@@ -1,22 +1,4 @@
 import logger from "./Logger";
-import DDBRunContext from "./DDBRunContext";
-
-function buildCorrelationId(): string {
-  const existing = DDBRunContext.correlationId;
-  if (existing) return existing;
-  const user = game.user?.id ?? "nouser";
-  return `ddb-${user}-${Date.now().toString(36)}-${foundry.utils.randomID()}`;
-}
-
-function withCorrelationHeaders(options: RequestInit = {}): RequestInit {
-  const correlationId = buildCorrelationId();
-  const headers = new Headers(options.headers ?? {});
-  if (!headers.has("x-correlation-id")) headers.set("x-correlation-id", correlationId);
-  return {
-    ...options,
-    headers,
-  };
-}
 
 /**
  * Error thrown when a fetch returns a non-2xx HTTP status. Carries the status
@@ -43,7 +25,7 @@ export class FetchError extends Error {
  * non-2xx HTTP status instead of attempting to parse an error page.
  */
 export async function fetchJson<T = any>(url: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(url, withCorrelationHeaders(options));
+  const response = await fetch(url, options);
   if (!response.ok) {
     let body = "";
     try {
@@ -62,16 +44,13 @@ export async function fetchJson<T = any>(url: string, options: RequestInit = {})
  * non-2xx handling as fetchJson.
  */
 export async function postJson<T = any>(url: string, body: unknown, options: RequestInit = {}): Promise<T> {
-  const mergedOptions = withCorrelationHeaders(options);
-  const headers = new Headers(mergedOptions.headers ?? {});
-  
-  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  
   return fetchJson<T>(url, {
-    ...mergedOptions,            
     method: "POST",
     cache: "no-cache",
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(body),
-    headers,                    
+    ...options,
   });
 }

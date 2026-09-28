@@ -2,55 +2,47 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class SteadyAim extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get addToDefaultAdditionalActivities() {
+  override get addToDefaultAdditionalActivities(): boolean {
     return false;
   }
 
-  get addAutoAdditionalActivities() {
+  override get addAutoAdditionalActivities(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (!this.isAction) return [];
     return [
       {
-        midiOnly: true,
         name: "Steady Aim Bonus",
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.customChange("1", 20, "flags.midi-qol.advantage.attack.all"),
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
         ],
-        daeSpecialDurations: ["1Attack" as const],
+        ac5eChanges: [
+          DDBEnricherData.ChangeHelper.ac5eChange("once; 1", 20, "flags.automated-conditions-5e.attack.advantage"),
+        ],
+        // DAE and AC5e each end the effect after the one attack; the native expiry is the ceiling
+        daeSpecialDurations: ["1Attack"],
         daeStackable: "noneName",
         options: {
-          durationTurns: 1,
+          // "Advantage on your next attack roll on the current turn"
+          expiry: "turnEnd",
+          description: "Advantage on your next attack roll this turn. Without DAE or AC5e the effect lasts for every attack until the end of the turn.",
         },
       },
       {
-        daeOnly: true,
         name: "Steady Aim Speed Reduction",
         changes: [
-          DDBEnricherData.ChangeHelper.downgradeChange("0", 100, "system.attributes.movement.all"),
+          DDBEnricherData.ChangeHelper.movementMultiplierChange("0", 100),
         ],
-        daeSpecialDurations: ["turnStartSource"],
         daeStackable: "noneName",
         options: {
-          durationSeconds: 12,
-          durationRounds: 2,
-        },
-      },
-      {
-        daeNever: true,
-        name: "Steady Aim Speed Reduction",
-        changes: [
-          DDBEnricherData.ChangeHelper.customChange("0", 100, "system.attributes.movement.all"),
-        ],
-        options: {
-          durationSeconds: 12,
-          durationRounds: 2,
+          // "your Speed is 0 until the end of the current turn"
+          expiry: "turnEnd",
         },
       },
     ];

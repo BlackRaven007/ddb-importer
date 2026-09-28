@@ -2,14 +2,14 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Banishment extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     const originalName = this.ddbEnricher.originalActivity?.name ?? "";
     return {
       name: originalName === "" ? "Cast" : originalName,
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -17,6 +17,8 @@ export default class Banishment extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.DDBMACRO,
         },
         build: {
+          generateDuration: true,
+          durationOverride: { units: "inst", concentration: false },
           noeffect: true,
           generateConsumption: false,
           generateActivation: true,
@@ -35,7 +37,7 @@ export default class Banishment extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Banished",
@@ -54,7 +56,7 @@ export default class Banishment extends DDBEnricherData {
     ];
   }
 
-  get itemMacro(): IDDBItemMacro {
+  override get itemMacro(): IDDBItemMacro {
     return {
       type: "spell",
       name: "banishment.js",

@@ -34,6 +34,7 @@ if (rolledItem.name === "Multiattack") {
 
 
     matches = desc.matchAll(/(\d+)\s+with\s+its\s+([^\d]+)/g)
+    // const regex = /.*(\d+)\s*([a-zA-Z]+)\s*attacks?/;
     const regex = /.*(\d+)\s*(\b[a-zA-Z]+\b(?:\s+\b[a-zA-Z]+\b){0,3})\s*attacks?/i;
 
     let match = desc.match(regex);

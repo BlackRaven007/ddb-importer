@@ -2,7 +2,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class ShiningSmite extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       data: {
         damage: {
@@ -14,13 +14,14 @@ export default class ShiningSmite extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         options: {
           durationSeconds: 60,
         },
         name: "Shedding Light",
+        statuses: ["Marked"],
         changes: [
           DDBEnricherData.ChangeHelper.upgradeChange("5", 20, "token.light.bright"),
           DDBEnricherData.ChangeHelper.overrideChange("#ffffff", 20, "token.light.color"),

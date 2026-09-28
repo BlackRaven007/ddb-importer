@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
 // Characterization tests for the pure static surface of CharacterFeatureFactory:
 // isDuplicateFeature, getNameMatchedFeature and includedFeatureNameCheck.
+// jsdom: isDuplicateFeature compares rendered text, and utils.stripHtml wants a document.
 import { setMockSettings, resetMockSettings } from "../../_setup/foundryMocks";
 
 import CharacterFeatureFactory from "../../../src/parser/features/CharacterFeatureFactory";
@@ -24,10 +26,49 @@ function makeItem({ name, description = "", type, originalName, klass }: IItemSt
   };
 }
 
+describe("CharacterFeatureFactory.duplicateCheckName", () => {
+  it("uses originalName in preference to the document name", () => {
+    const item = makeItem({ name: "Critical Shot", originalName: "Crit Shot" });
+    expect(CharacterFeatureFactory.duplicateCheckName(item)).toBe("Crit Shot");
+  });
+
+  it("strips the DDB level prefix left on originalName", () => {
+    // DDBFeatureMixin strips "9: " from the document name but not from originalName
+    const item = makeItem({ name: "Critical Shot", originalName: "9: Critical Shot" });
+    expect(CharacterFeatureFactory.duplicateCheckName(item)).toBe("Critical Shot");
+  });
+
+  it("leaves a name with a non level colon alone", () => {
+    const item = makeItem({ name: "Maneuver: Blindfire" });
+    expect(CharacterFeatureFactory.duplicateCheckName(item)).toBe("Maneuver: Blindfire");
+  });
+});
+
 describe("CharacterFeatureFactory.isDuplicateFeature", () => {
   it("returns true when name and description both match", () => {
     const existing = [makeItem({ name: "Sneak Attack", description: "<p>Extra damage.</p>" })];
     const item = makeItem({ name: "Sneak Attack", description: "<p>Extra damage.</p>" });
+    expect(CharacterFeatureFactory.isDuplicateFeature(existing, item)).toBe(true);
+  });
+
+  it("matches the builder and sheet copies of one feature through markup differences", () => {
+    // Grotesque Growth: DDB ships a hideInSheet builder copy and a hideInBuilder sheet copy,
+    // the latter left with a bare <hr> once its character-sheet note was stripped. Comparing
+    // markup here let the caller mistake the second copy for a new level's text and append it.
+    const builderCopy = [makeItem({
+      name: "Grotesque Growth",
+      description: "<p>When you use your Dread Hand feature, you gain the Enlarge effect.</p>",
+    })];
+    const sheetCopy = makeItem({
+      name: "Grotesque Growth",
+      description: "<p>When you use your Dread&nbsp;Hand feature, you gain the Enlarge effect.</p>\n<hr />",
+    });
+    expect(CharacterFeatureFactory.isDuplicateFeature(builderCopy, sheetCopy)).toBe(true);
+  });
+
+  it("returns true for two descriptionless features of the same name", () => {
+    const existing = [makeItem({ name: "Ability Score Improvement" })];
+    const item = makeItem({ name: "Ability Score Improvement" });
     expect(CharacterFeatureFactory.isDuplicateFeature(existing, item)).toBe(true);
   });
 
@@ -129,6 +170,58 @@ describe("CharacterFeatureFactory.getNameMatchedFeature", () => {
   });
 });
 
+describe("CharacterFeatureFactory.mergeClassFeature", () => {
+  const feat = (name: string, description: string, activities: Record<string, any> = {}, klass = "Warlock"): any => ({
+    name,
+    type: "feat",
+    system: { description: { value: description }, activities },
+    flags: { ddbimporter: { originalName: name, type: "class", dndbeyond: { class: klass } } },
+  });
+  const summon = (id: string, profiles: any[] = []): any => ({
+    _id: id, type: "summon", name: "Summon", profiles,
+    bonuses: { ac: "@abilities.cha.mod" }, match: { proficiency: true },
+  });
+
+  // DDB ships the Vestige Companion twice; the sheet-hidden copy carries the stat block, so its
+  // text and its parsed-actor summon link both belong on the builder copy that survives
+  it("overwrites a FORCE_DUPLICATE_OVERWRITE feature's text and carries its summon link across", () => {
+    const survivor = feat("Vestige Companion", "<p>Builder text.</p>", { summonAAAAAAAAAAA: summon("summonAAAAAAAAAAA") });
+    const sheetCopy = feat("Vestige Companion", "<p>Sheet text with stat block.</p>", {
+      summonBBBBBBBBBBB: summon("summonBBBBBBBBBBB", [{ _id: "p1", name: "Vestige Companion (Celestial)", uuid: "Actor.c" }]),
+    });
+    const features = [survivor];
+    CharacterFeatureFactory.mergeClassFeature(features, sheetCopy);
+    expect(features).toEqual([survivor]);
+    expect(survivor.system.description.value).toBe("<p>Sheet text with stat block.</p>");
+    expect(survivor.system.activities.summonAAAAAAAAAAA.profiles).toEqual([{ _id: "p1", name: "Vestige Companion (Celestial)", uuid: "Actor.c" }]);
+    expect(survivor.system.activities.summonAAAAAAAAAAA.bonuses).toEqual({ ac: "@abilities.cha.mod" });
+  });
+
+  it("overwriteDuplicateFeature is safe for documents without activities", () => {
+    const survivor: any = { name: "X", system: { description: { value: "<p>A.</p>" } }, flags: {} };
+    const other: any = { name: "X", system: { description: { value: "<p>B.</p>" } }, flags: {} };
+    CharacterFeatureFactory.overwriteDuplicateFeature(survivor, other);
+    expect(survivor.system.description.value).toBe("<p>B.</p>");
+  });
+
+  it("appends a second class's copy of a feature under a class heading and keeps its own summon", () => {
+    const survivor = feat("Shared Feature", "<p>First.</p>", { summonAAAAAAAAAAA: summon("summonAAAAAAAAAAA") });
+    const other = feat("Shared Feature", "<p>Second.</p>", { summonBBBBBBBBBBB: summon("summonBBBBBBBBBBB", [{ _id: "p1", uuid: "Actor.x" }]) }, "Sorcerer");
+    const features = [survivor];
+    CharacterFeatureFactory.mergeClassFeature(features, other);
+    expect(features).toEqual([survivor]);
+    expect(survivor.system.description.value).toBe("<p>First.</p><h3>Sorcerer</h3><p>Second.</p>");
+    expect(survivor.system.activities.summonAAAAAAAAAAA.profiles).toEqual([]);
+  });
+
+  it("adds a feature nothing matches", () => {
+    const features: any[] = [];
+    const doc = feat("Lone Feature", "<p>Text.</p>");
+    CharacterFeatureFactory.mergeClassFeature(features, doc);
+    expect(features).toEqual([doc]);
+  });
+});
+
 describe("CharacterFeatureFactory.includedFeatureNameCheck", () => {
   beforeEach(() => {
     // the allowed-path return value is the raw && chain, so pin a boolean
@@ -198,5 +291,106 @@ describe("CharacterFeatureFactory.includedFeatureNameCheck", () => {
   it("keeps Tasha versatile features when the include setting is true", () => {
     setMockSettings({ "character-update-policy-include-versatile-features": true });
     expect(CharacterFeatureFactory.includedFeatureNameCheck("Martial Versatility")).toBe(true);
+  });
+});
+
+describe("CharacterFeatureFactory.addSpellAdvancements", () => {
+  function makeFactory(features: any[], granted: Record<string, any[]>): any {
+    const factory: any = Object.create(CharacterFeatureFactory.prototype);
+    factory.processed = { features };
+    factory.spellsGranted = {};
+    factory.ddbCharacter = {
+      raw: { spells: [] },
+      _spellParser: { _granted: { class: [], feat: [], race: [], background: [], item: [], ...granted } },
+    };
+    return factory;
+  }
+  // no `advancement` key on the feature, so the advancement helper returns before it needs a world
+  const bonusCantrips = { name: "Bonus Cantrips", system: {}, flags: { ddbimporter: { type: "class" } } };
+  const light = { name: "Light", flags: { ddbimporter: { originalName: "Light", dndbeyond: { lookup: "classFeature", lookupName: "Bonus Cantrips" } } }, system: { prepared: 2, method: "pact" } };
+
+  it("puts a feature's granted spell on the sheet once", async () => {
+    const factory = makeFactory([bonusCantrips], { class: [light] });
+    await factory.addSpellAdvancements();
+    expect(factory.ddbCharacter.raw.spells).toEqual([light]);
+  });
+
+  it("ignores a feature whose type has no granted spell list", async () => {
+    const trait = { name: "Odd Trait", system: {}, flags: { ddbimporter: { type: "trait" } } };
+    const factory = makeFactory([trait], { class: [light] });
+    await factory.addSpellAdvancements();
+    expect(factory.ddbCharacter.raw.spells).toEqual([light]);
+  });
+});
+
+describe("CharacterFeatureFactory.applyLevelScale", () => {
+  function scaleClass(name: string, identifier: string, scales: Record<string, string>): any {
+    return {
+      name,
+      type: "class",
+      system: {
+        identifier,
+        advancement: Object.fromEntries(Object.entries(scales).map(([scaleId, type]) => [
+          `adv${scaleId}`,
+          { type: "ScaleValue", configuration: { identifier: scaleId, type } },
+        ])),
+      },
+    };
+  }
+
+  function part(formula = "", number: number | null = null, denomination: number | null = null): any {
+    return { number, denomination, bonus: "", types: [], custom: { enabled: formula !== "", formula } };
+  }
+
+  function feature(name: string, activities: Record<string, any>, flags: Record<string, any> = {}): any {
+    return { name, flags: { ddbimporter: flags }, system: { activities } };
+  }
+
+  const ranger = scaleClass("Gloom Stalker", "gloom-stalker", { "dread-ambusher": "dice" });
+  const cleric = scaleClass("Cleric", "cleric", { "channel-divinity": "number" });
+
+  it("fills an unset first damage part from a dice scale", () => {
+    const doc = feature("Dread Ambusher", { a: { damage: { parts: [part("", 2, 6)] } } });
+    CharacterFeatureFactory.applyLevelScale(doc, [ranger]);
+    expect(doc.system.activities.a.damage.parts[0].custom).toEqual({ enabled: true, formula: "@scale.gloom-stalker.dread-ambusher" });
+  });
+
+  it("leaves number scales alone, they count uses rather than damage", () => {
+    const doc = feature("Channel Divinity", { a: { damage: { parts: [part("", 1, 8)] } } });
+    CharacterFeatureFactory.applyLevelScale(doc, [cleric]);
+    expect(doc.system.activities.a.damage.parts[0].custom.enabled).toBe(false);
+  });
+
+  it("never adds a part to an activity that deals no damage", () => {
+    const doc = feature("Dread Ambusher", { save: { damage: { parts: [] } } });
+    CharacterFeatureFactory.applyLevelScale(doc, [ranger]);
+    expect(doc.system.activities.save.damage.parts).toEqual([]);
+  });
+
+  it("keeps a formula already chosen for the part", () => {
+    const doc = feature("Dread Ambusher", { a: { damage: { parts: [part("@scale.gloom-stalker.dread-ambusher + @abilities.wis.mod")] } } });
+    CharacterFeatureFactory.applyLevelScale(doc, [ranger]);
+    expect(doc.system.activities.a.damage.parts[0].custom.formula).toBe("@scale.gloom-stalker.dread-ambusher + @abilities.wis.mod");
+  });
+
+  it("prefers the feature's own subclass when two classes carry the same scale", () => {
+    const order = scaleClass("Order Domain", "order", { "divine-strike": "dice" });
+    const twilight = scaleClass("Twilight Domain", "twilight", { "divine-strike": "dice" });
+    const doc = feature("Divine Strike", { a: { damage: { parts: [part("", 1, 8)] } } }, { class: "Cleric", subClass: "Twilight Domain" });
+    CharacterFeatureFactory.applyLevelScale(doc, [order, twilight]);
+    expect(doc.system.activities.a.damage.parts[0].custom.formula).toBe("@scale.twilight.divine-strike");
+  });
+
+  it("honours skipScale and fills an unset weapon base damage", () => {
+    const skipped = feature("Dread Ambusher", { a: { damage: { parts: [part("", 2, 6)] } } }, { skipScale: true });
+    CharacterFeatureFactory.applyLevelScale(skipped, [ranger]);
+    expect(skipped.system.activities.a.damage.parts[0].custom.enabled).toBe(false);
+
+    const weapon: any = { name: "Dread Ambusher", flags: { ddbimporter: {} }, system: { damage: { base: part("", 1, 6) } } };
+    CharacterFeatureFactory.applyLevelScale(weapon, [ranger]);
+    expect(weapon.system.damage.base.custom.formula).toBe("@scale.gloom-stalker.dread-ambusher");
+    const custom: any = { name: "Dread Ambusher", flags: { ddbimporter: {} }, system: { damage: { base: part("1d4 + @mod") } } };
+    CharacterFeatureFactory.applyLevelScale(custom, [ranger]);
+    expect(custom.system.damage.base.custom.formula).toBe("1d4 + @mod");
   });
 });

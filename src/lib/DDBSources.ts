@@ -93,8 +93,9 @@ export default class DDBSources {
     } else if (source.book === "br-2024") {
       source.book = "BR-2024";
     }
-    if (utils.getSetting<boolean>("no-source-book-pages"))
+    if (utils.getSetting<boolean>("no-source-book-pages")) {
       source.page = "";
+    }
   }
 
   /**
@@ -223,13 +224,15 @@ export default class DDBSources {
       })
       : null;
 
-    if (!latestSource) return {
-      book: "Homebrew",
-      page: "",
-      license: "",
-      custom: "",
-      rules: null,
-    };
+    if (!latestSource) {
+      return {
+        book: "Homebrew",
+        page: "",
+        license: "",
+        custom: "",
+        rules: null,
+      };
+    }
     delete latestSource.id;
     return latestSource;
   }
@@ -269,9 +272,32 @@ export default class DDBSources {
     });
   }
 
+  /**
+   * The RAW book selection from the deprecated per-book filter, whether or not the filter is
+   * enabled and whether or not the books sit in an included category. Deliberately unfiltered:
+   * the UI lists it so a stale selection can be seen and removed. Import paths must use
+   * getBookFilter().effective instead.
+   */
   static getSelectedSourceIds(): number[] {
     return utils.getSetting<number[]>("munching-policy-muncher-sources")
       .map((id) => parseInt(`${id}`));
+  }
+
+  /**
+   * The per-book filter as it applies to an import. The category filter runs first and strips
+   * every source outside the included categories, so a selected book outside them can never
+   * match; it is reported as ignored rather than applied. When NO selected book survives the
+   * intersection the filter is treated as absent (effective = []), otherwise the whole import
+   * would silently come back empty.
+   */
+  static getBookFilter(): { enabled: boolean; selected: number[]; effective: number[]; ignored: number[] } {
+    const enabled = utils.getSetting<boolean>("munching-policy-use-source-filter");
+    const selected = DDBSources.getSelectedSourceIds();
+    if (!enabled) return { enabled, selected, effective: [], ignored: [] };
+    const allowed = new Set(DDBSources.getAllowedSourceIds());
+    const effective = selected.filter((id) => allowed.has(id));
+    const ignored = selected.filter((id) => !allowed.has(id));
+    return { enabled, selected, effective, ignored };
   }
 
   static getExcludedCategoryIds(): number[] {
@@ -460,6 +486,22 @@ export default class DDBSources {
     return book || "Unknown";
   }
 
+  /**
+   * The cover image for a source book, or null when DDB does not have one.
+   *
+   * A book with no cover comes back with the avatar directory and no file on the end
+   * (`https://www.dndbeyond.com/avatars/`, currently about a fifth of the catalog) rather than an
+   * empty string, so a plain truthiness check passes and the page renders a broken image.
+   * @param {{ avatarURL?: string | null } | null} [source]  A DDB source book.
+   */
+  static getSourceCoverURL(source?: { avatarURL?: string | null } | null): string | null {
+    const url = source?.avatarURL?.trim();
+    if (!url) return null;
+    const path = url.split(/[?#]/)[0];
+    const file = path.slice(path.lastIndexOf("/") + 1);
+    return file === "" ? null : url;
+  }
+
   static getBooksInCategories(categoryIds: number[]): IDDBConfigSource[] {
     const books = CONFIG.DDB.sources.filter((book) => categoryIds.includes(book.sourceCategoryId));
     return books;
@@ -508,7 +550,7 @@ export default class DDBSources {
     return definition.sources.some((source) => allowed.has(source.sourceId));
   }
 
-  /** Bucket used by groupByPrimarySourceId for definitions DDB gives no source. */
+  /** Bucket used by groupBySourceIds for definitions DDB gives no source. */
   static UNKNOWN_SOURCE_ID = 0;
 
   /**
@@ -529,27 +571,33 @@ export default class DDBSources {
   }
 
   /**
-   * Break a single proxy payload down into one bucket per DDB source book.
+   * Break a single proxy payload down into one bucket per DDB source book,
+   * filing each entry once for every source it lists.
    *
    * DDB can list several sources for one definition (a spell reprinted in a
-   * later compendium keeps both). Only the first is used, so every entry lands
-   * in exactly one bucket and the buckets stay disjoint — a source's bucket is
-   * therefore "what DDB primarily attributes to this book", not "everything
-   * that appears in it".
+   * later compendium keeps both, and most core content lists the SRD entry
+   * first). The muncher's own source filter matches on any of them, so the
+   * buckets deliberately overlap - a source's bucket is "everything a per-book
+   * import of this book would pull", not "what DDB primarily attributes to it".
+   * Bucketing on one source instead would leave books that only ever appear as
+   * a secondary entry with no bucket at all.
    *
-   * Entries with no source data go to UNKNOWN_SOURCE_ID rather than being
-   * dropped, so a round trip through this never loses anything.
+   * Entries with no source data go to UNKNOWN_SOURCE_ID
    */
-  static groupByPrimarySourceId<T>(
+  static groupBySourceIds<T>(
     entries: T[],
     getDefinition: (entry: T) => IDDBBaseSourcesDefinition | null | undefined,
   ): Map<number, T[]> {
     const grouped = new Map<number, T[]>();
     for (const entry of entries) {
-      const sourceId = getDefinition(entry)?.sources?.[0]?.sourceId ?? DDBSources.UNKNOWN_SOURCE_ID;
-      const bucket = grouped.get(sourceId);
-      if (bucket) bucket.push(entry);
-      else grouped.set(sourceId, [entry]);
+      // one definition can repeat a source id with different sourceTypes
+      const sourceIds = new Set((getDefinition(entry)?.sources ?? []).map((source) => source.sourceId));
+      if (sourceIds.size === 0) sourceIds.add(DDBSources.UNKNOWN_SOURCE_ID);
+      for (const sourceId of sourceIds) {
+        const bucket = grouped.get(sourceId);
+        if (bucket) bucket.push(entry);
+        else grouped.set(sourceId, [entry]);
+      }
     }
     return grouped;
   }
@@ -557,8 +605,7 @@ export default class DDBSources {
   static getChosenCategoriesAndBooks(useOverride = true): { categoryId: number; sourceIds: number[] }[] {
     const sourceIdArrays: { categoryId: number; sourceIds: number[] }[] = [];
     const sourceCategoryIds = DDBSources.getAllowedSourceCategoryIds();
-    const enableSources = utils.getSetting<boolean>("munching-policy-use-source-filter");
-    const overrideSources = useOverride && enableSources ? DDBSources.getSelectedSourceIds() : [];
+    const overrideSources = useOverride ? DDBSources.getBookFilter().effective : [];
 
     for (const sourceCategoryId of sourceCategoryIds) {
       const sourceIds = DDBSources.getBookIdsInCategories([sourceCategoryId]);

@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class SquireOfSolamnia extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         // Precise Strike advantage is offered as an AC5e opt-in once per turn;
@@ -17,7 +17,7 @@ export default class SquireOfSolamnia extends DDBEnricherData {
           transfer: true,
         },
         ac5eChanges: [
-          DDBEnricherData.ChangeHelper.customChange(
+          DDBEnricherData.ChangeHelper.ac5eChange(
             "optin; oncePerTurn; name=Precise Strike; description=Cause this weapon attack roll to have advantage.",
             20,
             "flags.automated-conditions-5e.attack.advantage",

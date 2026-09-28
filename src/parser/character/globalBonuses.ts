@@ -41,9 +41,12 @@ DDBCharacter.prototype.getGlobalBonusAttackModifiers = function(this: DDBCharact
     // we know these keys are right as this is only called from a lookup table that is attack based
     const key = b.fvttType as keyof typeof lookupResults;
 
-    // if a match then a dice string
+    // if a match then a dice string; join terms with " + " but never lead
+    // with it - a bonus of " + 1d4" is an invalid roll formula
     if (lookupMatch || !Number.isInteger(parseInt(lookupResult))) {
-      lookupResults[key].diceString += lookupResult === "" ? lookupResult : " + " + lookupResult;
+      if (lookupResult !== "") {
+        lookupResults[key].diceString += lookupResults[key].diceString === "" ? lookupResult : " + " + lookupResult;
+      }
     } else {
       lookupResults[key].sum += parseInt(lookupResult);
     }
@@ -88,13 +91,24 @@ DDBCharacter.prototype.getBonusSpellAttacks = function(this: DDBCharacter, type:
 };
 
 DDBCharacter.prototype._generateBonusSpellAttacks = function(this: DDBCharacter) {
-  const bonuses = this.raw.character.system.bonuses;
-  if (!bonuses) {
-    logger.warn("Unable to generate bonus spell attacks, no character bonuses data");
+  const system = this.raw.character.system;
+  if (!system) {
+    logger.warn("Unable to generate bonus spell attacks, no character system data");
     return;
   }
-  bonuses.rsak = this.getBonusSpellAttacks("ranged");
-  bonuses.msak = this.getBonusSpellAttacks("melee");
+  const rolls = (system.rolls ??= {});
+  const ranged = this.getBonusSpellAttacks("ranged");
+  const melee = this.getBonusSpellAttacks("melee");
+  rolls.attack = {
+    ...(rolls.attack ?? {}),
+    rsak: { bonus: ranged.attack ?? "" },
+    msak: { bonus: melee.attack ?? "" },
+  };
+  rolls.damage = {
+    ...(rolls.damage ?? {}),
+    rsak: { bonus: ranged.damage ?? "" },
+    msak: { bonus: melee.damage ?? "" },
+  };
 };
 
 
@@ -119,13 +133,24 @@ DDBCharacter.prototype.getBonusWeaponAttacks = function(this: DDBCharacter, type
 };
 
 DDBCharacter.prototype._generateBonusWeaponAttacks = function(this: DDBCharacter) {
-  const bonuses = this.raw.character.system.bonuses;
-  if (!bonuses) {
-    logger.warn("Unable to generate bonus weapon attacks, no character bonuses data");
+  const system = this.raw.character.system;
+  if (!system) {
+    logger.warn("Unable to generate bonus weapon attacks, no character system data");
     return;
   }
-  bonuses.mwak = this.getBonusWeaponAttacks("melee");
-  bonuses.rwak = this.getBonusWeaponAttacks("ranged");
+  const rolls = (system.rolls ??= {});
+  const melee = this.getBonusWeaponAttacks("melee");
+  const ranged = this.getBonusWeaponAttacks("ranged");
+  rolls.attack = {
+    ...(rolls.attack ?? {}),
+    mwak: { bonus: melee.attack ?? "" },
+    rwak: { bonus: ranged.attack ?? "" },
+  };
+  rolls.damage = {
+    ...(rolls.damage ?? {}),
+    mwak: { bonus: melee.damage ?? "" },
+    rwak: { bonus: ranged.damage ?? "" },
+  };
 };
 
 /**
@@ -137,7 +162,7 @@ DDBCharacter.prototype._generateBonusWeaponAttacks = function(this: DDBCharacter
  * source data.
  *
  * The resulting bonuses are stored in the character's data in the
- * "system.bonuses.abilities" property.
+ * "system.rolls.ability" property.
  */
 DDBCharacter.prototype._generateBonusAbilities = function(this: DDBCharacter) {
   const result: I5eAbilityBonusGroup = {
@@ -152,9 +177,9 @@ DDBCharacter.prototype._generateBonusAbilities = function(this: DDBCharacter) {
   ];
 
   const ddb = this.source?.ddb;
-  const bonuses = this.raw.character.system.bonuses;
-  if (!ddb || !bonuses) {
-    logger.warn("Unable to generate bonus abilities, missing DDB source data or character bonuses data");
+  const system = this.raw.character.system;
+  if (!ddb || !system) {
+    logger.warn("Unable to generate bonus abilities, missing DDB source data or character system data");
     return;
   }
 
@@ -163,7 +188,12 @@ DDBCharacter.prototype._generateBonusAbilities = function(this: DDBCharacter) {
     const bonus = DDBModifiers.getModifierSum(mods, this.raw.character);
     if (bonus !== "") result[b.fvttType as keyof I5eAbilityBonusGroup] = `+ ${bonus}`.trim().replace(/\+\s*\+/, "+");
   });
-  bonuses.abilities = result;
+  const rolls = (system.rolls ??= {});
+  rolls.ability = {
+    check: { bonus: result.check ?? "" },
+    save: { bonus: result.save ?? "" },
+    skill: { bonus: result.skill ?? "" },
+  };
 };
 
 

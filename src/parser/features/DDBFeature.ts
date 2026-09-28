@@ -6,6 +6,11 @@ import DDBAttackAction from "./DDBAttackAction";
 import DDBChoiceFeature from "./DDBChoiceFeature";
 import DDBFeatureMixin from "./DDBFeatureMixin";
 
+
+const WEAPON_CATEGORIES: Record<number, string> = { 1: "sim", 2: "mar", 3: "mar" };
+const FOCUS_SUBTYPES: Record<string, string> = { "Arcane Focus": "arcane", "Druidic Focus": "druidic", "Holy Symbol": "holy" };
+const ARMOR_KEYS = new Set(["light", "medium", "heavy", "shield", "natural"]);
+
 export default class DDBFeature extends DDBFeatureMixin {
 
   declare advancementHelper: AdvancementHelper;
@@ -43,20 +48,13 @@ export default class DDBFeature extends DDBFeatureMixin {
   ];
 
 
-  _init() {
+  override _init() {
     this.documentType = DDBAttackAction.FORCE_WEAPON_FEATURES.includes(this.originalName)
       ? "weapon" as const
       : (DDBFeature.DOC_TYPE as Record<string, string>)[this.type] as typeof this.documentType;
     this.tagType = this.type;
     logger.debug(`Init Feature ${this.ddbDefinition.name}`);
-    this._class = this.ddbData.character.classes.find((klass) =>
-      (this.ddbDefinition.classId
-        && (klass.definition.id === this.ddbDefinition.classId || klass.subclassDefinition?.id === this.ddbDefinition.classId))
-      || (this.ddbDefinition.className && klass.definition.name === this.ddbDefinition.className
-        && ((!this.ddbDefinition.subclassName || this.ddbDefinition.subclassName === "")
-          || (this.ddbDefinition.subclassName && klass.subclassDefinition?.name === this.ddbDefinition.subclassName))
-      ),
-    );
+    this._class = this._findClassForDefinition(this.ddbDefinition);
     this._choices = DDBDataUtils.getChoices({
       ddb: this.ddbData,
       type: this.type,
@@ -99,7 +97,7 @@ export default class DDBFeature extends DDBFeatureMixin {
     });
   }
 
-  _generateDataStub() {
+  override _generateDataStub() {
     this.data = {
       _id: foundry.utils.randomID(),
       name: DDBDataUtils.getName(this.ddbData, this.ddbDefinition, this.rawCharacter),
@@ -136,8 +134,9 @@ export default class DDBFeature extends DDBFeatureMixin {
   }
 
 
-  _prepare() {
+  override _prepare() {
     // override this feature
+    this._generateLevelScale();
     this._generateActionTypes();
     this._generateFlagHints();
 
@@ -177,7 +176,7 @@ export default class DDBFeature extends DDBFeatureMixin {
     logger.info(`Generating feature advancements for ${this.ddbDefinition.name} are not yet supported`);
   }
 
-  _addAdvancement(advancement: dnd5e.types.Advancement.Any | null) {
+  _addAdvancement(advancement: dnd5e.types.Advancement.Instance | null) {
     if (!advancement) return;
     const advancementData = advancement.toObject() as unknown as I5eAdvancement;
     if (
@@ -240,6 +239,7 @@ export default class DDBFeature extends DDBFeatureMixin {
     //         "entityTypeId": 1088085227,
     //         "definitionKey": "1088085227:1789210",
     //         "name": "Wayfarer Ability Score Improvements",
+    //
     //         "categories": [
     //             {
     //                 "id": 491,
@@ -342,7 +342,7 @@ export default class DDBFeature extends DDBFeatureMixin {
   }
 
 
-  _addFeatAbilityScoreAdvancement(update: I5eAdvancementAbilityScoreImprovement, advancement: dnd5e.types.Advancement.Any) {
+  _addFeatAbilityScoreAdvancement(update: I5eAdvancementAbilityScoreImprovement, advancement: dnd5e.types.Advancement.Instance) {
     advancement.updateSource(update as any);
     if (!this.isMuncher) {
       const modifiers = this.ddbData.character.modifiers.feat.filter((m) =>
@@ -368,7 +368,7 @@ export default class DDBFeature extends DDBFeatureMixin {
 
     this.data.system.advancement ??= {};
     // the Advancement _id schema initial is a randomID, so it is always set
-    const advancementId = advancement._id as string;
+    const advancementId = foundry.utils.getProperty(advancement, "_id") as string;
     this.data.system.advancement[advancementId] = advancement.toObject() as I5eAdvancement;
   }
 
@@ -556,6 +556,57 @@ export default class DDBFeature extends DDBFeatureMixin {
     return uuidMap;
   }
 
+  /**
+   * DDB category catalogs include extra kits and weapons from other books. Prefer a category
+   * explicitly named by this rule slot, but only when every definition supports that item type.
+   */
+  static backgroundEquipmentCategory(rule: IDDBEquipmentRule, ruleSlotName: string): { type: string; key: string } | null {
+    const definitions = rule.definitions ?? [];
+    if (definitions.length === 0) return null;
+
+    const classified = definitions.map((def) => {
+      if (def.entityTypeId === 1782728300 || def.filterType === "Weapon") {
+        return { type: "weapon", key: WEAPON_CATEGORIES[def.categoryId ?? -1] ?? "" };
+      }
+      if (def.armorTypeId != null) {
+        const entry = DICTIONARY.equipment.armorType.find((a) => a.id === def.armorTypeId);
+        if (entry?.value && ARMOR_KEYS.has(entry.value)) return { type: "armor", key: entry.value };
+      }
+      if (def.subType && FOCUS_SUBTYPES[def.subType]) return { type: "focus", key: FOCUS_SUBTYPES[def.subType] };
+      const declaredToolGroup = AdvancementHelper.getToolGroup(def.subType ?? "");
+      if (declaredToolGroup) return { type: "tool", key: declaredToolGroup };
+      const tool = AdvancementHelper.getDictionaryTool(def.name);
+      if (tool || def.gearTypeId === 11) return { type: "tool", key: tool?.toolType ?? "" };
+      return null;
+    });
+    const allType = (type: string) => classified.every((entry) => entry?.type === type);
+    // Instruction is specific to a rule; the enclosing slot can describe several bundled items.
+    for (const label of [rule.instruction, ruleSlotName]) {
+      const text = utils.nameString(label ?? "").toLowerCase();
+      if (allType("tool")) {
+        const categories = [
+          { key: "art", matches: (/artisan'?s? tools/).test(text) },
+          { key: "music", matches: (/musical? instrument/).test(text) },
+          { key: "game", matches: (/gaming set/).test(text) },
+        ].filter((category) => category.matches);
+        // A mention must also have a matching catalog member, so another bundled item's
+        // category cannot turn an instrument list into artisan's tools.
+        if (categories.length === 1 && classified.some((entry) => entry?.key === categories[0].key)) {
+          return { type: "tool", key: categories[0].key };
+        }
+      }
+      if (allType("weapon")) {
+        const simple = (/simple (?:melee |ranged )?weapons?/).test(text);
+        const martial = (/martial (?:melee |ranged )?weapons?/).test(text);
+        if (simple !== martial) return { type: "weapon", key: simple ? "sim" : "mar" };
+        if ((/weapons?/).test(text)) return { type: "weapon", key: "" };
+      }
+    }
+    const first = classified[0];
+    if (!first || !first.key) return null;
+    return classified.every((entry) => entry?.type === first.type && entry.key === first.key) ? first : null;
+  }
+
   async _generateBackgroundEquipment() {
     const slots = this.ddbData.backgroundEquipment?.slots ?? [];
     if (slots.length === 0) return;
@@ -593,7 +644,7 @@ export default class DDBFeature extends DDBFeatureMixin {
         type: "linked",
         count: (rule.quantity ?? 0) > 1 ? rule.quantity : null,
         key: uuid,
-        requiresProficiency: false,
+        requiresProficiency: rule.proficiencyRequired ?? false,
         _id: foundry.utils.randomID(),
         group,
         sort: nextSort(),
@@ -612,46 +663,21 @@ export default class DDBFeature extends DDBFeatureMixin {
       });
     };
 
-    // a rule with multiple definitions is a category choice (e.g. any gaming set, any
-    // simple weapon); classify a definition to a dnd5e category option type + key
-    const WEAPON_CATEGORY: Record<number, string> = { 1: "sim", 2: "mar", 3: "mar" };
-    const FOCUS_SUBTYPES: Record<string, string> = { "Arcane Focus": "arcane", "Druidic Focus": "druidic", "Holy Symbol": "holy" };
-    const ARMOR_KEYS = new Set(["light", "medium", "heavy", "shield", "natural"]);
-
-    const classifyDefinition = (def: IDDBItemDefinition) => {
-      if (def.entityTypeId === 1782728300 || def.filterType === "Weapon") {
-        return { type: "weapon", key: WEAPON_CATEGORY[def.categoryId ?? -1] ?? "sim" };
-      }
-      if (def.armorTypeId != null) {
-        const entry = DICTIONARY.equipment.armorType.find((a) => a.id === def.armorTypeId);
-        if (entry?.value && ARMOR_KEYS.has(entry.value)) return { type: "armor", key: entry.value };
-      }
-      if (def.subType && FOCUS_SUBTYPES[def.subType]) {
-        return { type: "focus", key: FOCUS_SUBTYPES[def.subType] };
-      }
-      const tool = AdvancementHelper.getDictionaryTool(def.name);
-      if (tool?.toolType) return { type: "tool", key: tool.toolType };
-      if (def.gearTypeId === 11) return { type: "tool", key: "game" };
-      return null;
-    };
-
-    const buildCategoryChoice = (rule: IDDBEquipmentRule, group: string) => {
-      const classified = (rule.definitions ?? [])
-        .map(classifyDefinition)
-        .filter((c): c is NonNullable<ReturnType<typeof classifyDefinition>> => c !== null);
-      const distinct = new Set(classified.map((c) => `${c.type}:${c.key}`));
-      if (distinct.size !== 1) {
-        logger.warn("Could not resolve background equipment category choice", {
+    const buildCategoryChoice = (rule: IDDBEquipmentRule, group: string, ruleSlot: IDDBEquipmentRuleSlot) => {
+      const category = DDBFeature.backgroundEquipmentCategory(rule, ruleSlot.name);
+      if (!category) {
+        logger.warn(`Could not resolve background equipment category choice for ${this.ddbDefinition.name}: ${ruleSlot.name}`, {
+          background: this.ddbDefinition.name,
+          ruleSlot: ruleSlot.name,
+          instruction: rule.instruction,
           defs: (rule.definitions ?? []).map((d) => d.name),
         });
         return;
       }
-      const { type, key } = classified[0];
       entries.push({
-        type,
+        ...category,
         count: (rule.quantity ?? 0) > 1 ? rule.quantity : null,
-        key,
-        requiresProficiency: false,
+        requiresProficiency: rule.proficiencyRequired ?? false,
         _id: foundry.utils.randomID(),
         group,
         sort: nextSort(),
@@ -669,7 +695,7 @@ export default class DDBFeature extends DDBFeatureMixin {
       });
       for (const rule of ruleSlot.rules ?? []) {
         const defs = rule.definitions ?? [];
-        if (defs.length > 1) buildCategoryChoice(rule, andId);
+        if (defs.length > 1) buildCategoryChoice(rule, andId, ruleSlot);
         else if (defs.length === 1) buildLinked(rule, andId);
         // gold bundled with the equipment option becomes a currency entry in the group
         else if (rule.gold) buildCurrency(rule, andId);
@@ -722,7 +748,7 @@ export default class DDBFeature extends DDBFeatureMixin {
           is2024: this.is2024,
         }, this.spellLinks);
         if (advancements) {
-          advancements.forEach((advancement) => this._addAdvancement(advancement as dnd5e.types.Advancement.Any));
+          advancements.forEach((advancement) => this._addAdvancement(advancement as dnd5e.types.Advancement.Instance));
         }
       }
       // no default
@@ -781,9 +807,8 @@ export default class DDBFeature extends DDBFeatureMixin {
       const chosenMatch = matchFeatId(ddbFeat.definition.id);
       if (!chosenMatch) {
         // Still emit the advancement (empty) so the player can assign in Foundry; only the
-        // automatic link is skipped. Adventure imports only auto-munch spells/items, so
-        // feats/backgrounds/species/classes may still need a Mule munch pass.
-        logger.warn(`Unable to link background feat ${ddbFeat.definition.name}. The feat is not in the DDB Feats compendium yet. Run Muncher -> Feats (and optionally Backgrounds/Species/Classes) to populate non-SRD sources.`, { ddbFeat });
+        // automatic link is skipped. Usually means the feats have not been munched to the compendium.
+        logger.warn(`Unable to link background feat ${ddbFeat.definition.name}, this is probably because the feats have not been munched to the compendium`, { ddbFeat });
       }
 
       const isChoice = (bgFeat?.featIds.length ?? 1) > 1;
@@ -796,7 +821,7 @@ export default class DDBFeature extends DDBFeatureMixin {
           .map((id) => matchFeatId(id)?.uuid)
           .filter((uuid): uuid is string => Boolean(uuid));
         const update: I5eAdvancementItemChoice = {
-          title: "Feat",
+          name: "Feat",
           configuration: {
             allowDrops: true,
             pool: uuids.map((uuid) => {
@@ -821,7 +846,7 @@ export default class DDBFeature extends DDBFeatureMixin {
           configuration: {
             items: chosenMatch ? [{ uuid: chosenMatch.uuid }] : [],
           },
-          title: "Feat",
+          name: "Feat",
         };
         advancement.updateSource(update as any);
       }
@@ -866,6 +891,7 @@ export default class DDBFeature extends DDBFeatureMixin {
       this.data.img = "icons/skills/trades/academics-book-study-purple.webp";
       this.data.name = this.data.name.split("Background: ").pop() ?? this.data.name;
 
+      await this.enricher.addDocumentAdvancements();
       await this.enricher.addDocumentOverride();
       this._final();
       await this.enricher.cleanup();
@@ -874,11 +900,58 @@ export default class DDBFeature extends DDBFeatureMixin {
         `Unable to Generate Background Feature: ${this.name}, please log a bug report. Err: ${utils.errorMessage(err)}`,
         "extension",
       );
-      logger.error("Error", err);
+      logger.error(`Unable to Generate Background Feature: ${this.name}`, err);
     }
   }
 
   static CHOICE_DEFS = DICTIONARY.parsing.choiceFeatures;
+
+  static MIN_CHOICE_CONTAINMENT_LENGTH = 40;
+
+  // DDB truncates the option copy mid-sentence and terminates it, where the parent runs on
+  // ("...finish a Long Rest." vs "...finish a Long Rest unless you take a level of
+  // Exhaustion")
+  static TRAILING_SENTENCE_PUNCTUATION = /[\s.,;:]+$/;
+
+  /**
+   * DDB represents builder on/off toggles as a choice with exactly one
+   * available option, labelled "Activate <Feature>" or "Invoke the <Feature>"
+   * (Bladesong, Elemental Attunement, ...). Building that lone option as a
+   * choice feature only renames the parent; suppress it instead.
+   * Tested against the raw parent-only pool, not the NEVER_CHOICES/skill/tool
+   * filtered list - the rule only applies when the toggle is the whole pool.
+   * Opt out via KEEP_CHOICE_FEATURE if a real "Activate X" choice needs building.
+   */
+  get isSingleToggleChoice(): boolean {
+    if (DDBFeature.CHOICE_DEFS.KEEP_CHOICE_FEATURE.includes(this.originalName)) return false;
+    const pool = this._parentOnlyChoices;
+    return pool.length === 1
+      && DDBFeature.CHOICE_DEFS.SINGLE_CHOICE_TOGGLE_PREFIXES
+        .some((prefix) => (pool[0].label ?? "").startsWith(prefix));
+  }
+
+  override get suppressesChoiceBuild(): boolean {
+    return super.suppressesChoiceBuild || this.isSingleToggleChoice;
+  }
+
+  /**
+   * DDB often ships an option whose description is a verbatim copy of the parent
+   * feature's own description (Brand of Axiom), or quotes it inside a larger blob.
+   * Appending that as a choice block just repeats the paragraph above it, so detect
+   * it by content rather than growing NO_CHOICE_DESCRIPTION_ADDITION for each one.
+   */
+  static isChoiceDescriptionRedundant(parentDescription: string, choiceDescription: string): boolean {
+    const lesserChoice = utils.renderLesserString(choiceDescription ?? "")
+      .replace(DDBFeature.TRAILING_SENTENCE_PUNCTUATION, "");
+    const lesserParent = utils.renderLesserString(parentDescription ?? "")
+      .replace(DDBFeature.TRAILING_SENTENCE_PUNCTUATION, "");
+    if (lesserChoice === "" || lesserParent === "") return false;
+    if (lesserChoice === lesserParent) return true;
+    // a short option line can appear inside an unrelated parent by coincidence;
+    // exact matches are always safe, containment needs some substance behind it
+    return lesserChoice.length >= DDBFeature.MIN_CHOICE_CONTAINMENT_LENGTH
+      && lesserParent.includes(lesserChoice);
+  }
 
   async _buildChoiceFeature() {
     this._generateSystemType();
@@ -901,12 +974,26 @@ export default class DDBFeature extends DDBFeatureMixin {
         ? this._choices
         : this._parentOnlyChoices;
 
+    const parentDescription = this.descriptionOverride
+      ?? (foundry.utils.getProperty(this.ddbDefinition, "description") as string)
+      ?? "";
+
     const choiceText = choices
       .filter((c) =>
         !DDBChoiceFeature.NEVER_CHOICES.includes(c.label)
         && !DICTIONARY.actor.skills.map((s) => s.label).includes(c.label)
         && !DICTIONARY.actor.proficiencies.filter((p) => p.type === "Tool").map((p) => p.name).includes(utils.nameString(c.label)),
       )
+      .filter((c) => {
+        // Blood Curses et al. use the choice text AS the description; the parent is the
+        // full option list, so every choice would be "contained" and we'd erase the lot
+        if (replaceDescription) return true;
+        const redundant = DDBFeature.isChoiceDescriptionRedundant(parentDescription, c.description ?? "");
+        if (redundant) {
+          logger.debug(`Dropping choice "${c.label}" from ${this.originalName}: description duplicated by the parent`);
+        }
+        return !redundant;
+      })
       .sort((a, b) => ((a.label < b.label) ? -1 : (a.label > b.label) ? 1 : 0))
       .reduce((p, c) => {
         if (!p.some((e) => e.label === c.label)) p.push(c);
@@ -944,7 +1031,7 @@ ${description}`;
       || ["feat"].includes(this.type) // don't add choice options for feats
       || joinedText.trim() === ""
       ? ""
-      : DDBFeature.CHOICE_DEFS.NO_CHOICE_BUILD.includes(this.originalName)
+      : this.suppressesChoiceBuild
         || DDBFeature.CHOICE_DEFS.NO_CHOICE_SECRET.includes(this.originalName)
         ? `<hr>${joinedText}`
         : `<hr><section class="secret">${joinedText}</section>`;
@@ -956,11 +1043,12 @@ ${description}`;
     // this._generateResourceFlags();
     // this._addCustomValues();
 
+    await this.enricher.addDocumentAdvancements();
     await this.enricher.addDocumentOverride();
     this._final();
   }
 
-  async build(_choice?: unknown) {
+  override async build(_choice?: unknown) {
     try {
       if (this.type === "background") {
         // work around till background parsing support advancements
@@ -977,7 +1065,7 @@ ${description}`;
         `Unable to Generate Basic Feature: ${this.name}, please log a bug report. Err: ${utils.errorMessage(err)}`,
         "extension",
       );
-      logger.error("Error", err);
+      logger.error(`Unable to Generate Basic Feature: ${this.name}`, err);
     }
   }
 

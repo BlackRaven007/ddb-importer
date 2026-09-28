@@ -193,8 +193,9 @@ export default class DDBComponentFeature extends DDBActivityFactoryMixin<"vehicl
     this.prepare();
 
     // copy source details from parent
-    if (this.ddbVehicle.data.system?.source)
+    if (this.ddbVehicle.data.system?.source) {
       this.data.system.source = this.ddbVehicle.data.system.source;
+    }
 
     this.#generateActionDataStub();
 
@@ -539,7 +540,7 @@ export default class DDBComponentFeature extends DDBActivityFactoryMixin<"vehicl
 
   }
 
-  async loadEnricher() {
+  override async loadEnricher() {
     await this.enricher.init();
     await this.enricher.load({
       // TODO: add vehicle enricher
@@ -549,33 +550,13 @@ export default class DDBComponentFeature extends DDBActivityFactoryMixin<"vehicl
     });
   }
 
+  /** A bare "escape DC N" names no ability, so the shared outline offers Acrobatics or Athletics. */
   _generateEscapeCheck(hit: any) {
     const escape = hit.match(/escape DC ([0-9]+)/);
-    if (escape) {
-      this.additionalActivities.push({
-        type: "check",
-        name: `Escape Check`,
-        options: {
-          generateCheck: true,
-          generateTarget: false,
-          generateRange: false,
-          checkOverride: {
-            "associated": [
-              "acr",
-              "ath",
-            ],
-            "ability": "",
-            "dc": {
-              "calculation": "",
-              "formula": escape[1],
-            },
-          },
-        },
-      });
-    }
+    if (escape) this.additionalActivities.push(DDBActivityFactoryMixin.escapeCheckOutline(escape[1]));
   }
 
-  _getSaveActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: string | null } = {}, options = {}) {
+  override _getSaveActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: string | null } = {}, options = {}) {
     const saveOverride = this.actionData.saveAbility
       ? null
       : this.descriptionSave;
@@ -595,7 +576,7 @@ export default class DDBComponentFeature extends DDBActivityFactoryMixin<"vehicl
     return super._getSaveActivity({ name, nameIdPostfix }, itemOptions);
   }
 
-  _getAttackActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: string | null } = {}, options = {}) {
+  override _getAttackActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: string | null } = {}, options = {}) {
 
     const itemOptions = foundry.utils.mergeObject({
       generateAttack: true,
@@ -612,7 +593,7 @@ export default class DDBComponentFeature extends DDBActivityFactoryMixin<"vehicl
     return super._getAttackActivity({ name, nameIdPostfix }, itemOptions);
   }
 
-  _getUtilityActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: string | null } = {}, options = {}) {
+  override _getUtilityActivity({ name = null, nameIdPostfix = null }: { name?: string | null; nameIdPostfix?: string | null } = {}, options = {}) {
     const itemOptions = foundry.utils.mergeObject({
       generateRange: this.templateType !== "weapon",
       includeBaseDamage: this.templateType === "weapon",
@@ -645,7 +626,7 @@ export default class DDBComponentFeature extends DDBActivityFactoryMixin<"vehicl
   }
 
 
-  _getActivitiesType() {
+  override _getActivitiesType() {
     if (this.healingAction) {
       if (!this.isAttack && !this.isSave && this.actionData.damageParts.length === 0) {
         // we generate heal activities as additionals;
@@ -654,7 +635,9 @@ export default class DDBComponentFeature extends DDBActivityFactoryMixin<"vehicl
     }
     if (this.isAttack) {
       // some attacks will have a save and attack
+      // console.warn("isAttack", this.isAttack, this.isSave);
       if (this.isSave) {
+        // console.warn("add save additional activity");
         this.#addSaveAdditionalActivity();
       }
       return "attack";
@@ -708,13 +691,11 @@ export default class DDBComponentFeature extends DDBActivityFactoryMixin<"vehicl
     // if (this.originalName === "Multiattack") {
     //   description = this.#processMultiAttack(description);
     // }
-    description = DDBReferenceLinker.replaceMonsterALinks(description, this.ddbVehicle.data);
-
-    description = DDBReferenceLinker.parseDamageRolls({ text: description, document: this.data, actor: this.ddbVehicle.data })
-      ?? description;
-    description = DDBReferenceLinker.parseToHitRoll({ text: description, document: this.data });
-    description = DDBReferenceLinker.parseTags(description);
-    description = await DDBReferenceLinker.replaceMonsterNameBadLinks(description, this.ddbVehicle.data);
+    description = await DDBReferenceLinker.parseMonsterDescription({
+      text: description,
+      document: this.data,
+      actor: this.ddbVehicle.data,
+    });
 
     this.data.system.description.value = await DDBTable.generateTable({
       parentName: this.ddbVehicle.data.name,
@@ -767,6 +748,9 @@ ${this.data.system.description.value}
     this.enricher.createDefaultEffects();
 
     this._activityEffectLinking();
+    this._activityBehaviorNaming();
+    this._activityDisplayDefaults();
+
     Effects.AutoEffects.forceDocumentEffect(this.data);
   }
 
@@ -883,8 +867,9 @@ ${this.data.system.description.value}
 
     await this._generateActivity();
 
-    if (this.enricher.addAutoAdditionalActivities)
+    if (this.enricher.addAutoAdditionalActivities) {
       await this._generateAdditionalActivities();
+    }
     await this.enricher.addAdditionalActivities(this);
 
     await this._generateEffects();

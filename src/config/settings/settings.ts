@@ -1,5 +1,7 @@
 import { COMPENDIUM_REMOVE_FLAGS, COMPENDIUMS, FOUNDRY_COMPENDIUM_LOOKUPS, FOUNDRY_COMPENDIUM_MAP, SRD_COMPENDIUM_LOOKUPS } from "./compendiums/compendiums";
 import DICTIONARY from "../dictionary/dictionary";
+import { REGION_DISPLAY_PROFILES_CHANGED } from "../regionDisplayProfiles";
+import { CUSTOM_ICON_CATALOGS_SETTING } from "../systemIcons";
 
 const SUPPORTED_FLAG_GROUPS = [
   "advancedspelleffects",
@@ -63,6 +65,13 @@ const GAME_FOLDER_LOOKUPS = [
   },
 ];
 
+const URLS = {
+  BASE: "ddb.blackraven007.co.uk",
+  PROXY: "https://proxy.ddb.blackraven007.co.uk",
+  CORS: "https://images.ddb.blackraven007.co.uk/",
+  DYNAMIC: "https://dynamic.ddb.blackraven007.co.uk",
+};
+
 const MUNCH_DEFAULTS: IMuncherDefaultSetting[] = [
   { name: "munching-policy-update-existing", needed: true },
   { name: "munching-policy-use-inbuilt-icons", needed: true },
@@ -104,11 +113,12 @@ const SETTINGS = {
   COMPENDIUM_REMOVE_FLAGS: COMPENDIUM_REMOVE_FLAGS,
   ADVENTURE_FLAG: "isDDBAdventure",
   ADVENTURE_CSS: "ddbAdventure",
+  URLS,
   POPUPS,
   DISABLE_FOUNDRY_UPGRADE,
   MUNCH_DEFAULTS,
   DEFAULT_SETTINGS: {
-    // these settigs are loaded during renderSidebarTab
+    // these settings are loaded during renderSidebarTab
     EARLY: {
       "log-level": {
         name: "ddb-importer.settings.log-level.name",
@@ -156,6 +166,72 @@ const SETTINGS = {
         default: true,
         requiresReload: true,
       },
+      "enable-ddb-macro-region-behaviors": {
+        name: "ddb-importer.settings.enable-ddb-macro-region-behaviors.name",
+        hint: "ddb-importer.settings.enable-ddb-macro-region-behaviors.hint",
+        scope: "world",
+        config: true,
+        type: Boolean,
+        default: true,
+        requiresReload: true,
+      },
+      "add-ddb-macro-region-behaviors": {
+        scope: "world",
+        config: false,
+        type: Boolean,
+        default: true,
+      },
+      // the cleanup handlers read this per event, so toggling it needs no reload
+      "enable-region-expiry-cleanup": {
+        scope: "world",
+        config: false,
+        type: Boolean,
+        default: false,
+      },
+      // master switch for the region display profiles: rendering hooks, the appearance
+      // behavior, the Region config fieldset, the settings menu and import-time defaults
+      "enable-region-display-profiles": {
+        name: "ddb-importer.settings.enable-region-display-profiles.name",
+        hint: "ddb-importer.settings.enable-region-display-profiles.hint",
+        scope: "world",
+        config: true,
+        type: Boolean,
+        default: true,
+        requiresReload: true,
+      },
+      // read once on ready to decide whether the click listener is bound at all
+      "icon-browser-shift-click": {
+        name: "ddb-importer.settings.icon-browser-shift-click.name",
+        hint: "ddb-importer.settings.icon-browser-shift-click.hint",
+        scope: "client",
+        config: true,
+        type: Boolean,
+        default: true,
+        requiresReload: true,
+      },
+      // extra icon list JSON files merged into the icon browser (see "Icon catalogue" in
+      // CONTRIBUTING.md); no UI, set from the console. Read on each load, so no reload is needed
+      [CUSTOM_ICON_CATALOGS_SETTING]: {
+        scope: "world",
+        config: false,
+        type: Array,
+        default: [] as string[],
+      },
+      // custom / tuned region display profiles, keyed by id (see lib/RegionDisplayProfiles)
+      "region-display-profiles": {
+        scope: "world",
+        config: false,
+        type: Object,
+        default: {},
+        // a world setting syncs to every client; the hook lets each canvas and open picker refresh
+        onChange: () => Hooks.callAll(REGION_DISPLAY_PROFILES_CHANGED),
+      },
+      "add-ddb-snippets-to-activities": {
+        scope: "world",
+        config: false,
+        type: Boolean,
+        default: true,
+      },
       "developer-mode": {
         scope: "world",
         config: false,
@@ -165,6 +241,14 @@ const SETTINGS = {
       "add-ddb-languages": {
         name: "ddb-importer.settings.add-ddb-languages.name",
         hint: "ddb-importer.settings.add-ddb-languages.hint",
+        scope: "world",
+        config: true,
+        type: Boolean,
+        default: true,
+      },
+      "add-ddb-tools": {
+        name: "ddb-importer.settings.add-ddb-tools.name",
+        hint: "ddb-importer.settings.add-ddb-tools.hint",
         scope: "world",
         config: true,
         type: Boolean,
@@ -406,13 +490,6 @@ const SETTINGS = {
           type: Boolean,
           default: false,
         },
-        "spells-on-items-as-activities": {
-          name: "ddb-importer.settings.spells-on-items-as-activities.name",
-          hint: "ddb-importer.settings.spells-on-items-as-activities.hint",
-          config: false,
-          type: Boolean,
-          default: false,
-        },
         "separate-ac-effects": {
           name: "ddb-importer.settings.separate-ac-effects.name",
           hint: "ddb-importer.settings.separate-ac-effects.hint",
@@ -469,13 +546,6 @@ const SETTINGS = {
           default: true,
           config: true,
         },
-        "import-run-state": {
-          type: Object,
-          default: {
-            schemaVersion: 1,
-            runs: [],
-          } as { schemaVersion: number; runs: unknown[] },
-        },
       },
       // character settings
       CHARACTER: {
@@ -501,14 +571,21 @@ const SETTINGS = {
             config: false,
             requiresReload: true,
           },
-          "allow-great-weapon-master-enhancer": {
+          "allow-warding-bond-enhancer": {
             type: Boolean,
             scope: "world",
-            default: false,
+            default: true,
             config: false,
             requiresReload: true,
           },
-          "allow-warding-bond-enhancer": {
+          "allow-divine-power-recovery-enhancer": {
+            type: Boolean,
+            scope: "world",
+            default: true,
+            config: false,
+            requiresReload: true,
+          },
+          "allow-rider-enchantment-link-enhancer": {
             type: Boolean,
             scope: "world",
             default: true,
@@ -1060,6 +1137,11 @@ const SETTINGS = {
             // 2014 core/expanded and 2024 core/expanded only enabled by default
             default: [1, 24, 26, 38],
           },
+          "muncher-show-source-book-covers": {
+            scope: "player",
+            type: Boolean,
+            default: false,
+          },
           "munching-policy-muncher-monster-types": {
             type: Array,
             default: [] as number[],
@@ -1199,8 +1281,8 @@ const SETTINGS = {
           },
           "munching-policy-character-species": {
             type: Array,
-            // selected entityRaceIds; empty = munch all
-            default: [] as number[],
+            // Selected entityRaceTypeId:entityRaceId keys.
+            default: [] as string[],
           },
           "munching-policy-character-dont-grab-existing": {
             type: Boolean,
@@ -1304,12 +1386,12 @@ const SETTINGS = {
         },
         "cors-endpoint": {
           type: String,
-          default: "",
+          default: URLS.CORS,
           requiresReload: true,
         },
         "dynamic-api-endpoint": {
           type: String,
-          default: "",
+          default: URLS.DYNAMIC,
           requiresReload: true,
         },
         "cors-encode": {
@@ -1350,6 +1432,18 @@ const SETTINGS = {
           type: String,
           default: "",
         },
+        // IndexedDB is per browser, so these are client scoped. Neither has UI yet: the Sources and
+        // Cache window exposes a Clear button, and the TTL only applies to entries written after a change.
+        "proxy-cache-enabled": {
+          scope: "client",
+          type: Boolean,
+          default: true,
+        },
+        "proxy-cache-ttl-hours": {
+          scope: "client",
+          type: Number,
+          default: 168,
+        },
       },
       // dev settings
       DEV: {
@@ -1374,6 +1468,11 @@ const SETTINGS = {
           default: false,
         },
         "debug-json": {
+          scope: "player",
+          type: Boolean,
+          default: false,
+        },
+        "debug-import-capture": {
           scope: "player",
           type: Boolean,
           default: false,

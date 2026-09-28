@@ -6,7 +6,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
  */
 export default class CallTheRabidBeast extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Rabid Beast",
@@ -16,8 +16,8 @@ export default class CallTheRabidBeast extends DDBEnricherData {
         },
         changes: [
           DDBEnricherData.ChangeHelper.upgradeChange("17", 20, "system.attributes.ac.min"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("5", 20, "system.bonuses.mwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("frightened", 20, "system.traits.ci.value"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("5", 20, "system.rolls.damage.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.conditionImmunityChange("frightened"),
         ],
       },
     ];

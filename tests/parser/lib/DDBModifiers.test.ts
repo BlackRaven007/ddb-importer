@@ -1,6 +1,8 @@
 import DDBModifiers from "../../../src/parser/lib/DDBModifiers";
 
+// =============================================================================
 // Test modifier data
+// =============================================================================
 const modifiers: any[] = [
   { type: "bonus", subType: "strength-score", value: 2, restriction: "", componentId: 100, componentTypeId: 1 },
   { type: "bonus", subType: "armor-class", value: 1, restriction: "while wearing armor", componentId: 101, componentTypeId: 1 },
@@ -11,7 +13,9 @@ const modifiers: any[] = [
   { type: "bonus", subType: "dexterity-score", value: 1, restriction: null, componentId: 106, componentTypeId: 1 },
 ];
 
+// =============================================================================
 // filterModifiers
+// =============================================================================
 describe("DDBModifiers.filterModifiers", () => {
   it("filters by type only (default restriction excludes non-empty/non-null)", () => {
     const result = DDBModifiers.filterModifiers(modifiers, "bonus");
@@ -64,7 +68,9 @@ describe("DDBModifiers.filterModifiers", () => {
   });
 });
 
+// =============================================================================
 // filterModifiersOld
+// =============================================================================
 describe("DDBModifiers.filterModifiersOld", () => {
   it("delegates to filterModifiers", () => {
     const result = DDBModifiers.filterModifiersOld(modifiers, "bonus", "strength-score");
@@ -79,7 +85,9 @@ describe("DDBModifiers.filterModifiersOld", () => {
   });
 });
 
+// =============================================================================
 // getEffectExcludedModifiers
+// =============================================================================
 describe("DDBModifiers.getEffectExcludedModifiers", () => {
   it("returns array for class type with features", () => {
     const result = DDBModifiers.getEffectExcludedModifiers("class", true, false);
@@ -112,7 +120,9 @@ describe("DDBModifiers.getEffectExcludedModifiers", () => {
   });
 });
 
+// =============================================================================
 // isModClassFeature
+// =============================================================================
 describe("DDBModifiers.isModClassFeature", () => {
   const ddb: any = {
     character: {
@@ -186,7 +196,9 @@ describe("DDBModifiers.isModClassFeature", () => {
   });
 });
 
+// =============================================================================
 // isModAChosenClassMod (integration of all isMod* checks)
+// =============================================================================
 describe("DDBModifiers.isModAChosenClassMod", () => {
   const ddb: any = {
     character: {
@@ -215,5 +227,90 @@ describe("DDBModifiers.isModAChosenClassMod", () => {
   it("returns false for unmatched modifier", () => {
     const mod: any = { componentId: 999, componentTypeId: 999 };
     expect(DDBModifiers.isModAChosenClassMod(ddb, mod)).toBe(false);
+  });
+});
+
+// =============================================================================
+// getModifierSum
+// =============================================================================
+describe("DDBModifiers.getModifierSum", () => {
+  const character: any = {
+    system: {
+      abilities: {
+        str: { value: 10 },
+        dex: { value: 14 },
+        con: { value: 16 },
+        int: { value: 8 },
+        wis: { value: 12 },
+        cha: { value: 10 },
+      },
+    },
+    flags: { ddbimporter: { dndbeyond: { profBonus: 3 } } },
+  };
+
+  const mod = (data: any): any => ({ type: "bonus", subType: "hit-points", bonusTypes: [], ...data });
+
+  it("does not re-add fixedValue already present in the diceString", () => {
+    const result = DDBModifiers.getModifierSum([
+      mod({ dice: { diceCount: 2, diceValue: 8, fixedValue: 2, diceString: "2d8 + 2" } }),
+    ], character);
+    expect(result).toBe("2d8 + 2");
+  });
+
+  it("returns a bare dice string without a trailing +", () => {
+    const result = DDBModifiers.getModifierSum([
+      mod({ dice: { diceCount: 2, diceValue: 4, fixedValue: null, diceString: "2d4" } }),
+    ], character);
+    expect(result).toBe("2d4");
+  });
+
+  it("uses fixedValue when the die has no diceString", () => {
+    const result = DDBModifiers.getModifierSum([
+      mod({ dice: { diceCount: null, diceValue: null, fixedValue: 3, diceString: null } }),
+    ], character);
+    expect(result).toBe("3");
+    expect(result).not.toContain("undefined");
+  });
+
+  it("sums flat fixedValue and value modifiers", () => {
+    const result = DDBModifiers.getModifierSum([
+      mod({ fixedValue: 2 }),
+      mod({ value: 3 }),
+    ], character);
+    expect(result).toBe("5");
+  });
+
+  it("combines dice and flat modifiers", () => {
+    const result = DDBModifiers.getModifierSum([
+      mod({ dice: { diceCount: 1, diceValue: 4, fixedValue: null, diceString: "1d4" } }),
+      mod({ value: 2 }),
+    ], character);
+    expect(result).toBe("1d4 + 2");
+  });
+
+  it("joins multiple dice modifiers", () => {
+    const result = DDBModifiers.getModifierSum([
+      mod({ dice: { diceCount: 1, diceValue: 4, fixedValue: null, diceString: "1d4" } }),
+      mod({ dice: { diceCount: 2, diceValue: 6, fixedValue: 1, diceString: "2d6 + 1" } }),
+    ], character);
+    expect(result).toBe("1d4 + 2d6 + 1");
+  });
+
+  it("appends the ability modifier to a dice string", () => {
+    const result = DDBModifiers.getModifierSum([
+      mod({ statId: 3, dice: { diceCount: 1, diceValue: 4, fixedValue: null, diceString: "1d4" } }),
+    ], character);
+    expect(result).toBe("1d4 + 3");
+  });
+
+  it("adds the proficiency bonus for prof bonus modifiers", () => {
+    const result = DDBModifiers.getModifierSum([
+      mod({ value: 1, modifierTypeId: 1, bonusTypes: [1] }),
+    ], character);
+    expect(result).toBe("4");
+  });
+
+  it("returns an empty string when the total is zero", () => {
+    expect(DDBModifiers.getModifierSum([mod({ value: 0 })], character)).toBe("");
   });
 });

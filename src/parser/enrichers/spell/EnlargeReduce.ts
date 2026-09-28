@@ -2,7 +2,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class EnlargeReduce extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Enlarged",
@@ -10,16 +10,11 @@ export default class EnlargeReduce extends DDBEnricherData {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1d4", 20, "system.bonuses.mwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1d4", 20, "system.bonuses.rwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.abilities.str.check.roll.mode"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.abilities.str.save.roll.mode"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "token.width"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "token.height"),
-        ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "ATL.width"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "ATL.height"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("1d4", 20, "system.rolls.damage.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("1d4", 20, "system.rolls.damage.rwak.bonus"),
+          DDBEnricherData.ChangeHelper.advantageAbilityCheckChange("str"),
+          DDBEnricherData.ChangeHelper.advantageAbilitySaveChange("str"),
+          DDBEnricherData.ChangeHelper.addChange("1", 20, "system.traits.size"),
         ],
       },
       {
@@ -28,16 +23,11 @@ export default class EnlargeReduce extends DDBEnricherData {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.subtractChange("1d4", 20, "system.bonuses.mwak.damage"),
-          DDBEnricherData.ChangeHelper.subtractChange("1d4", 20, "system.bonuses.rwak.damage"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE}`, 20, "system.abilities.str.check.roll.mode"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.DISADVANTAGE}`, 20, "system.abilities.str.save.roll.mode"),
-          DDBEnricherData.ChangeHelper.subtractChange("1", 20, "token.width"),
-          DDBEnricherData.ChangeHelper.subtractChange("1", 20, "token.height"),
-        ],
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.subtractChange("1", 20, "ATL.width"),
-          DDBEnricherData.ChangeHelper.subtractChange("1", 20, "ATL.height"),
+          DDBEnricherData.ChangeHelper.subtractChange("1d4", 20, "system.rolls.damage.mwak.bonus"),
+          DDBEnricherData.ChangeHelper.subtractChange("1d4", 20, "system.rolls.damage.rwak.bonus"),
+          DDBEnricherData.ChangeHelper.disadvantageAbilityCheckChange("str"),
+          DDBEnricherData.ChangeHelper.disadvantageAbilitySaveChange("str"),
+          DDBEnricherData.ChangeHelper.subtractChange("1", 20, "system.traits.size"),
         ],
       },
     ];

@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BattleSagas extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities(): boolean {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (!this.isAction) return [];
     return [
       {
@@ -17,8 +17,8 @@ export default class BattleSagas extends DDBEnricherData {
         },
         changes: [
           DDBEnricherData.ChangeHelper.damageResistanceChange("poison"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("frightened", 20, "system.traits.ci.value"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("poisoned", 20, "system.traits.ci.value"),
+          DDBEnricherData.ChangeHelper.conditionImmunityChange("frightened"),
+          DDBEnricherData.ChangeHelper.conditionImmunityChange("poisoned"),
         ],
       },
     ];

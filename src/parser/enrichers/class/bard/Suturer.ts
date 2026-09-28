@@ -8,11 +8,11 @@ export default class Suturer extends DDBEnricherData {
 
   static INSPIRATION = "Bardic Inspiration";
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.HEAL;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Suture",
       activationType: "special",
@@ -27,7 +27,7 @@ export default class Suturer extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -134,25 +134,32 @@ export default class Suturer extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Restrained by Thread",
         activityMatch: "Unspool",
         options: {
+          // the restrain lasts a minute with a save at the end of each of the target's turns
+          // (the OverTime flag below); a pseudo expiry would null the counted duration
+          expiry: "turnStart",
           durationSeconds: 60,
         },
-        daeSpecialDurations: ["turnStart"],
         statuses: ["Restrained"],
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.customChange(
+            "label=Suturer (Action Save),turn=end,saveDC=@attributes.spell.dc,saveAbility=str,savingThrow=true,saveRemove=true,killAnim=true,actionSave=true",
+            20,
+            "flags.midi-qol.OverTime",
+          ),
+        ],
       },
       {
         name: "Acupuncture Paralysis",
         activityMatch: "Save vs Paralysis",
         options: {
-          durationSeconds: 6,
-          durationRounds: 1,
+          expiry: "targetEnd",
         },
-        daeSpecialDurations: ["turnEnd"],
         statuses: ["Paralyzed"],
       },
     ];

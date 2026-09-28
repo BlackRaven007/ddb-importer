@@ -1,14 +1,15 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ChannelDivinityRadianceOfTheDawn extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "enemy",
       data: {
+        save: { ability: ["con"], dc: { calculation: "spellcasting", formula: "" } },
         damage: {
           onSave: "half",
           parts: [

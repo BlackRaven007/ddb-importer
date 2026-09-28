@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BecomeDeath extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.HEAL;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Become Death",
       targetType: "self",
@@ -22,7 +22,7 @@ export default class BecomeDeath extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Become Death",
@@ -34,7 +34,7 @@ export default class BecomeDeath extends DDBEnricherData {
           ...DDBEnricherData.allDamageTypes().map((t) =>
             DDBEnricherData.ChangeHelper.damageResistanceChange(t),
           ),
-          DDBEnricherData.ChangeHelper.upgradeChange("30", 20, "system.attributes.movement.fly"),
+          DDBEnricherData.ChangeHelper.upgradeChange("30", 20, "system.attributes.movement.speeds.fly"),
           DDBEnricherData.ChangeHelper.overrideChange("true", 20, "system.attributes.movement.hover"),
         ],
       },

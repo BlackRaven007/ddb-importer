@@ -1,11 +1,11 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class GuidedPrecision extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Bonus Damage",
       activationType: "special",
@@ -20,6 +20,13 @@ export default class GuidedPrecision extends DDBEnricherData {
           ],
         },
       },
+    };
+  }
+
+  // once per turn; DDB ships no action for the feature so the uses are spelled out
+  override get override(): IDDBOverrideData {
+    return {
+      uses: { spent: null, max: "1", recovery: [{ period: "turn", type: "recoverAll", formula: undefined }] },
     };
   }
 

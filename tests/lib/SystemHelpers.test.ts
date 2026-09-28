@@ -13,7 +13,9 @@ function makePart(): any {
   return { number: null, denomination: 0, bonus: "", types: [] };
 }
 
+// =============================================================================
 // parseBasicDamageFormula
+// =============================================================================
 
 describe("parseBasicDamageFormula", () => {
   it("parses a bare dice formula", () => {
@@ -102,7 +104,9 @@ describe("parseBasicDamageFormula", () => {
   });
 });
 
+// =============================================================================
 // buildDamagePart
+// =============================================================================
 
 describe("buildDamagePart", () => {
   it("builds from a DDB dice definition", () => {
@@ -165,7 +169,9 @@ describe("buildDamagePart", () => {
   });
 });
 
+// =============================================================================
 // getTemplate
+// =============================================================================
 
 describe("getTemplate", () => {
   it("returns a system template for item types", () => {
@@ -207,7 +213,9 @@ describe("getTemplate", () => {
   });
 });
 
+// =============================================================================
 // effectModules
+// =============================================================================
 
 describe("effectModules", () => {
   beforeEach(() => {
@@ -247,17 +255,13 @@ describe("effectModules", () => {
 
   it("detects the other effect modules", () => {
     setMockModules({
-      ATL: { active: true },
       tokenmagic: { active: true },
-      ActiveAuras: { active: true },
       auraeffects: { active: true },
       autoanimations: { active: true },
       "vision-5e": { active: true },
     });
     const result = SystemHelpers.effectModules();
-    expect(result.atlInstalled).toBe(true);
     expect(result.tokenMagicInstalled).toBe(true);
-    expect(result.activeAurasInstalled).toBe(true);
     expect(result.auraeffectsInstalled).toBe(true);
     expect(result.autoAnimationsInstalled).toBe(true);
     expect(result.vision5eInstalled).toBe(true);

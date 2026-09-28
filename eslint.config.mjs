@@ -7,6 +7,10 @@ import prettierConfig from "eslint-config-prettier";
 import stylistic from "@stylistic/eslint-plugin";
 
 export default defineConfig(
+  {
+    // the private audit submodule holds gigabytes of captured DDB payloads
+    ignores: ["tests/audit/fixtures/**"],
+  },
   eslint.configs.recommended,
   tseslint.configs.recommended,
   tseslint.configs.stylistic,
@@ -14,12 +18,18 @@ export default defineConfig(
   prettierConfig,
   {
     rules: {
+      // prettier's config switches curly off; a body on its own line needs braces
+      "curly": ["error", "multi-line"],
       "no-console": ["error"],
       "no-restricted-syntax": [
         "error",
         {
           selector: "CallExpression[callee.object.object.name='game'][callee.object.property.name='settings'][callee.property.name='get']",
           message: "Use utils.getSetting<T>(key, moduleId?) instead of game.settings.get().",
+        },
+        {
+          selector: "Property[key.name='ac5eChanges'] CallExpression[callee.object.name='ChangeHelper'][callee.property.name!='ac5eChange'], Property[key.name='ac5eChanges'] CallExpression[callee.object.property.name='ChangeHelper'][callee.property.name!='ac5eChange']",
+          message: "Build AC5E changes with ChangeHelper.ac5eChange(); it is the only helper that emits type: \"ac5e\".",
         },
       ],
       "@stylistic/member-delimiter-style": [
@@ -115,6 +125,30 @@ export default defineConfig(
       "no-restricted-syntax": "off",
     },
   },
+  {
+    // An enricher getter must declare its return type. The compiler then
+    // checks the returned object literal strictly, and a misspelled property
+    // or a wrong shape is a compile error. NOTE: flat config replaces rule
+    // options, so this block repeats the global game.settings selector.
+    files: ["src/parser/enrichers/{feat,spell,item,generic,background,trait,monster,class}/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.object.object.name='game'][callee.object.property.name='settings'][callee.property.name='get']",
+          message: "Use utils.getSetting<T>(key, moduleId?) instead of game.settings.get().",
+        },
+        {
+          selector: "MethodDefinition[kind='get'] > FunctionExpression:not([returnType])",
+          message: "Declare an explicit return type on enricher getters; the compiler then checks the returned literal strictly.",
+        },
+        {
+          selector: "Property[key.name='ac5eChanges'] CallExpression[callee.object.name='ChangeHelper'][callee.property.name!='ac5eChange'], Property[key.name='ac5eChanges'] CallExpression[callee.object.property.name='ChangeHelper'][callee.property.name!='ac5eChange']",
+          message: "Build AC5E changes with ChangeHelper.ac5eChange(); it is the only helper that emits type: \"ac5e\".",
+        },
+      ],
+    },
+  },
   // Layer guards. These keep the barrel-import cycles from coming back (they
   // are what forced tests to vi.mock the barrels). NOTE: flat config replaces
   // rather than merges rule options, so the config/lib blocks below must
@@ -163,6 +197,38 @@ export default defineConfig(
           message: "src/lib must not statically import effects or parser; use a lazy import() if needed.",
         }],
       }],
+    },
+  },
+  {
+    // These files form the transitive import closure of DDBEnricherData, which
+    // must finish evaluating before any enricher class `extends` it. A static
+    // import of a heavy barrel from here re-enters the enricher tree
+    // mid-evaluation and crashes with a TDZ error (pinned by
+    // tests/smoke/enricherFirstLoad.test.ts). config/_module and the small
+    // enrichers/effects/_module sub-barrel are deliberately not restricted.
+    files: [
+      "src/parser/enrichers/data/**/*.ts",
+      "src/parser/enrichers/effects/**/*.ts",
+      "src/parser/lib/{DDBDataUtils,DDBTemplateStrings,DDBReferenceLinker,DDBDescriptions,DDBModifiers,ProficiencyFinder,SpecialAdvancements}.ts",
+      "src/parser/spells/SpellDataUtils.ts",
+      "src/parser/advancements/AdvancementBuilder.ts",
+      "src/effects/DDBEffectHelperText.ts",
+    ],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [{
+          regex: "(^|/)lib/_module$|\\.\\./_module$",
+          message: "This file is in DDBEnricherData's import closure; import specific files, not barrels (config/_module and enrichers/effects/_module are fine).",
+        }],
+      }],
+    },
+  },
+  {
+    // Test doubles are deliberately no-op: `set: () => {}` stands in for a Foundry
+    // method whose side effect the test does not care about.
+    files: ["tests/**/*.{ts,mjs,js}"],
+    rules: {
+      "@typescript-eslint/no-empty-function": "off",
     },
   },
   {

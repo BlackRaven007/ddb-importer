@@ -1,6 +1,5 @@
 import { logger, utils } from "../../lib/_module";
 import DDBEffectHelper from "../DDBEffectHelper";
-import { setBasicCombatFlag } from "./shared";
 
 
 // Pack Damage (Aura Automation) from Conjure Animals
@@ -19,6 +18,7 @@ export default async function actorDamageOnEntry({
 
   const lastArg = args[args.length - 1];
 
+  // console.warn({
   //   args,
   //   scope,
   //   item,
@@ -33,6 +33,7 @@ export default async function actorDamageOnEntry({
   const flagNameTurn = `${baseName}Turn`;
   const flagNameCalled = `${baseName}Called`;
 
+  // console.warn({
   //   args,
   //   scope,
   //   item,
@@ -54,6 +55,7 @@ export default async function actorDamageOnEntry({
   }
 
   if (args[0] === "on") {
+    // console.warn("on", { args, lastArg, scope, item });
     if (!token) {
       logger.warn(`actorDamageOnEntry: no token in macro context for ${itemName}, skipping aura damage`);
       return;
@@ -70,7 +72,11 @@ export default async function actorDamageOnEntry({
     }
 
     // set flag for turn check
-    await setBasicCombatFlag(actor, flagNameTurn);
+    await DDBEffectHelper.setFlag(actor, flagNameTurn, {
+      id: game.combat?.id ?? null,
+      round: game.combat?.round ?? null,
+      turn: game.combat?.turn ?? null,
+    });
     // set flag to prevent end of turn roll
     await DDBEffectHelper.setFlag(actor, flagNameCalled, true);
 
@@ -95,6 +101,7 @@ export default async function actorDamageOnEntry({
 
   // at start of each turn, reset flags
   if (args[0] === "each" && lastArg.turn === "startTurn") {
+    // console.warn("Each startTurn", { args, lastArg, scope, item });
     await DDBEffectHelper.setFlag(actor, flagNameCalled, false);
   }
 

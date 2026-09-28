@@ -2,11 +2,11 @@ import _IntuitionActionBase from "./_IntuitionActionBase";
 
 export default class HuntersIntuition extends _IntuitionActionBase {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const effectBase = super.effects;
     effectBase[0].changes = [
-      _IntuitionActionBase.ChangeHelper.addChange(`@scale.${this.parentIdentifier}.die`, 20, "system.skills.sur.bonuses.check"),
-      _IntuitionActionBase.ChangeHelper.addChange(`@scale.${this.parentIdentifier}.die`, 20, "system.skills.prc.bonuses.check"),
+      _IntuitionActionBase.ChangeHelper.addChange(`@scale.${this.parentIdentifier}.die`, 20, "system.skills.sur.roll.bonus"),
+      _IntuitionActionBase.ChangeHelper.addChange(`@scale.${this.parentIdentifier}.die`, 20, "system.skills.prc.roll.bonus"),
     ];
     return effectBase;
   }

@@ -288,6 +288,7 @@ export class DDBInfusion {
     if (!this.ddbInfusion.actions) return;
 
     for (const actionData of this.ddbInfusion.actions) {
+      // const itemLookup = ddb.infusions.item.find((mapping) => mapping.definitionKey === infusionDetail.definitionKey);
       if (!actionData.name) {
         const activationType = foundry.utils.getProperty(actionData, "activation.activationType") as number;
         const activationName = DICTIONARY.actions.activationTypes.find((a) => a.id === activationType)?.value;
@@ -355,8 +356,9 @@ export class DDBInfusion {
     const uuids = cItems.map((i) => i.uuid);
     // for now just add riders to first effect
     const riderEffects = this.activity.data.effects;
-    if (riderEffects && riderEffects.length > 0 && riderEffects[0].riders)
+    if (riderEffects && riderEffects.length > 0 && riderEffects[0].riders) {
       riderEffects[0].riders.item = uuids;
+    }
     this.data.effects.forEach((e) => {
       // if (e.flags.ddbimporter?.infusion) e.flags.dnd5e.enchantment.riders.item.push(...uuids);
       e.system ??= {};

@@ -2,12 +2,18 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class WarpingImplosion extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get type(): IDDBActivityType | null {
+    return DDBEnricherData.ACTIVITY_TYPES.SAVE;
+  }
+
+  override get activity(): IDDBActivityData {
     return {
       noConsumeTargets: true,
       // default scrape picks up the 5 sorcery point recharge effect
       addItemConsume: true,
       data: {
+        // DDB marks the action as a save but names no ability
+        save: { ability: ["str"], dc: { calculation: "spellcasting", formula: "" } },
         target: {
           template: {
             contiguous: false,
@@ -20,7 +26,7 @@ export default class WarpingImplosion extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -48,7 +54,7 @@ export default class WarpingImplosion extends DDBEnricherData {
               {
                 type: "itemUses",
                 value: "5",
-                target: "Sorcery Points",
+                target: "feat:sorcery-points",
                 scaling: { allowed: false, max: "" },
               },
             ],
@@ -58,7 +64,7 @@ export default class WarpingImplosion extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       replaceActivityUses: true,
     };

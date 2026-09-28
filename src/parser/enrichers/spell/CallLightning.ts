@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class CallLightning extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       data: {
         name: "Place Storm Cloud Template",
@@ -14,7 +14,7 @@ export default class CallLightning extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -22,6 +22,7 @@ export default class CallLightning extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
+          generateDuration: true,
           noSpellslot: true,
           generateDamage: true,
           generateSave: true,
@@ -54,6 +55,8 @@ export default class CallLightning extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
+          generateDuration: true,
+          noSpellslot: true,
           generateDamage: true,
           generateSave: true,
           damageParts: [DDBEnricherData.basicDamagePart({

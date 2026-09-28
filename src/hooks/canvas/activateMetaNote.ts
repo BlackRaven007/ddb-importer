@@ -6,6 +6,7 @@ export default function activateMetaNote(note: any, _options: any): boolean | vo
   // Prefer the native imported journal: when the note resolves to a real
   // (non-placeholder) JournalEntry, let the default Note#_onClickLeft2 open it
   // (and let anchorInjection's options.anchor scroll to the sub-section).
+  //
   // Meta-data notes always carry a valid entryId pointing at the shared
   // placeholder journal (NoteDocument requires one); that placeholder must NOT
   // suppress the D&D Beyond popup. Only a real native journal does.

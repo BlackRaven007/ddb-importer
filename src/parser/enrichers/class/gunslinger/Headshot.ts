@@ -2,15 +2,16 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class Headshot extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.DAMAGE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Headshot Damage",
       targetType: "creature",
       targetCount: 1,
+      rangeType: "any",
       activationType: "special",
       activationCondition: "You score a Critical Hit with a Ranged weapon (target with less than 100 HP dies instead)",
       addItemConsume: true,
@@ -20,7 +21,7 @@ export default class Headshot extends DDBEnricherData {
             DDBEnricherData.basicDamagePart({
               number: 10,
               denomination: 10,
-              types: ["bludgeoning", "piercing", "slashing"],
+              types: DDBEnricherData.allDamageTypes(),
             }),
           ],
         },
@@ -28,7 +29,7 @@ export default class Headshot extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {

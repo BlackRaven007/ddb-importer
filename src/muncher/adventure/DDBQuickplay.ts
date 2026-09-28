@@ -224,7 +224,9 @@ export default class DDBQuickplay {
   // the given scene with its raw DDB values, current Foundry placement, and
   // the scene context. Designed to be copied directly out of F12 (right-click
   // -> "Copy object") and pasted into a chat or doc.
+  //
   // Usage from a Foundry console:
+  //   const data = CONFIG.DDBI.dumpQuickplay(canvas.scene);
   //   copy(data); // or copy(JSON.stringify(data, null, 2));
   static dumpScene(scene: Scene): {
     sceneName: string;
@@ -320,7 +322,7 @@ export default class DDBQuickplay {
     const xImg = e.position[0] * DDBQuickplay.POSITION_UNIT_PX + imageWidth / 2;
     const yImg = -e.position[1] * DDBQuickplay.POSITION_UNIT_PX + imageHeight / 2;
 
-    // Image-pixel space → scene-canvas space. NO offset subtraction: tile
+    // Image-pixel space -> scene-canvas space. NO offset subtraction: tile
     // coordinates are in canvas (post-padding) space and Foundry's texture
     // offset only adjusts grid-vs-image alignment, not tile placement.
     const xScene = xImg * sceneScale;

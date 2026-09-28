@@ -8,7 +8,9 @@ const ACTIVITY_TYPES = DICTIONARY.parsing.activity.types;
 export { };
 
 
+// ---------------------------------------------------------------------------
 // Type definitions for DDBEnricherData
+// ---------------------------------------------------------------------------
 
 
 // -- Damage Parts -----------------------------------------------------------
@@ -55,13 +57,30 @@ global {
     lookupName: string;
   }
 
+  // Fields omitted from the lookup are derived at apply time: name from the
+  // activity's resolved name, type from the owning parser. `true` derives both.
+  export interface IDDBActivitySnippetLookup {
+    name?: string;
+    type?: IActionTypes;
+    // Pull this named section out of the owning document's snippet/description instead of
+    // looking up a sibling DDB action. For activities whose name has no textual relation to
+    // the section describing them - Chef's "Eat Treat" is described by "Bolstering Treats".
+    section?: string;
+  }
+
   // -- Activity Data (main getter) --------------------------------------------
 
   export interface IDDBActivityData {
     name?: string;
     id?: string;
     type?: string;
+    /**
+     * Apply this primary-activity hint to the document's first activity only. Without it the
+     * hint also lands on every activity the parser generates beside it (multi-save extras).
+     */
+    primaryOnly?: boolean;
     parent?: IDDBActivityParentLookup[];
+    useActivitySnippet?: true | IDDBActivitySnippetLookup;
 
     // Consume targets
     noConsumeTargets?: boolean;
@@ -100,6 +119,14 @@ global {
     overrideTemplate?: boolean;
     overrideTarget?: boolean;
     overrideRange?: boolean;
+
+    // Region display
+    /**
+     * The Region Display for the regions this activity places, replacing the default picked from
+     * its damage and statuses: a profile id such as "status-restrained", or a profile plus field
+     * overrides for a look of its own.
+     */
+    display?: string | (IRegionDisplayFlag & { profile: string });
 
     // Activation
     activationType?: TActivationCost;
@@ -216,13 +243,23 @@ global {
   // -- Effect Options ---------------------------------------------------------
   interface IDDBEffectOptions {
     description?: string;
+    /**
+     * Counted duration in seconds, the only counted unit generated effects carry (rounds and
+     * turns are never emitted, see AutoEffects). A positive number replaces the host document's
+     * own duration; null or 0 clears it so the effect has no counted duration; undefined
+     * inherits the host duration.
+     */
     durationSeconds?: number | null;
-    durationRounds?: number | null;
-    durationTurns?: number | null;
     transfer?: boolean;
     disabled?: boolean;
-    expiry?: TDAEEffectExpiryTypes;
+    expiry?: T5eEffectExpiry | null;
     showIcon?: TEffectShowIcon;
+    /**
+     * Explicit `system.magical` for the effect. Leave undefined to inherit the document rule
+     * (spells, scrolls and `mgc` items mark their effects magical, see AutoEffects.markMagical);
+     * set false for a mundane rider on a magical source, such as a weapon-mastery condition.
+     */
+    magical?: boolean;
   }
 
   // -- Aura Effects -----------------------------------------------------------
@@ -246,16 +283,18 @@ global {
     // Changes
     changes?: IActiveEffectChangeData[];
     changesOverwrite?: boolean;
-    atlChanges?: IActiveEffectChangeData[];
+    /** Changes on `token.*` keys (light, sight, detectionModes, texture...), applied natively by Foundry. */
+    tokenChanges?: IActiveEffectChangeData[];
     tokenMagicChanges?: IActiveEffectChangeData[];
     midiChanges?: IActiveEffectChangeData[];
     daeChanges?: IActiveEffectChangeData[];
     /** changes only injected when automated-conditions-5e is active */
-    ac5eChanges?: IActiveEffectChangeData[];
+    ac5eChanges?: IAC5eActiveEffectChangeData[];
 
     // DAE
     daeStackable?: string;
-    daeSpecialDurations?: TDAESpecialDuration[];
+    /** DAE-only trigger tokens (1Attack, isSave...). Turn-edge expiry is declared with `options.expiry`. */
+    daeSpecialDurations?: TDAEOnlySpecialDuration[];
 
     // Status effects
     statuses?: typeof STATUSES;
@@ -264,6 +303,17 @@ global {
     // Activity matching
     activityMatch?: string;
     activitiesMatch?: string[];
+    /**
+     * Link by activity type, in preference order: the first listed type with an eligible activity
+     * wins and every eligible activity of that type is linked. Combines with activityMatch /
+     * activitiesMatch (both must pass). For parser-built activities, whose names follow the
+     * source's section labels and so cannot be predicted by the enricher.
+     */
+    activityTypesMatch?: IDDBActivityType[];
+    /** Activity ids this hint never links, e.g. an enricher's own sibling of a matched type. */
+    activityIdsExclude?: string[];
+    /** Link the effect to its activity with `onSave: true` so it applies even when the target saves. */
+    onSave?: boolean;
     ignoreTransfer?: boolean;
 
     // MIDI
@@ -277,6 +327,26 @@ global {
 
     // Auras
     auraeffects?: IDDBAuraEffects;
+    /**
+     * Build the effect as a standalone document in the effects compendium instead of
+     * embedding it on the item, so region behaviors can reference it by name (as the
+     * dnd5e SRD does with its effects pack). See BehaviorHelper.applyEffect.
+     */
+    standalone?: boolean;
+    /**
+     * With `standalone`: the string the compendium id is derived from instead of
+     * "<document name> <effect name>", for an effect several documents share (the evolved
+     * item property enchantments). Unlike the default id, a key is not split by ruleset
+     * (see DDBEffectImporter.standaloneEffectId), so include the ruleset in the key when the
+     * 2014 and 2024 versions of the shared effect differ.
+     */
+    standaloneKey?: string;
+    /**
+     * Stamp `replacement: "origin"` on changes whose value carries roll data, so caster-derived
+     * formulas (@prof, @abilities.cha.mod, @scale...) resolve against the origin activity's actor
+     * when the effect is applied to another actor, by an activity or by a region.
+     */
+    originReplacement?: boolean;
 
     // Enchant
     magicalBonus?: IDDBMagicalBonus;
@@ -287,16 +357,10 @@ global {
     daeNever?: boolean;
     ac5eOnly?: boolean;
     ac5eNever?: boolean;
-    atlOnly?: boolean;
-    atlNever?: boolean;
     midiOnly?: boolean;
     midiNever?: boolean;
-    activeAurasOnly?: boolean;
-    activeAurasNever?: boolean;
     auraeffectsOnly?: boolean;
     auraeffectsNever?: boolean;
-    aurasOnly?: boolean;
-    aurasNever?: boolean;
 
     // Function
     func?: (params: { effect: any }) => void | Promise<void>;
@@ -309,14 +373,24 @@ global {
     removeDamage?: boolean;
     rangeSelf?: boolean;
     replaceActivityUses?: boolean;
-    forceSpellAdvancement?: boolean;
     descriptionSuffix?: string;
     ddbMacroDescription?: boolean;
+    // keep the consumption targets and uses recovery already on the document in the
+    // world, and skip resource linking for it entirely
     retainResourceConsumption?: boolean;
     ignoredConsumptionActivities?: string[];
+    noConsumeTargetActivities?: string[];
+    // when resource linking attaches this document to a parent pool, push the parent
+    // link ALONGSIDE the activity's own consumption targets instead of replacing them.
+    // this does not retain uses; see retainUseSpent / retainActivityUseSpent
     retainOriginalConsumption?: boolean;
+    // stop resource linking blanking system.uses (both spent and max) on this document
     retainChildUses?: boolean;
+    // carry system.uses.spent over from the previously imported document
     retainUseSpent?: boolean;
+    // carry activity level uses.spent over from the previously imported document.
+    // true covers every activity with its own uses, an array selects them by name
+    retainActivityUseSpent?: boolean | string[];
     uses?: I5eSystemLimitedUses | I5eConsumableUses;
     // To Do add a data object here with flags
     data?: Record<string, any>;

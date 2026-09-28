@@ -1,11 +1,11 @@
 import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Shapechanger extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.TRANSFORM;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "self",
       data: {

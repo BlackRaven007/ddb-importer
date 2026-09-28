@@ -2,11 +2,11 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class Eyebite extends DDBEnricherData {
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Asleep",
@@ -32,12 +32,14 @@ export default class Eyebite extends DDBEnricherData {
     ];
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
         overrides: {
           name: "Concentration Action",
+          // the condition it applies lasts as long as the spell
+          data: { duration: this.followUpDuration },
           noSpellslot: true,
         },
       },

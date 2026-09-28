@@ -2,13 +2,14 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class NobleScion extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Activate Noble Scion",
+      useActivitySnippet: true,
       addItemConsume: true,
       targetType: "self",
       activationType: "bonus",
@@ -16,7 +17,7 @@ export default class NobleScion extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -78,20 +79,27 @@ export default class NobleScion extends DDBEnricherData {
   }
 
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       options: {
         durationSeconds: 600,
       },
       changes: [
-        DDBEnricherData.ChangeHelper.upgradeChange("60", 2, "system.attributes.movement.fly"),
+        DDBEnricherData.ChangeHelper.upgradeChange("60", 2, "system.attributes.movement.speeds.fly"),
         DDBEnricherData.ChangeHelper.upgradeChange("true", 2, "system.attributes.movement.hover"),
       ],
     }];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
+  }
+
+  // DDB ships no action (and so no limited use) for this feature; the activities consume item uses, which need a max
+  override get override(): IDDBOverrideData {
+    return {
+      uses: { spent: null, max: "1", recovery: [{ period: "lr", type: "recoverAll", formula: undefined }] },
+    };
   }
 
 }

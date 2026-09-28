@@ -6,6 +6,7 @@ import DDBActivityFactoryMixin from "../activities/mixins/DDBActivityFactoryMixi
 import { DDBSpellEnricher } from "../enrichers/_module";
 import DDBSummonsManager from "../companions/DDBSummonsManager";
 import { DDBTable, DDBReferenceLinker, DDBModifiers, DDBDataUtils, SystemHelpers } from "../lib/_module";
+import SpellDataUtils from "./SpellDataUtils";
 import { AutoEffects, ChangeHelper } from "../enrichers/effects/_module";
 import { ISpellPreparationMode } from "../../config/dictionary/spell/spell";
 
@@ -36,12 +37,14 @@ interface IDDBSpell {
   enricher?: DDBSpellEnricher | null;
   generateSummons?: boolean | null;
   notifier?: NotifierV1 | null;
-  healingBoost?: number | string | null;
-  cantripBoost?: boolean | null;
   unPreparedCantrip?: boolean | null;
   noSpellcasting?: boolean;
   is2014Class?: boolean | null;
   flagData?: IParseSpellFlagData;
+  // policy overrides; when null the matching game setting supplies the value
+  addSpellEffects?: boolean | null;
+  legacyPostfix?: boolean | null;
+  pactSpellsPrepared?: boolean | null;
 }
 
 interface IDDBSpellParseSpell {
@@ -84,7 +87,20 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
   legacy: boolean;
   is2014: boolean;
   is2024: boolean;
-  itemCompendium: CompendiumCollection.Any;
+  // resolved lazily so constructing a DDBSpell does not require the item
+  // compendium (or any world state) to exist
+  _itemCompendiumResolved = false;
+
+  _itemCompendium: CompendiumCollection.Any | undefined = undefined;
+
+  get itemCompendium(): CompendiumCollection.Any | undefined {
+    if (!this._itemCompendiumResolved) {
+      this._itemCompendium = CompendiumHelper.getCompendiumType("item", false) as CompendiumCollection<"Item"> | undefined;
+      this._itemCompendiumResolved = true;
+    }
+    return this._itemCompendium;
+  }
+
   isCompanionSpell2014: boolean;
   isCompanionSpell2024: boolean;
   isCRSummonSpell2014: boolean;
@@ -94,8 +110,6 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
   DDBCompanionFactory: DDBCompanionFactory | null;
   isCantrip: boolean;
   unPreparedCantrip: boolean;
-  cantripBoost: boolean;
-  healingBonus: string;
   noSpellcasting: boolean;
   spellData: IDDBSpellEntry;
   declare ddbDefinition: IDDBSpellDefinition;
@@ -190,6 +204,8 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
       await this.itemCompendium.getIndex({
         fields: [
           "name",
+          "system.rarities",
+          // pre-6.0 packs still hold the string; an index is raw source, so both must be requested
           "system.rarity",
           "system.type.value",
         ],
@@ -202,14 +218,15 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
     ddbData, spellData, rawCharacter = null, namePrefix = null, namePostfix = null, isGeneric = null, updateExisting = null,
     limitedUse = null, forceMaterial = null, klass = null, lookup = null, lookupName = null, ability = null,
     spellClass = null, dc = null, overrideDC = null, nameOverride = null, isHomebrew = null, enricher = null,
-    generateSummons = null, notifier = null, healingBoost = null, cantripBoost = null, unPreparedCantrip = null,
+    generateSummons = null, notifier = null, unPreparedCantrip = null,
     noSpellcasting = false, is2014Class = null, flagData = {} as IParseSpellFlagData,
+    addSpellEffects = null, legacyPostfix = null, pactSpellsPrepared = null,
   }: IDDBSpell) {
 
     const generic = isGeneric ?? foundry.utils.getProperty(flagData, "ddbimporter.generic") as boolean;
-    const addEffects = generic
+    const addEffects = addSpellEffects ?? (generic
       ? utils.getSetting<boolean>("munching-policy-add-midi-effects")
-      : utils.getSetting<boolean>("character-update-policy-add-midi-effects");
+      : utils.getSetting<boolean>("character-update-policy-add-midi-effects"));
     super({
       enricher,
       activityGenerator: DDBSpellActivity,
@@ -239,13 +256,13 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
     this.isGeneric = generic ?? false;
     this.addSpellEffects = addEffects;
 
-    this.legacyPostfix = this.isGeneric
+    this.legacyPostfix = legacyPostfix ?? (this.isGeneric
       ? utils.getSetting<boolean>("munching-policy-legacy-postfix")
-      : !utils.getSetting<boolean>("character-update-policy-remove-2024");
+      : !utils.getSetting<boolean>("character-update-policy-remove-2024"));
     this.updateExisting = updateExisting ?? this.isGeneric
       ? utils.getSetting<boolean>("munching-policy-update-existing")
       : false;
-    this.pactSpellsPrepared = utils.getSetting<boolean>("pact-spells-prepared");
+    this.pactSpellsPrepared = pactSpellsPrepared ?? utils.getSetting<boolean>("pact-spells-prepared");
     this.limitedUse = limitedUse ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.limitedUse") as IDDBSpellLimitedUse | null;
     this.forceMaterial = forceMaterial ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.forceMaterial") as boolean;
     this.forcePact = foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.forcePact") as boolean;
@@ -268,7 +285,6 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
 
     this._generateDataStub();
 
-    this.itemCompendium = CompendiumHelper.getCompendiumType("item", false) as CompendiumCollection<"Item">;
     this.enricher = enricher ?? new DDBSpellEnricher({ activityGenerator: DDBSpellActivity, notifier: this.notifier });
     this.isCompanionSpell2014 = this.is2014 && DICTIONARY.companions.COMPANION_SPELLS_2014.includes(this.originalName);
     this.isCompanionSpell2024 = !this.is2014 && DICTIONARY.companions.COMPANION_SPELLS_2024.includes(this.originalName);
@@ -281,11 +297,6 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
 
     this.isCantrip = this.ddbDefinition.level === 0;
     this.unPreparedCantrip = this.isCantrip && (unPreparedCantrip ?? false);
-    const boost = cantripBoost ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.cantripBoost")as boolean;
-    this.cantripBoost = this.isCantrip && boost;
-
-    const boostHeal = healingBoost ?? foundry.utils.getProperty(this.flagData, "ddbimporter.dndbeyond.healingBoost") as string;
-    this.healingBonus = boostHeal ? ` + ${boostHeal} + @item.level` : "";
     this.noSpellcasting = noSpellcasting;
 
     this.classPrepMode = DICTIONARY.spell.preparationModes.find((p) =>
@@ -333,6 +344,7 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
 
   _generateClassPreparationMode() {
     // Savant spells are markes as always prepared for wizards
+    // const notAlways = this.lookupName?.endsWith("Savant") && this.spellClass === "Wizard";
 
     if (this.spellData.restriction === "As Ritual Only"
       || this.spellData.castOnlyAsRitual
@@ -396,7 +408,9 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
         this.data.system.prepared = CONFIG.DND5E.spellPreparationStates.always.value;
       }
     } else if (
-      // Warlock Mystic Arcanum are passed in as Features
+      // Warlock Mystic Arcanum are passed in as Features. The standard features drop their
+      // spell copy via FEATURE_SPELLS_IGNORE in favour of a cast activity on the feature, so
+      // this only catches renamed or homebrew arcanum features.
       this.lookupName?.startsWith("Mystic Arcanum")
     ) {
       // these have limited uses (set with getUses())
@@ -467,13 +481,24 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
     }
   }
 
+  /**
+   * DDB duration types that carry no unit, keyed to the dnd5e time period they mean. The
+   * remaining unit-less types (Instantaneous, Special) happen to match dnd5e's key through their
+   * first four letters, which is what the fallback below relies on.
+   */
+  static DURATION_TYPE_UNITS: Record<string, TDurationUnit> = {
+    "until dispelled": "disp",
+    "until dispelled or triggered": "dstr",
+  };
+
   _generateDuration() {
     if (this.ddbDefinition.duration) {
       let units: string;
       if (this.ddbDefinition.duration.durationUnit !== null) {
         units = this.ddbDefinition.duration.durationUnit.toLowerCase();
       } else {
-        units = this.ddbDefinition.duration.durationType.toLowerCase().substring(0, 4);
+        const durationType = this.ddbDefinition.duration.durationType.toLowerCase();
+        units = DDBSpell.DURATION_TYPE_UNITS[durationType] ?? durationType.substring(0, 4);
       }
       this.data.system.duration = {
         concentration: this.ddbDefinition.concentration,
@@ -726,79 +751,7 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
   }
 
   static getUses(limitedUse: IDDBSpellLimitedUse | null | undefined): I5eSystemLimitedUses {
-    let uses: I5eSystemLimitedUses = {
-      spent: null,
-      max: "",
-      recovery: [],
-    };
-
-    if (!limitedUse) return uses;
-    const resetType = DICTIONARY.resets.find((reset) => reset.id == limitedUse.resetType);
-    if (!resetType) {
-      logger.warn("Unknown reset type", {
-        resetType: limitedUse.resetType,
-        spell: this,
-      });
-      return uses;
-    }
-
-    if (limitedUse.maxUses || limitedUse.statModifierUsesId || limitedUse.useProficiencyBonus) {
-      let maxUses = (limitedUse.maxUses && limitedUse.maxUses !== -1) ? limitedUse.maxUses : "";
-
-      if (limitedUse.statModifierUsesId) {
-        const ability = DICTIONARY.actor.abilities.find(
-          (ability) => ability.id === limitedUse.statModifierUsesId,
-        );
-
-        if (!ability) {
-          logger.warn("Unknown stat modifier uses id for spell uses", {
-            statModifierUsesId: limitedUse.statModifierUsesId,
-            limitedUse,
-          });
-        } else {
-          switch (limitedUse.operator) {
-            case 2: {
-              maxUses = `${maxUses} * @abilities.${ability.value}.mod`;
-              break;
-            }
-            case 1:
-            default:
-              maxUses = `${maxUses} + @abilities.${ability.value}.mod`;
-          }
-        }
-      }
-
-      if (limitedUse.useProficiencyBonus) {
-        switch (limitedUse.proficiencyBonusOperator) {
-          case 2: {
-            maxUses = `${maxUses} * @prof`;
-            break;
-          }
-          case 1:
-          default:
-            maxUses = `${maxUses} + @prof`;
-        }
-      }
-
-      maxUses = maxUses.toString().trim().replace(/^\+/, "").trim();
-
-      const finalMaxUses = (maxUses !== "") ? maxUses : null;
-
-      uses = {
-        spent: limitedUse.numberUsed ?? null,
-        max: `${finalMaxUses}`,
-        recovery: resetType && !["charges", ""].includes(resetType.value)
-          ? [{
-            period: resetType.value as TLimitedUsePeriod,
-            type: "recoverAll",
-          }]
-          : [],
-      };
-
-      return uses;
-    }
-
-    return uses;
+    return SpellDataUtils.getUses(limitedUse);
   }
 
   _generateUses() {
@@ -811,8 +764,6 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
     const activityParser = new DDBSpellActivity({
       type: "heal",
       ddbParent: this,
-      healingBoost: this.healingBonus,
-      cantripBoost: this.cantripBoost,
     });
 
     const heals = this.ddbDefinition.modifiers.filter((mod) =>
@@ -835,13 +786,18 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
         : heal.die?.fixedValue
           ? heal.die.fixedValue
           : "";
+      // healing bonuses from features (Disciple of Life) are not baked in here: they are
+      // native healing rule changes on the granting feature's effect (EffectGenerator)
       const diceString = heal.usePrimaryStat
-        ? `${healValue} + @mod${this.healingBonus}`
-        : `${healValue}${this.healingBonus}`;
+        ? `${healValue} + @mod`
+        : `${healValue}`;
       if (diceString && diceString.trim() !== "" && diceString.trim() !== "null") {
+        // scale from this modifier alone: without it getScaling walks every damage and healing
+        // modifier and the last one wins, so the result follows DDB's modifier order
         const damage = activityParser.buildDamagePart({
           damageString: diceString,
           type: heal.subType === "hit-points" ? "healing" : "temphp",
+          damageMod: heal,
         });
         healingPart.part = damage;
         this.healingParts.push(healingPart);
@@ -890,7 +846,7 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
   }
 
   /** @override */
-  _getAttackActivity({ name = null, nameIdPostfix = null } = {}, options = {}) {
+  override _getAttackActivity({ name = null, nameIdPostfix = null } = {}, options = {}) {
     const itemOptions = foundry.utils.mergeObject({
       modRestrictionFilterExcludes: this.ddbDefinition.requiresSavingThrow ? ["Save", "saving throw"] : null,
     }, options);
@@ -899,7 +855,7 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
   }
 
   /** @override */
-  _getActivitiesType() {
+  override _getActivitiesType() {
     if (this.isSummons) {
       return "summon";
     }
@@ -908,7 +864,8 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
     } else if ((this.ddbDefinition.tags.includes("Damage") && this.ddbDefinition.requiresAttackRoll)
       || this.ddbDefinition.attackType !== null
     ) {
-      if (this.ddbDefinition.requiresSavingThrow) {
+      // a multi-mode spell already has one named save activity per section
+      if (this.ddbDefinition.requiresSavingThrow && this._saveBearingSections(this.ddbDefinition.description ?? "").length === 0) {
         this.additionalActivities.push({
           name: "Save",
           type: "save",
@@ -946,7 +903,7 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
   }
 
   /** @override */
-  async _generateActivity({ hintsOnly = false, name = null, nameIdPostfix = null, typeOverride = null, typeFallback = "utility" }: {
+  override async _generateActivity({ hintsOnly = false, name = null, nameIdPostfix = null, typeOverride = null, typeFallback = "utility" }: {
     hintsOnly?: boolean;
     name?: string | null;
     nameIdPostfix?: any;
@@ -968,10 +925,11 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
     const activityData = foundry.utils.getProperty(this.data, `system.activities.${activity}`) as I5eActivity;
 
     if (activityData.type !== "summon") return activity;
-    if (this.isCompanionSpell2014 || this.isCompanionSpell2024)
+    if (this.isCompanionSpell2014 || this.isCompanionSpell2024) {
       await this.ddbCompanionFactory.addCompanionsToDocuments([], activityData, this.enricher.activity ?? undefined);
-    else if (this.isCRSummonSpell2024 || this.isCRSummonSpell2014)
+    } else if (this.isCRSummonSpell2024 || this.isCRSummonSpell2014) {
       await this.ddbCompanionFactory.addCRSummoning(activityData);
+    }
     return activity;
   }
 
@@ -1002,7 +960,10 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
     const effects = await this.enricher.createEffects();
     this.data.effects.push(...effects);
     this.enricher.createDefaultEffects();
+    AutoEffects.markMagical(this.data);
     this._activityEffectLinking();
+    this._activityBehaviorNaming();
+    this._activityDisplayDefaults();
   }
 
   #addHealAdditionalActivities() {
@@ -1019,25 +980,64 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
           generateHealing: true,
           healingPart: part.part,
           healingChatFlavor: part.chatFlavor,
-          noSpellslot: this.activityType !== "heal",
+          noSpellslot: true,
         },
       });
     }
   }
 
-  async _generateAdditionalActivities() {
+  /**
+   * The save the spell describes, used to keep the primary out of the generated set.
+   * Unlike an item, a spell's save comes from DDB rather than its prose, so it usually carries a
+   * spellcasting calculation rather than a printed DC.
+   */
+  get #primarySpellSave(): I5eActivitySave | null {
+    if (!this.ddbDefinition.requiresSavingThrow || !this.ddbDefinition.saveDcAbilityId) return null;
+    const ability = DICTIONARY.actor.abilities
+      .find((entry) => entry.id === this.ddbDefinition.saveDcAbilityId)?.value;
+    if (!ability) return null;
+    return {
+      ability: [ability],
+      dc: this.spellData.overrideSaveDc
+        ? { formula: String(this.spellData.overrideSaveDc), calculation: "" }
+        : { formula: "", calculation: "spellcasting" },
+    };
+  }
+
+  /**
+   * Build one save activity per mode of a spell whose text describes several saving throws.
+   *
+   * Rarely fires: spell text names an ability without a DC ("make a Dexterity saving throw"),
+   * which the save parser deliberately will not read. The extras consume no slot - two
+   * slot-consuming activities on one spell is an audit failure.
+   */
+  #generateMultiSaveActivities(): void {
+    // A summoning spell embeds the summoned creature's stat block in its own description, so its
+    // traits' saving throws read as extra modes of the spell. Those belong to the summon.
+    if (this.isSummons) return;
+    this._multiSaveActivityGeneration({
+      text: this.ddbDefinition.description ?? "",
+      primarySave: this.#primarySpellSave,
+      skipFirstSection: Boolean(this.ddbDefinition.requiresSavingThrow && !this.ddbDefinition.requiresAttackRoll),
+      noSpellslot: true,
+    });
+  }
+
+  override async _generateAdditionalActivities() {
     if (this.additionalActivities.length === 0) return;
     logger.debug(`Additional Spell Activities for ${this.data.name}`, this.additionalActivities);
     let i = 0;
     const ids = [];
     for (const activityData of this.additionalActivities) {
       i++;
+      // the parser's extras are follow-ups to the cast (study checks, extra healing, a save beside
+      // an attack), so using one must not begin the spell's concentration again
       const id = await this._generateActivity({
         hintsOnly: false,
         name: activityData.name,
         nameIdPostfix: i,
         typeOverride: activityData.type,
-      }, activityData.options);
+      }, { noConcentration: true, ...activityData.options } as IDDBSpellActivityBuild);
       logger.debug(`Generated additional Activity with id ${id}`, {
         this: this,
         activityData,
@@ -1083,7 +1083,7 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
     this.data.system.source.rules = this.is2014 ? "2014" : "2024";
 
     if (this.spellClass) {
-      this.data.system.sourceClass = DDBDataUtils.classIdentifierName(this.spellClass);
+      this.data.system.sourceItem = `class:${DDBDataUtils.classIdentifierName(this.spellClass)}`;
     }
     this._generateProperties();
     this._generateMaterials();
@@ -1100,14 +1100,18 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
     await this._generateCompanions();
 
     this._studyCheckGeneration();
+    this.#generateMultiSaveActivities();
 
-    if (!this.enricher.stopDefaultActivity)
+    if (!this.enricher.stopDefaultActivity) {
       await this._generateActivity();
+    }
 
-    if (!this.enricher.activity?.stopHealSpellActivity)
+    if (!this.enricher.activity?.stopHealSpellActivity) {
       this.#addHealAdditionalActivities();
-    if (this.enricher.addAutoAdditionalActivities)
+    }
+    if (this.enricher.addAutoAdditionalActivities) {
       await this._generateAdditionalActivities();
+    }
     await this.enricher.addAdditionalActivities(this);
 
     // TO DO: activities
@@ -1143,6 +1147,7 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
       identifier = DICTIONARY.identifierAdjustments[identifier];
     }
     this.data.system.identifier = identifier;
+    this._finaliseActivityDescriptions();
 
     await this.enricher.cleanup();
   }
@@ -1180,7 +1185,7 @@ export default class DDBSpell extends DDBActivityFactoryMixin<"spell"> {
   }
 
   /** @override */
-  _getHealActivity({ name = null, nameIdPostfix = null } = {}, options = {}) {
+  override _getHealActivity({ name = null, nameIdPostfix = null } = {}, options = {}) {
     const spellOptions = foundry.utils.mergeObject({
       healingPart: this.healingParts.length > 0 ? this.healingParts[0].part : null,
       healingChatFlavor: this.healingParts.length > 0 ? this.healingParts[0].chatFlavor : null,

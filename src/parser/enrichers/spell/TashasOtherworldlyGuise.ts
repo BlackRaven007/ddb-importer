@@ -2,34 +2,34 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class TashasOtherworldlyGuise extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Cast",
     };
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const sharedChanges = [
-      DDBEnricherData.ChangeHelper.upgradeChange("40", 20, "system.attributes.movement.fly"),
+      DDBEnricherData.ChangeHelper.upgradeChange("40", 20, "system.attributes.movement.speeds.fly"),
       DDBEnricherData.ChangeHelper.signedAddChange("2", 20, "system.attributes.ac.bonus"),
     ];
     const upperPlanesChanges = [
-      DDBEnricherData.ChangeHelper.addChange("radiant", 20, "system.traits.di.value"),
-      DDBEnricherData.ChangeHelper.addChange("necrotic", 20, "system.traits.di.value"),
-      DDBEnricherData.ChangeHelper.addChange("charmed", 20, "system.traits.ci.value"),
+      DDBEnricherData.ChangeHelper.damageImmunityChange("radiant"),
+      DDBEnricherData.ChangeHelper.damageImmunityChange("necrotic"),
+      DDBEnricherData.ChangeHelper.conditionImmunityChange("charmed"),
     ].concat(sharedChanges);
     const lowerPlanesChanges = [
-      DDBEnricherData.ChangeHelper.addChange("fire", 20, "system.traits.di.value"),
-      DDBEnricherData.ChangeHelper.addChange("poison", 20, "system.traits.di.value"),
-      DDBEnricherData.ChangeHelper.addChange("poisoned", 20, "system.traits.ci.value"),
+      DDBEnricherData.ChangeHelper.damageImmunityChange("fire"),
+      DDBEnricherData.ChangeHelper.damageImmunityChange("poison"),
+      DDBEnricherData.ChangeHelper.conditionImmunityChange("poisoned"),
     ].concat(sharedChanges);
     const effects = [
       {
@@ -48,7 +48,8 @@ export default class TashasOtherworldlyGuise extends DDBEnricherData {
         changes: [
           DDBEnricherData.ChangeHelper.overrideChange(`{} [Otherworldly Weapon]`, 20, "name"),
           DDBEnricherData.ChangeHelper.unsignedAddChange("mgc", 20, "system.properties"),
-          DDBEnricherData.ChangeHelper.overrideChange("spellcasting", 20, "system.ability"),
+          // the legacy "system.ability" key cannot carry "spellcasting" in dnd5e 6, see AlterSelf
+          DDBEnricherData.ChangeHelper.overrideChange("spellcasting", 20, "activities[attack].attack.ability"),
         ],
         activityMatch: "Otherworldly Weapon",
       },
@@ -56,7 +57,7 @@ export default class TashasOtherworldlyGuise extends DDBEnricherData {
     return effects;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -64,11 +65,14 @@ export default class TashasOtherworldlyGuise extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.ENCHANT,
         },
         build: {
+          // the enchantment takes this activity's duration: the spell's, without concentration
+          noConcentration: true,
           img: "icons/magic/holy/angel-wings-gray.webp",
           generateDamage: false,
           generateHealing: false,
           generateRange: false,
-          generateConsumption: true,
+          generateConsumption: false,
+          noSpellslot: true,
           data: {
             restrictions: {
               type: "weapon",

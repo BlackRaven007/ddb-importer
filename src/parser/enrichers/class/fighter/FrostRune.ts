@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class FrostRune extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Invoke Rune",
       activationType: "bonus",
@@ -20,7 +20,7 @@ export default class FrostRune extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         noCreate: true,
@@ -29,8 +29,8 @@ export default class FrostRune extends DDBEnricherData {
           transfer: true,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.ani.roll.mode"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, "system.skills.itm.roll.mode"),
+          DDBEnricherData.ChangeHelper.advantageSkillChange("ani"),
+          DDBEnricherData.ChangeHelper.advantageSkillChange("itm"),
         ],
       },
       {
@@ -41,16 +41,16 @@ export default class FrostRune extends DDBEnricherData {
           durationSeconds: 600,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("+2", 20, "system.abilities.con.bonuses.check"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("+2", 20, "system.abilities.con.bonuses.save"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("+2", 20, "system.abilities.str.bonuses.check"),
-          DDBEnricherData.ChangeHelper.unsignedAddChange("+2", 20, "system.abilities.str.bonuses.save"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("+2", 20, "system.abilities.con.check.roll.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("+2", 20, "system.abilities.con.save.roll.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("+2", 20, "system.abilities.str.check.roll.bonus"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("+2", 20, "system.abilities.str.save.roll.bonus"),
         ],
       },
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     const uses = this._getUsesWithSpent({
       name: "Frost Rune",
       type: "class",

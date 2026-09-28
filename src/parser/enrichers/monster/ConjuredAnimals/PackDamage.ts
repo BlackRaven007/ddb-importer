@@ -1,23 +1,32 @@
 import { utils } from "../../../../lib/_module";
 import DDBEnricherData from "../../data/DDBEnricherData";
+import { regionPlacer } from "../../data/RegionBuilders";
 
+const PACK_SAVE_ID = "ddbPackDamageSav";
+
+/**
+ * The importer-built 2024 Conjure Animals pack.
+ * "Place Aura" puts a 10-foot emanation on the pack token and rolls nothing; the region fires
+ * Pack Damage when a creature enters or ends its turn inside (once per turn), and when the pack
+ * moves within 10 feet of one ("movementOrArea": the pack appearing is not it moving). The
+ * "(Aura Automation)" activity below is the Aura Effects + midi arm of the same
+ * automation, so the region arm remains unless both modules can automate it.
+ */
 export default class PackDamage extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
-      id: "ddbPackDamageSav",
+      id: PACK_SAVE_ID,
       targetType: "creature",
+      targetCount: "1",
+      noTemplate: true,
       activationType: "special",
       activationCondition:
         "Moves within 10 feet of a creature you can see and whenever a creature you can see enters a space within 10 feet of the pack or ends its turn there",
       data: {
-        range: {
-          units: "ft",
-          value: "10",
-        },
         save: {
           ability: ["dex"],
           dc: {
@@ -29,8 +38,23 @@ export default class PackDamage extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
-    if (!this.useMidiAutomations) return [];
+  override get additionalActivities(): IDDBAdditionalActivity[] {
+    const placer = regionPlacer("Place Aura", {
+      template: { type: "radius", size: "10" },
+      activationType: "special",
+      activationCondition: "When the pack appears",
+      behaviors: [
+        DDBEnricherData.BehaviorHelper.activity({
+          events: ["tokenEnter", "tokenTurnEnd"],
+          enterOn: "movementOrArea",
+          excludeSelf: true,
+          auraeffectsNever: this.useMidiAutomations,
+          activityId: PACK_SAVE_ID,
+        }),
+      ],
+    });
+    // one working path: the region, or the Aura Effects + midi arm in its place
+    if (!this.useMidiAutomations || !DDBEnricherData.AutoEffects.effectModules().auraeffectsInstalled) return [placer];
     return [
       {
         init: {
@@ -58,7 +82,7 @@ export default class PackDamage extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     const flagName = `${utils.idString(this.data.name)}Called`;
     const overtimeOptions = [
       `label=${this.data.name} (End of Turn)`,
@@ -76,7 +100,8 @@ export default class PackDamage extends DDBEnricherData {
     return [
       {
         activityMatch: "Pack Damage (Aura Automation)",
-        aurasOnly: true,
+        auraeffectsOnly: true,
+        midiOnly: true,
         options: {
           transfer: true,
         },
@@ -100,24 +125,11 @@ export default class PackDamage extends DDBEnricherData {
               selfTarget: true,
               selfTargetAlways: true,
             },
-            ActiveAuras: {
-              isAura: true,
-              aura: "Enemy",
-              radius: "10",
-              alignment: "",
-              type: "",
-              ignoreSelf: true,
-              height: false,
-              hidden: false,
-              hostile: false,
-              onlyOnce: false,
-              displayTemp: true,
-            },
           },
         },
         auraeffects: {
           applyToSelf: true,
-          bestFormula: "",
+          bestFormula: "@flags.dnd5e.summon.level",
           canStack: false,
           collisionTypes: ["move"],
           combatOnly: false,
@@ -125,22 +137,21 @@ export default class PackDamage extends DDBEnricherData {
           distanceFormula: `10`,
           disposition: -1,
           evaluatePreApply: true,
-          overrideName: "",
+          overrideName: "Conjured Animals: Pack Damage",
           script: "",
         },
       },
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       data: {
         flags: {
           ddbimporter: {
             effect: {
-              saveOnEntry: true,
               sequencerFile: "jb2a.swirling_feathers.outburst.01.textured.2",
-              activityIds: ["ddbPackDamageSav"],
+              activityIds: [PACK_SAVE_ID],
             },
           },
         },

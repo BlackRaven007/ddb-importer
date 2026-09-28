@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class EyesOfNight extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return this.isAction ? DDBEnricherData.ACTIVITY_TYPES.NONE : DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Activate",
       id: "activateEyesOfNi",
@@ -27,7 +27,7 @@ export default class EyesOfNight extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -68,19 +68,14 @@ export default class EyesOfNight extends DDBEnricherData {
 
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Eyes of Night - Darkvision",
         activityMatch: "Activate",
         img: "icons/magic/perception/silhouette-stealth-shadow.webp",
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("300", 20, "system.attributes.senses.darkvision"),
-        ],
-        // without the token changes the shared darkvision is invisible in play
-        atlChanges: [
-          DDBEnricherData.ChangeHelper.atlChange("ATL.sight.range", "upgrade", 300, 10),
-          DDBEnricherData.ChangeHelper.atlChange("ATL.sight.visionMode", "custom", "darkvision", 5),
+          DDBEnricherData.ChangeHelper.upgradeChange("300", 20, "system.attributes.senses.ranges.darkvision"),
         ],
         options: {
           durationSeconds: 3600,

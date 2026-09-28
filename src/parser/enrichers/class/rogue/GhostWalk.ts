@@ -2,22 +2,23 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class GhostWalk extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Activate",
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Spectral Form",
         activityMatch: "Activate",
+        statuses: ["Transformed"],
         options: {
           durationSeconds: 600,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.upgradeChange("10", 2, "system.attributes.movement.fly"),
+          DDBEnricherData.ChangeHelper.upgradeChange("10", 2, "system.attributes.movement.speeds.fly"),
           DDBEnricherData.ChangeHelper.overrideChange("true", 2, "system.attributes.movement.hover"),
         ],
         midiChanges: [
@@ -27,7 +28,7 @@ export default class GhostWalk extends DDBEnricherData {
     ];
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     if (this.isAction) return [];
     return [
       {
@@ -74,9 +75,16 @@ export default class GhostWalk extends DDBEnricherData {
   //   return true;
   // }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       replaceActivityUses: true,
+      uses: this._getUsesWithSpent({
+        type: "class",
+        name: "Ghost Walk",
+        includesName: true,
+        max: "1",
+        period: "lr",
+      }),
     };
   }
 

@@ -1,20 +1,44 @@
 import DDBEnricherData from "../../data/DDBEnricherData";
 
+/**
+ * The importer-built Flaming Sphere summon. Using Flame Damage from the sphere
+ * token places a 5-foot emanation attached to it, so every creature that ends
+ * its turn inside gets the Dex save; the sphere itself never saves. Ramming the
+ * sphere into a creature is the mover's own trigger and stays on Move and
+ * Attack. The auraeffects + midi OverTime effect below is the module arm of the
+ * same automation, so the region arm remains unless both modules can automate it.
+ */
 export default class FlameDamage extends DDBEnricherData {
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "creature",
       activationType: "special",
-      activationCondition: "Any creature that ends its turn within 5 feet of the sphere ",
+      activationCondition: "Any creature that ends its turn within 5 feet of the sphere",
       data: {
-        range: {
-          units: "ft",
-          value: "5",
+        target: {
+          override: true,
+          affects: {
+            type: "creature",
+          },
+          template: {
+            count: "1",
+            contiguous: false,
+            type: "radius",
+            size: "5",
+            units: "ft",
+          },
         },
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenTurnEnd"],
+            excludeSelf: true,
+            auraeffectsNever: this.useMidiAutomations,
+          }),
+        ],
         save: {
           ability: ["dex"],
           dc: {
@@ -34,11 +58,11 @@ export default class FlameDamage extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Flaming Sphere: Heat",
-        aurasOnly: true,
+        auraeffectsOnly: true,
         midiOnly: true,
         options: {
           transfer: true,
@@ -50,25 +74,9 @@ export default class FlameDamage extends DDBEnricherData {
             "flags.midi-qol.OverTime",
           ),
         ],
-        data: {
-          flags: {
-            ActiveAuras: {
-              isAura: true,
-              aura: "All",
-              radius: "5",
-              alignment: "",
-              type: "",
-              ignoreSelf: true,
-              height: false,
-              hidden: false,
-              onlyOnce: false,
-              displayTemp: true,
-            },
-          },
-        },
         auraeffects: {
           applyToSelf: false,
-          bestFormula: "",
+          bestFormula: "@flags.dnd5e.summon.level",
           canStack: false,
           collisionTypes: ["move"],
           combatOnly: false,
@@ -76,7 +84,7 @@ export default class FlameDamage extends DDBEnricherData {
           distanceFormula: `5`,
           disposition: 0,
           evaluatePreApply: true,
-          overrideName: "",
+          overrideName: "Flaming Sphere: Heat",
           script: "",
         },
       },

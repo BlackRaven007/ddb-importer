@@ -2,15 +2,22 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class WallOfThorns extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Place Wall",
       splitDamage: true,
       data: {
+        behaviors: [
+          DDBEnricherData.BehaviorHelper.difficultTerrain({ types: ["plants"] }),
+          DDBEnricherData.BehaviorHelper.activity({
+            events: ["tokenEnter", "tokenTurnEnd"],
+            activityName: "Save to Travel Through Wall",
+          }),
+        ],
         img: "icons/magic/nature/root-vine-entwined-thorns.webp",
         target: {
           override: true,
@@ -26,7 +33,7 @@ export default class WallOfThorns extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -45,13 +52,25 @@ export default class WallOfThorns extends DDBEnricherData {
             template: {
               count: "1",
               contiguous: false,
-              type: "cylinder",
-              size: "20",
+              // "a circle that has a 20-foot diameter and is up to 20 feet high and 5 feet thick"
+              type: "ring",
+              size: "10",
               height: "20",
               width: "5",
               units: "ft",
             },
             affects: {},
+          },
+        },
+        overrides: {
+          data: {
+            behaviors: [
+              DDBEnricherData.BehaviorHelper.difficultTerrain({ types: ["plants"] }),
+              DDBEnricherData.BehaviorHelper.activity({
+                events: ["tokenEnter", "tokenTurnEnd"],
+                activityName: "Save to Travel Through Wall",
+              }),
+            ],
           },
         },
       },
@@ -61,6 +80,7 @@ export default class WallOfThorns extends DDBEnricherData {
           type: DDBEnricherData.ACTIVITY_TYPES.SAVE,
         },
         build: {
+          generateDuration: true,
           generateDamage: true,
           generateConsumption: false,
           generateSave: true,
@@ -68,7 +88,7 @@ export default class WallOfThorns extends DDBEnricherData {
           generateTarget: true,
           partialDamageParts: [1],
           noSpellslot: true,
-          activationOverride: { type: "special", condition: "Moving through/starting in Frigid Air" },
+          activationOverride: { type: "special", condition: "Enters the wall's area or ends its turn there" },
           durationOverride: { units: "inst", concentration: false },
           targetOverride: {
             override: true,
@@ -82,7 +102,7 @@ export default class WallOfThorns extends DDBEnricherData {
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       noTemplate: true,
     };

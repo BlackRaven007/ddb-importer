@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ReanimatedCompanion extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Summon Reanimated Companion",
       targetType: "self",
@@ -25,7 +25,7 @@ export default class ReanimatedCompanion extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,
@@ -82,6 +82,13 @@ export default class ReanimatedCompanion extends DDBEnricherData {
         },
       },
     ];
+  }
+
+  // DDB ships no action (and so no limited use) for this feature; the activities consume item uses, which need a max
+  override get override(): IDDBOverrideData {
+    return {
+      uses: { spent: null, max: "1", recovery: [{ period: "lr", type: "recoverAll", formula: undefined }] },
+    };
   }
 
 }

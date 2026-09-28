@@ -13,7 +13,9 @@ vi.mock("../../../src/parser/classes/DDBSubClass", () => ({ default: class DDBSu
 
 import AdvancementHelper from "../../../src/parser/advancements/AdvancementHelper";
 
+// =============================================================================
 // stripDescription
+// =============================================================================
 describe("AdvancementHelper.stripDescription", () => {
   it("converts paragraph ends to newlines and strips tags", () => {
     const result = AdvancementHelper.stripDescription("<p>Hello</p><p>World</p>");
@@ -31,7 +33,9 @@ describe("AdvancementHelper.stripDescription", () => {
   });
 });
 
+// =============================================================================
 // getChoiceReplacements
+// =============================================================================
 describe("AdvancementHelper.getChoiceReplacements", () => {
   it("marks replacement true for all levels >= lowestLevel when 'you can replace' appears", () => {
     const choices = AdvancementHelper.getChoiceReplacements("At later levels you can replace a choice.", 5);
@@ -62,7 +66,9 @@ describe("AdvancementHelper.getChoiceReplacements", () => {
   });
 });
 
+// =============================================================================
 // hasScaleConfiguration
+// =============================================================================
 describe("AdvancementHelper.hasScaleConfiguration", () => {
   it("returns true when configuration has a scale key", () => {
     const adv: any = { configuration: { scale: {} } };
@@ -75,12 +81,14 @@ describe("AdvancementHelper.hasScaleConfiguration", () => {
   });
 
   it("returns false when configuration is missing", () => {
-    const adv: any = { title: "No Config" };
+    const adv: any = { name: "No Config" };
     expect(AdvancementHelper.hasScaleConfiguration(adv)).toBe(false);
   });
 });
 
+// =============================================================================
 // isBaseProficiency
+// =============================================================================
 describe("AdvancementHelper.isBaseProficiency", () => {
   it("matches the literal 'Proficiencies' feature", () => {
     expect(AdvancementHelper.isBaseProficiency({ name: "Proficiencies" })).toBe(true);
@@ -99,50 +107,111 @@ describe("AdvancementHelper.isBaseProficiency", () => {
   });
 });
 
+// =============================================================================
 // convertToSingularDie / renameTotal / rename / addSingularDie
+// =============================================================================
 describe("AdvancementHelper.convertToSingularDie", () => {
-  it("sets every scale entry's die number to 1 and appends (Die) to title", () => {
+  it("sets every scale entry's die number to 1 and appends (Die) to name", () => {
     const adv: any = {
-      title: "Bardic Inspiration",
+      name: "Bardic Inspiration",
       configuration: { scale: { 1: { number: 2, faces: 6 }, 5: { number: 3, faces: 8 } } },
     };
     const result: any = AdvancementHelper.convertToSingularDie(adv);
-    expect(result.title).toBe("Bardic Inspiration (Die)");
+    expect(result.name).toBe("Bardic Inspiration (Die)");
     expect(result.configuration.scale["1"]).toEqual({ number: 1, faces: 6 });
     expect(result.configuration.scale["5"]).toEqual({ number: 1, faces: 8 });
   });
 
   it("returns the advancement unchanged when there is no scale", () => {
-    const adv: any = { title: "Plain", configuration: {} };
+    const adv: any = { name: "Plain", configuration: {} };
     const result: any = AdvancementHelper.convertToSingularDie(adv);
-    expect(result.title).toBe("Plain");
+    expect(result.name).toBe("Plain");
   });
 });
 
 describe("AdvancementHelper.renameTotal", () => {
-  it("appends (Total) to the title", () => {
-    const adv: any = { title: "Sneak Attack" };
-    expect((AdvancementHelper.renameTotal(adv) as any).title).toBe("Sneak Attack (Total)");
+  it("appends (Total) to the name", () => {
+    const adv: any = { name: "Sneak Attack" };
+    expect((AdvancementHelper.renameTotal(adv) as any).name).toBe("Sneak Attack (Total)");
   });
 });
 
 describe("AdvancementHelper.rename", () => {
-  it("replaces the title when newName is supplied", () => {
-    const adv: any = { title: "Old", configuration: {} };
+  it("replaces the name when newName is supplied", () => {
+    const adv: any = { name: "Old", configuration: {} };
     const result: any = AdvancementHelper.rename(adv, { newName: "New" } as any);
-    expect(result.title).toBe("New");
+    expect(result.name).toBe("New");
   });
 
   it("updates identifier only when configuration already has one", () => {
-    const adv: any = { title: "T", configuration: { identifier: "old-id" } };
+    const adv: any = { name: "T", configuration: { identifier: "old-id" } };
     const result: any = AdvancementHelper.rename(adv, { identifier: "new-id" } as any);
     expect(result.configuration.identifier).toBe("new-id");
   });
 
   it("does not add an identifier to a configuration lacking one", () => {
-    const adv: any = { title: "T", configuration: {} };
+    const adv: any = { name: "T", configuration: {} };
     const result: any = AdvancementHelper.rename(adv, { identifier: "new-id" } as any);
     expect(result.configuration.identifier).toBeUndefined();
+  });
+});
+
+describe("AdvancementHelper.buildNumberScale / buildDiceScale", () => {
+  it("builds a numeric scale advancement from level to value entries", () => {
+    const result: any = AdvancementHelper.buildNumberScale({ name: "Moxie", identifier: "moxie", scale: { 2: 2, 4: 3 } });
+    expect(result.type).toBe("ScaleValue");
+    expect(result._id).toBeTruthy();
+    expect(result.name).toBe("Moxie");
+    expect(result.configuration).toMatchObject({ identifier: "moxie", type: "number", scale: { 2: { value: 2 }, 4: { value: 3 } } });
+  });
+
+  it("builds a dice scale advancement from level to die entries", () => {
+    const result: any = AdvancementHelper.buildDiceScale({
+      name: "Sneak Attack", identifier: "sneak-attack", scale: { 1: { number: 1, faces: 6 }, 3: { number: 2, faces: 6 } },
+    });
+    expect(result.name).toBe("Sneak Attack");
+    expect(result.configuration).toMatchObject({
+      identifier: "sneak-attack", type: "dice", scale: { 1: { number: 1, faces: 6 }, 3: { number: 2, faces: 6 } },
+    });
+    expect(result.hint).toBeUndefined();
+  });
+
+  it("writes an optional hint on either builder", () => {
+    const dice: any = AdvancementHelper.buildDiceScale({
+      name: "Foe", identifier: "die", hint: "Dice hint", scale: { 1: { number: 1, faces: 4 } },
+    });
+    const number: any = AdvancementHelper.buildNumberScale({ name: "Pool", identifier: "pool", hint: "Number hint", scale: { 1: 2 } });
+    expect(dice.hint).toBe("Dice hint");
+    expect(number.hint).toBe("Number hint");
+  });
+});
+
+describe("AdvancementHelper.fixedNumberScale", () => {
+  it("builds a numeric scale advancement from hand-written levels, ignoring its input", () => {
+    const fn = AdvancementHelper.fixedNumberScale({ name: "Jinx Points", identifier: "jinx-points", scale: { 3: 4, 13: 6 } });
+    const result: any = fn({ name: "Misfortunist", configuration: { identifier: "misfortunist", scale: { 3: { value: 2 } } } } as any);
+    expect(result.type).toBe("ScaleValue");
+    expect(result.name).toBe("Jinx Points");
+    expect(result.configuration).toMatchObject({
+      identifier: "jinx-points",
+      type: "number",
+      scale: { 3: { value: 4 }, 13: { value: 6 } },
+    });
+  });
+});
+
+describe("AdvancementHelper.addScaleEntries", () => {
+  it("adds missing levels and leaves recorded ones alone", () => {
+    const adv: any = { name: "Steal Luck", configuration: { identifier: "steal-luck", scale: { 17: { value: 3 } } } };
+    const result: any = AdvancementHelper.addScaleEntries(adv, { scale: { 9: { value: 1 }, 17: { value: 99 } } });
+    expect(result.configuration.scale).toEqual({ 9: { value: 1 }, 17: { value: 3 } });
+  });
+
+  it("returns the advancement unchanged without entries or configuration", () => {
+    const adv: any = { name: "Plain" };
+    expect(AdvancementHelper.addScaleEntries(adv, { scale: { 1: { value: 1 } } })).toBe(adv);
+    const configured: any = { name: "T", configuration: { scale: { 1: { value: 2 } } } };
+    expect((AdvancementHelper.addScaleEntries(configured) as any).configuration.scale).toEqual({ 1: { value: 2 } });
   });
 });
 
@@ -150,12 +219,12 @@ describe("AdvancementHelper.addSingularDie", () => {
   it("returns a singular-die copy with a fresh id and -die identifier", () => {
     const adv: any = {
       _id: "originalid1234567",
-      title: "Bardic Inspiration",
+      name: "Bardic Inspiration",
       configuration: { identifier: "bardic-inspiration", scale: { 1: { number: 2, faces: 6 } } },
     };
     const result: any = AdvancementHelper.addSingularDie(adv);
     expect(result._id).not.toBe("originalid1234567");
-    expect(result.title).toBe("Bardic Inspiration (Die)");
+    expect(result.name).toBe("Bardic Inspiration (Die)");
     expect(result.configuration.identifier).toBe("bardic-inspiration-die");
     expect(result.configuration.scale["1"]).toEqual({ number: 1, faces: 6 });
   });
@@ -163,17 +232,19 @@ describe("AdvancementHelper.addSingularDie", () => {
   it("does not mutate the original advancement", () => {
     const adv: any = {
       _id: "originalid1234567",
-      title: "Bardic Inspiration",
+      name: "Bardic Inspiration",
       configuration: { identifier: "bardic-inspiration", scale: { 1: { number: 2, faces: 6 } } },
     };
     AdvancementHelper.addSingularDie(adv);
-    expect(adv.title).toBe("Bardic Inspiration");
+    expect(adv.name).toBe("Bardic Inspiration");
     expect(adv.configuration.scale["1"].number).toBe(2);
     expect(adv._id).toBe("originalid1234567");
   });
 });
 
+// =============================================================================
 // Tool lookups
+// =============================================================================
 describe("AdvancementHelper.getToolGroup", () => {
   it("maps musical instrument to music", () => {
     expect(AdvancementHelper.getToolGroup("one Musical Instrument of your choice")).toBe("music");
@@ -221,7 +292,9 @@ describe("AdvancementHelper.getToolAdvancementValue", () => {
   });
 });
 
+// =============================================================================
 // Armor lookups
+// =============================================================================
 describe("AdvancementHelper.getArmorGroup", () => {
   it("maps top level armor categories", () => {
     expect(AdvancementHelper.getArmorGroup("Light armor")).toBe("lgt");
@@ -262,7 +335,9 @@ describe("AdvancementHelper.getArmorAdvancementValue", () => {
   });
 });
 
+// =============================================================================
 // Weapon lookups
+// =============================================================================
 describe("AdvancementHelper.getWeaponGroup", () => {
   it("matches weapon group names via substring", () => {
     expect(AdvancementHelper.getWeaponGroup("simple weapons")).toBe("sim");

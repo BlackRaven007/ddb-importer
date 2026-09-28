@@ -24,7 +24,7 @@ export default class DDBCookie extends FormApplication {
     this.callback = callback;
   }
 
-  static get defaultOptions() {
+  static override get defaultOptions() {
     const options = super.defaultOptions;
     options.id = "ddb-importer-cobalt-change";
     options.template = "modules/ddb-importer/handlebars/cobalt.hbs";
@@ -32,14 +32,14 @@ export default class DDBCookie extends FormApplication {
     return options;
   }
 
-  get title() {
+  override get title() {
     // improve localisation
     // game.i18n.localize("")
     return "DDB Importer Cobalt Cookie";
   }
 
   /** @override */
-  async getData() {
+  override async getData() {
     const keyPostFix = this.localCobalt && this.actor ? this.actor.id ?? undefined : undefined;
     const cobalt = Secrets.getCobalt(keyPostFix);
     const cobaltStatus = cobalt == "" ? { success: true } : await Secrets.checkCobalt();
@@ -64,7 +64,7 @@ export default class DDBCookie extends FormApplication {
     if (!cobaltStatus.success) {
       new DDBCookie({ actor: this.actor, localCobalt: this.localCobalt, callMuncher: this.callMuncher }).render(true);
     } else if (this.callMuncher) {
-      new DDBMuncher().render({ force: true });
+      DDBMuncher.open();
     } else if (this.callback) {
       this.callback();
     }

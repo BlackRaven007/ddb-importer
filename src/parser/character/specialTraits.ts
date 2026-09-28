@@ -59,8 +59,10 @@ DDBCharacter.prototype._setSpecialTraitFlags = function _setSpecialTraitFlags(th
   ddb.character.classes.forEach((cls) => {
     if (cls.subclassDefinition) {
       // Improved Critical
+      // const improvedCritical = cls.subclassDefinition.classFeatures.some(
       //   (feature) => feature.name === "Improved Critical" && cls.level >= feature.requiredLevel,
       // );
+      // const superiorCritical = cls.subclassDefinition.classFeatures.some(
       //   (feature) => feature.name === "Superior Critical" && cls.level >= feature.requiredLevel,
       // );
 
@@ -70,8 +72,7 @@ DDBCharacter.prototype._setSpecialTraitFlags = function _setSpecialTraitFlags(th
       //   dnd5e.weaponCriticalThreshold = 19;
       // }
 
-      // wild magic surge for 5e Helpers
-      dnd5e.wildMagic = cls.subclassDefinition.classFeatures.some(
+      dnd5e.wildMagic = dnd5e.wildMagic || cls.subclassDefinition.classFeatures.some(
         (feature) => feature.name === "Wild Magic Surge" && cls.level >= feature.requiredLevel,
       );
     }

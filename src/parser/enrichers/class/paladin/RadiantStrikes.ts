@@ -2,19 +2,19 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class RadiantStrikes extends DDBEnricherData {
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       type: DDBEnricherData.ACTIVITY_TYPES.NONE,
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [{
       options: {
         transfer: true,
       },
       changes: [
-        DDBEnricherData.ChangeHelper.unsignedAddChange("1d8[radiant]", 20, "system.bonuses.mwak.damage"),
+        DDBEnricherData.ChangeHelper.unsignedAddChange("1d8[radiant]", 20, "system.rolls.damage.mwak.bonus"),
       ],
     }];
   }

@@ -11,12 +11,11 @@ import {
   makeDdbDice,
   makeRawCharacter,
 } from "../../_fixtures/ddb/factories";
-import { installActivityConfigStubs, installDocumentStub, repairEnricherDataStatics } from "../../_fixtures/ddb/stubs";
+import { installActivityConfigStubs, installDocumentStub } from "../../_fixtures/ddb/stubs";
 
 beforeAll(async () => {
   installActivityConfigStubs();
   installDocumentStub();
-  await repairEnricherDataStatics();
   // enricher.init() builds a summons manager backed by real compendia which do
   // not exist in the test environment; everything else on the enricher is real.
   vi.spyOn(DDBEnricherFactoryMixin.prototype, "init").mockResolvedValue(undefined);
@@ -98,7 +97,7 @@ describe("DDBAttackAction.build weapon documents", () => {
     expect(action.documentType).toBe("weapon");
     expect(action.data.system.proficient).toBe(true);
     expect(action.data.system.equipped).toBe(true);
-    expect(action.data.system.rarity).toBe("");
+    expect(action.data.system.rarities).toEqual([]);
     expect(action.data.system.identified).toBe(true);
   });
 

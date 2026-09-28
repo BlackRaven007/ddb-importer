@@ -4,7 +4,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class MagicBond extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         options: {
@@ -12,8 +12,8 @@ export default class MagicBond extends DDBEnricherData {
         },
         changes: DICTIONARY.actor.abilities.map((a) => {
           return [
-            DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.level", 10, `system.abilities.${a.value}.bonuses.save`),
-            DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.level", 10, `system.abilities.${a.value}.bonuses.check`),
+            DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.level", 10, `system.abilities.${a.value}.save.roll.bonus`),
+            DDBEnricherData.ChangeHelper.addChange("@flags.dnd5e.summon.level", 10, `system.abilities.${a.value}.check.roll.bonus`),
           ];
         }).flat(),
       },

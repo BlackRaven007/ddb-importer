@@ -96,6 +96,7 @@ if (args[0] === "on") {
   }
 }
 
+// Delete Arcane Sword
 if (args[0] === "off") {
   let swords = targetActor.items.filter((i) => i.flags?.ArcaneSword === targetActor.id);
   if (swords.length > 0) await targetActor.deleteEmbeddedDocuments("Item", swords.map((s) => s.id));

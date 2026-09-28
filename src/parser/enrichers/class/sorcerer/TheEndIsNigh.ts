@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class TheEndIsNigh extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.SAVE;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "The End is Nigh",
       targetType: "creature",
@@ -45,7 +45,7 @@ export default class TheEndIsNigh extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -74,7 +74,7 @@ export default class TheEndIsNigh extends DDBEnricherData {
               {
                 type: "itemUses",
                 value: "6",
-                target: "sorcery-points",
+                target: "feat:sorcery-points",
                 scaling: { allowed: false, max: "" },
               },
             ],
@@ -84,7 +84,7 @@ export default class TheEndIsNigh extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Frightened",
@@ -94,6 +94,13 @@ export default class TheEndIsNigh extends DDBEnricherData {
           durationSeconds: 60,
           description: "Frightened for 1 minute; repeat the saving throw at the end of each turn, ending the condition on a success.",
         },
+        midiChanges: [
+          DDBEnricherData.ChangeHelper.customChange(
+            "label=The End is Nigh (End of Turn Save),turn=end,saveDC=@attributes.spell.dc,saveAbility=wis,savingThrow=true,saveRemove=true,killAnim=true",
+            20,
+            "flags.midi-qol.OverTime",
+          ),
+        ],
       },
     ];
   }

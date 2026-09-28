@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class BloodiedButUnbowed extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.HEAL;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       additionalConsumptionTargets: [
         {
@@ -17,7 +17,7 @@ export default class BloodiedButUnbowed extends DDBEnricherData {
       ],
       data: {
         healing: DDBEnricherData.basicDamagePart({
-          customFormula: "@classes.pugilist.level * 4",
+          customFormula: "@classes.pugilist.levels * 4",
           types: ["temphp"],
         }),
       },

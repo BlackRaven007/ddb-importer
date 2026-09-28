@@ -2,11 +2,11 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class WardOfShadows extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (!this.isAction) return null;
     return {
       targetType: "enemy",
@@ -20,20 +20,21 @@ export default class WardOfShadows extends DDBEnricherData {
     };
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     if (!this.isAction) return [];
     return [
       {
         name: "Ward of Shadows: Disadvantage",
         options: {
-          durationRounds: 1,
-          description: "Disadvantage on the triggering attack roll. Attackers that can't be Blinded are immune.",
+          expiry: "turnEnd",
+          description: "Disadvantage on the triggering attack roll. Attackers that can't be Blinded are immune. Without AC5e the effect lasts for every attack until the end of the turn.",
         },
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.disadvantage.attack.all"),
+        changes: [
+          DDBEnricherData.ChangeHelper.ruleDisadvantageChange("attack"),
         ],
+        // AC5e's once ends the effect after the one attack; the native expiry is the ceiling
         ac5eChanges: [
-          DDBEnricherData.ChangeHelper.customChange("once; 1", 20, "flags.automated-conditions-5e.attack.disadvantage"),
+          DDBEnricherData.ChangeHelper.ac5eChange("once; 1", 20, "flags.automated-conditions-5e.attack.disadvantage"),
         ],
       },
     ];

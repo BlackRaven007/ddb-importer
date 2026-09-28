@@ -1,4 +1,6 @@
-import { utils, logger, CompendiumHelper } from "../../lib/_module";
+import logger from "../../lib/Logger";
+import utils from "../../lib/Utils";
+import CompendiumHelper from "../../lib/CompendiumHelper";
 
 const DDB_REFERENCE_INDEX_FIELDS = [
   "name",
@@ -252,6 +254,7 @@ function replaceTag(match: string, tagType: string, tagName: string, _p4: number
  */
 function parseLooseRuleReferences(text: string, superLoose = false) {
   for (const [type, entries] of Object.entries(getRuleLookups())) {
+    // console.error(`Reference Check`, { text });
 
     if (!superLoose && SUPER_LOOSE.includes(type)) continue;
     for (const [key, value] of Object.entries(entries)) {
@@ -261,6 +264,7 @@ function parseLooseRuleReferences(text: string, superLoose = false) {
         if (p1 || (p5 && p5.includes("average="))) return match; // already a reference match don't match this
         if (p5 && ["saving throw:", "check:"].includes(p5.toLowerCase().trim())) {
           const rollType = p5.toLowerCase() === "check:" ? "check" : "save";
+          // console.warn("Unexpected Reference", { match, p1, p2, p3,p4, p5, p6, p7, p8, p9, rollType });
           const tag = p6 ? p6 : "";
           if (p7 && Number.isInteger(parseInt(p8))) {
             return `${p2}${p3}${p4}${tag}[[/${rollType} ${key} ${p8} format=long]]{${p7}}${p9}`;
@@ -309,6 +313,7 @@ function parseHardCompendiumReferenceTag(type: string, text: string): string {
   const referenceRegexReplacer = (_match: string, referenceName: string, postfix: string) => {
     const cMatch = index.find((f) => f.name.toLowerCase() === referenceName.toLowerCase());
     const replacedText = cMatch ? `@UUID[${cMatch.uuid}]{${referenceName}}` : referenceName;
+    // console.warn("match", { match, document, prefix, spellName, postfix, compendium: this.spellCompendium.index, cMatch, replacedSpell });
     return `${replacedText}${postfix}`;
   };
 
@@ -355,6 +360,7 @@ function damageRollGenerator({ text, damageType, actor, document, extraMods = []
       ? `${useMod} + ${mods}`
       : useMod;
 
+    // console.warn("RESULTS1", {
     //   text,
     //   diceParse,
     //   baseAbility,
@@ -368,12 +374,14 @@ function damageRollGenerator({ text, damageType, actor, document, extraMods = []
     const reParse = utils.diceStringResultBuild(diceParse.diceMap, diceParse.dice, bonusMod, finalMods, "");
     result = `[[/damage ${reParse.diceString}${damageHint} average=true]]`;
   } else {
+    // console.warn("RESULTS2", {
     //   text,
     //   diceParse,
     //   baseAbility,
     //   document,
     //   mods
     // });
+    // const reParse = utils.diceStringResultBuild(diceParse.diceMap, diceParse.dice, undefined, mods, "");
     // result = `[[/damage ${reParse.diceString}${damageHint} average=true]]`;
     const finalMods = extraMods.length > 0
       ? ` + ${mods}`
@@ -425,6 +433,7 @@ export function parseDamageRolls({ text, document, actor }: { text: string; docu
     if (damage && includesDiceRegExp.test(damage)) {
       const parsedDiceDamage = damageRollGenerator({ text: damage, damageType: dmg[4], actor, document, extraMods: bonusMods });
       const replaceValue = `${dmg[1]} ${parsedDiceDamage} damage`;
+      // console.warn("DAMAGE PARSE", {
       //   damage,
       //   dmg,
       //   parsedDiceDamage,
@@ -437,6 +446,7 @@ export function parseDamageRolls({ text, document, actor }: { text: string; docu
     } else {
       const noDiceRegex = /(\d+) (\w+) damage/i;
       const fixedDamageMatch = dmg[0].match(noDiceRegex);
+      // console.warn("no dice match",{
       //   noDiceRegex,
       //   fixedDamageMatch,
       //   dmg
@@ -457,6 +467,7 @@ export function parseDamageRolls({ text, document, actor }: { text: string; docu
       ? `[[/damage ${damageValue} type=heal average=false]]`
       : damageRollGenerator({ text: damageValue, damageType: "heal", actor, document });
     const replaceValue = `${regainMatch[1]} ${parsedDiceDamage} hit points`;
+    // console.warn("DAMAGE PARSE", {
     //   regainMatch,
     //   damageValue,
     //   parsedDiceDamage,
@@ -537,6 +548,7 @@ const COMPENDIUM_MAP: Record<string, string> = {
   "vehicles": "vehicles",
 };
 
+// const DDB_MAP = {
 //   "spells": "spells",
 //   "magicitems": "magic-items",
 //   "weapons": "equipment",
@@ -734,6 +746,8 @@ export async function replaceMonsterNameBadLinks(str: string, actor: I5eActorDat
       str = str.replaceAll(search, replaceText);
     } else {
       // these are not always monsters, sometimes they are references to other things like spells, conditions, rules, etc
+      // const label = foundry.utils.getProperty(CONFIG.DDBI, `compendium.label.monsters`);
+      // const replaceText = `@Compendium[${label}.${match[1]}]{${match[1]}${post}}`;
       str = str.replaceAll(search, `${substitute}`);
     }
     return str;
@@ -814,4 +828,20 @@ export async function replaceMonsterNameBadLinks(str: string, actor: I5eActorDat
   }
   return str;
 
+}
+
+export async function parseMonsterDescription({
+  text,
+  document,
+  actor,
+}: {
+  text: string;
+  document: TReferenceDocumentTypes;
+  actor: I5eActorData;
+}): Promise<string> {
+  let description = replaceMonsterALinks(text, actor);
+  description = parseDamageRolls({ text: description, document, actor }) ?? description;
+  description = parseToHitRoll({ text: description, document });
+  description = parseTags(description);
+  return replaceMonsterNameBadLinks(description, actor);
 }

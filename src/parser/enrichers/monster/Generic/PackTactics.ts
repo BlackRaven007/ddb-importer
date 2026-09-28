@@ -2,7 +2,7 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class PackTactics extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         options: {
@@ -22,7 +22,7 @@ export default class PackTactics extends DDBEnricherData {
         ac5eOnly: true,
         midiNever: true,
         ac5eChanges: [
-          DDBEnricherData.ChangeHelper.customChange(
+          DDBEnricherData.ChangeHelper.ac5eChange(
             "checkNearby(opponentId, 'different', 5, {count:(distance <= 5 ? 2 : 1)})",
             20,
             "flags.automated-conditions-5e.attack.advantage",

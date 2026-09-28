@@ -2,17 +2,17 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class EyeForDetail extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.CHECK;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       name: "Perception",
       data: {
         check: {
           associated: ["per"],
-          ability: [],
+          ability: "",
           dc: {
             calculation: "",
             formula: "",
@@ -22,7 +22,7 @@ export default class EyeForDetail extends DDBEnricherData {
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         duplicate: true,

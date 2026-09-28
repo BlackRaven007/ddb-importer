@@ -6,6 +6,68 @@ const notReplace = {
   "Starry Form": ["Starry Form: Archer", "Starry Form: Chalice", "Starry Form: Dragon"],
 };
 
+const IDENTIFIER_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+const TYPED_IDENTIFIER_PATTERN = /^[^:\s]+:[a-z0-9][a-z0-9-]*$/;
+
+
+/** Return the portable, type-qualified identifier used by dnd5e consumption targets. */
+function _qualifiedConsumptionTarget(parent: I5ePCConsumptionItems): string {
+  return `${parent.type}:${parent.system.identifier}`;
+}
+
+
+/**
+ * Find a resource item from any target form accepted by the importer.
+ *
+ * Explicit type-qualified identifiers are authoritative: if the requested type is not present,
+ * do not silently fall through to an item of another type with the same identifier.
+ */
+function _findConsumptionParent(
+  possibleItems: I5ePCConsumptionItems[],
+  target: string,
+): I5ePCConsumptionItems | undefined {
+  const value = target.trim();
+
+  const qualifiedMatch = possibleItems.find((doc) => _qualifiedConsumptionTarget(doc) === value);
+  if (qualifiedMatch || TYPED_IDENTIFIER_PATTERN.test(value)) return qualifiedMatch;
+
+  const identifierMatch = possibleItems.find((doc) => doc.system.identifier === value);
+  if (identifierMatch) return identifierMatch;
+
+  const nameMatch = possibleItems.find((doc) =>
+    doc.flags.ddbimporter?.originalName === value || doc.name === value,
+  );
+  if (nameMatch) return nameMatch;
+
+  const normalizedIdentifier = utils.referenceNameString(value).toLowerCase();
+  return possibleItems.find((doc) => doc.system.identifier === normalizedIdentifier);
+}
+
+
+/** Preserve authored identifiers when no matching resource is currently present. */
+function _unresolvedConsumptionTarget(target: string): string {
+  const value = target.trim();
+  if (IDENTIFIER_PATTERN.test(value) || TYPED_IDENTIFIER_PATTERN.test(value)) return value;
+  return utils.referenceNameString(value).toLowerCase();
+}
+
+
+/**
+ * The uses update applied to a child document when it is linked to a parent resource pool.
+ *
+ * Returns null when nothing should be written.
+ */
+function _childUsesUpdate(child: I5ePCConsumptionItems): { spent: number | null; max: string } | null {
+  if (foundry.utils.getProperty(child, "flags.ddbimporter.retainChildUses")) return null;
+  const retainSpent = foundry.utils.getProperty(child, "flags.ddbimporter.retainUseSpent") ?? false;
+  return {
+    spent: retainSpent
+      ? foundry.utils.getProperty(child, "system.uses.spent") as number ?? null
+      : null,
+    max: "",
+  };
+}
+
 
 DDBCharacter.prototype._getAutoLinkActivityDictionarySpellLinkUpdates = async function _getAutoLinkActivityDictionarySpellLinkUpdates(this: DDBCharacter): Promise<Partial<I5ePCConsumptionItems>[]> {
   if (!this.currentActor) {
@@ -18,10 +80,7 @@ DDBCharacter.prototype._getAutoLinkActivityDictionarySpellLinkUpdates = async fu
 
   for (const [featureName, linkedSpellArray] of Object.entries(DICTIONARY.CONSUMPTION_SPELL_LINKS)) {
     logger.debug(`Resource Spells: Checking ${featureName}`, linkedSpellArray);
-    const parent = possibleItems.find((doc) => {
-      const name = doc.flags.ddbimporter?.originalName ?? doc.name;
-      return name === featureName;
-    });
+    const parent = _findConsumptionParent(possibleItems, featureName);
     if (!parent) continue;
     logger.debug(`Resource Spells: ${featureName} parent:`, parent);
     const typedSpellArray = linkedSpellArray as {
@@ -42,8 +101,9 @@ DDBCharacter.prototype._getAutoLinkActivityDictionarySpellLinkUpdates = async fu
 
       if (!child) continue;
 
-      if (foundry.utils.getProperty(child, "flags.ddbimporter.retainResourceConsumption"))
+      if (foundry.utils.getProperty(child, "flags.ddbimporter.retainResourceConsumption")) {
         continue;
+      }
 
       logger.debug(`Resource Spells: ${featureName} child:`, child);
       const update: Record<string, any> = {
@@ -51,11 +111,9 @@ DDBCharacter.prototype._getAutoLinkActivityDictionarySpellLinkUpdates = async fu
         system: {},
       };
 
-      if (!foundry.utils.getProperty(child, "flags.ddbimporter.retainChildUses")) {
-        update.system["uses"] = {
-          spent: null,
-          max: "",
-        };
+      const usesUpdate = _childUsesUpdate(child);
+      if (usesUpdate) {
+        update.system["uses"] = usesUpdate;
       }
       if (spellData.nameUpdate) {
         update.name = spellData.nameUpdate;
@@ -72,7 +130,7 @@ DDBCharacter.prototype._getAutoLinkActivityDictionarySpellLinkUpdates = async fu
           if (foundry.utils.getProperty(child, "flags.ddbimporter.retainOriginalConsumption")) {
             targets.push(
               {
-                target: `${parent.type}:${parent.system.identifier}`,
+                target: _qualifiedConsumptionTarget(parent),
                 value: `${cost}`,
                 type: "itemUses",
               },
@@ -80,7 +138,7 @@ DDBCharacter.prototype._getAutoLinkActivityDictionarySpellLinkUpdates = async fu
             foundry.utils.setProperty(update, `system.activities.${id}.consumption.targets`, targets);
           } else {
             foundry.utils.setProperty(update, `system.activities.${id}.consumption.targets`, [{
-              target: `${parent.type}:${parent.system.identifier}`,
+              target: _qualifiedConsumptionTarget(parent),
               value: `${cost}`,
               type: "itemUses",
             }]);
@@ -109,11 +167,9 @@ function _generateChildUpdate({ child, parent }: {
     _id: child._id,
   };
   foundry.utils.setProperty(update, "system", {});
-  if (!foundry.utils.getProperty(child, "flags.ddbimporter.retainChildUses")) {
-    (update.system as Record<string, any>)["uses"] = {
-      spent: null,
-      max: "",
-    };
+  const usesUpdate = _childUsesUpdate(child);
+  if (usesUpdate) {
+    (update.system as Record<string, any>)["uses"] = usesUpdate;
   }
   if (!("activities" in child.system)) return update;
   const ignoredConsumptionActivities = foundry.utils.getProperty(child, "flags.ddbimporter.ignoredConsumptionActivities") as string[] | undefined;
@@ -122,15 +178,26 @@ function _generateChildUpdate({ child, parent }: {
     if (ignoredConsumptionActivities?.includes(activity.name ?? "")) continue;
     const targets = activity.consumption?.targets ?? [];
     const value = foundry.utils.getProperty(child, "flags.ddbimporter.consumptionValue") as string ?? "1";
+    // only retarget itemUses entries; the parser may push an attribute resource
+    // target first and that must not be pointed at an item
+    const itemUsesTarget = targets.find((target) => target.type === "itemUses");
     if (foundry.utils.getProperty(child, "flags.ddbimporter.retainOriginalConsumption")) {
       targets.push({
         type: "itemUses",
         value,
-        target: `${parent.type}:${parent.system.identifier}`,
+        target: _qualifiedConsumptionTarget(parent),
       });
       foundry.utils.setProperty(update, `system.activities.${id}.consumption.targets`, targets);
+    } else if (itemUsesTarget) {
+      itemUsesTarget.target = _qualifiedConsumptionTarget(parent);
+      foundry.utils.setProperty(update, `system.activities.${id}.consumption.targets`, targets);
     } else if (targets.length > 0) {
-      targets[0].target = `${parent.type}:${parent.system.identifier}`;
+      // non-itemUses targets (attribute resource, hitDice) stay; add the pool link
+      targets.push({
+        type: "itemUses",
+        value,
+        target: _qualifiedConsumptionTarget(parent),
+      });
       foundry.utils.setProperty(update, `system.activities.${id}.consumption.targets`, targets);
     } else {
       foundry.utils.setProperty(update, `system.activities.${id}.consumption`, {
@@ -138,7 +205,7 @@ function _generateChildUpdate({ child, parent }: {
         targets: [{
           type: "itemUses",
           value,
-          target: `${parent.type}:${parent.system.identifier}`,
+          target: _qualifiedConsumptionTarget(parent),
         }],
       });
     }
@@ -171,8 +238,9 @@ function _findChildUpdates({ consumingDocs, possibleItems, parent }: {
     if (children) {
       logger.debug(`Found children`, children);
       for (const child of children) {
-        if (foundry.utils.getProperty(child, "flags.ddbimporter.retainResourceConsumption"))
+        if (foundry.utils.getProperty(child, "flags.ddbimporter.retainResourceConsumption")) {
           continue;
+        }
         logger.debug("child", child);
         const update = _generateChildUpdate({ child, parent });
         toUpdate.push(update);
@@ -196,10 +264,7 @@ DDBCharacter.prototype._getAutoLinkActivityDictionaryUpdates = async function _g
 
   for (const [resourceDocName, consumingDocs] of Object.entries(DICTIONARY.CONSUMPTION_LINKS)) {
     logger.debug(`Generic Resource Linking: Checking ${resourceDocName}`, consumingDocs);
-    const parent = possibleItems.find((doc) => {
-      const name = doc.flags.ddbimporter?.originalName ?? doc.name;
-      return name === resourceDocName;
-    });
+    const parent = _findConsumptionParent(possibleItems, resourceDocName);
 
     if (!parent) continue;
     logger.debug("parent", parent);
@@ -240,14 +305,11 @@ DDBCharacter.prototype._getAutoLinkActivityFlagDocUpdates = async function _getA
         if (target.type !== "itemUses") continue;
         const targetName = target.target;
         if (!targetName) continue;
-        const parent = possibleItems.find((doc) => {
-          const name = doc.flags.ddbimporter?.originalName ?? doc.name;
-          return name === targetName;
-        });
+        const parent = _findConsumptionParent(possibleItems, targetName);
         if (parent) {
-          target.target = `${parent.type}:${parent.system.identifier}`;
+          target.target = _qualifiedConsumptionTarget(parent);
         } else {
-          target.target = utils.referenceNameString(targetName).toLowerCase();
+          target.target = _unresolvedConsumptionTarget(targetName);
         }
       }
       foundry.utils.setProperty(update, `system.activities.${id}.consumption.targets`, targets);
@@ -272,8 +334,9 @@ DDBCharacter.prototype._flagCleanup = async function _flagCleanup(this: DDBChara
       return {
         _id: doc._id,
         flags: {
+          // v14 replaced the legacy "-=key" deletion syntax with the ForcedDeletion operator
           ddbimporter: {
-            "-=defaultAdditionalActivities": null as null,
+            defaultAdditionalActivities: _del,
           },
         },
       };

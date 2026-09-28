@@ -1,6 +1,7 @@
 import { logger, DDBItemImporter, utils, CompendiumHelper } from "../../lib/_module";
 import DDBMonster from "../DDBMonster";
 import ACBonusEffects from "../enrichers/effects/ACBonusEffects";
+import ChangeHelper from "../enrichers/effects/ChangeHelper";
 
 DDBMonster.prototype.BAD_AC_MONSTERS = ["arkhan the cruel"];
 
@@ -15,11 +16,12 @@ DDBMonster.prototype._generateAC = async function _generateAC(this: DDBMonster, 
 
   const originalAc = parseInt(String(this.source.armorClass));
   const ac: I5eArmorClass = {
+    calcs: [],
+    formulas: [],
     flat: originalAc,
-    calc: "",
-    formula: "",
-    label: this.source.armorClassDescription ? this.source.armorClassDescription.replace("(", "").replace(")", "") : "",
+    override: null,
   };
+  let natural = false;
 
   let flatAC = true;
 
@@ -58,7 +60,7 @@ DDBMonster.prototype._generateAC = async function _generateAC(this: DDBMonster, 
     descriptionItems.forEach((item) => {
       let lowerItem = item.toLowerCase();
       if (lowerItem == "natural" || lowerItem == "natural armor") {
-        ac.calc = "natural";
+        natural = true;
         flatAC = false;
 
         let flat = ac.flat ?? originalAc;
@@ -83,29 +85,35 @@ DDBMonster.prototype._generateAC = async function _generateAC(this: DDBMonster, 
             lowerItem = `${matches[2]}, ${matches[1]}`;
           }
         }
+        // const type = item.includes("ring") || item.includes("cloak") ? "trinket" : "equipment";
         const itemsToIgnore = this.addMonsterEffects ? ["suave defense"] : [];
         if (!itemsToIgnore.includes(lowerItem)) {
           const quantityRegex = /(.*) \((\d+)\)/;
           const match = lowerItem.match(quantityRegex);
           const name = match ? match[1] : lowerItem;
           const quantity = match ? parseInt(match[2]) : 1;
-          if (name && name != "") itemsToCheck.push({
-            name: (match ? name.replace(` (${quantity})`, "") : name)
-              .split(" ")
-              .map((word) => utils.capitalize(word))
-              .join(" "),
-            type: "equipment",
-            flags: {
-              ddbimporter: {
-                is2014: this.is2014,
-                is2024: this.is2024,
+          if (name && name != "") {
+            itemsToCheck.push({
+              name: (match ? name.replace(` (${quantity})`, "") : name)
+                .split(" ")
+                .map((word) => utils.capitalize(word))
+                .join(" "),
+              type: "equipment",
+              flags: {
+                ddbimporter: {
+                  is2014: this.is2014,
+                  is2024: this.is2024,
+                },
               },
-            },
-            system: {
-              quantity,
-              equipped: true,
-            },
-          });
+              system: {
+                quantity,
+                equipped: true,
+                source: {
+                  rules: this.is2014 ? "2014" : "2024",
+                },
+              },
+            });
+          }
         }
       }
     });
@@ -115,6 +123,8 @@ DDBMonster.prototype._generateAC = async function _generateAC(this: DDBMonster, 
   const rawItems: I5eMonsterItem[] = await DDBItemImporter.getCompendiumItems(itemsToCheck as unknown as TAll5eDocuments[], "inventory", {
     looseMatch: true,
     monsterMatch: true,
+    // shared 2014/2024 gear (e.g. Plate) is only munched under one rules version
+    rulesFallback: true,
   }) as I5eMonsterItem[];
   const adjustedItems = rawItems
     .filter((item) => item.type !== "weapon")
@@ -169,12 +179,7 @@ DDBMonster.prototype._generateAC = async function _generateAC(this: DDBMonster, 
       statuses: [],
       system: {
         changes: [
-          {
-            key: "system.attributes.ac.calc",
-            value: "mage",
-            type: "override",
-            priority: 5,
-          },
+          ChangeHelper.acCalcsAddChange("mage", 5),
         ],
       },
       duration: {
@@ -214,19 +219,37 @@ DDBMonster.prototype._generateAC = async function _generateAC(this: DDBMonster, 
     }
   }
 
-  if (acItems.length === 0 && ac.calc !== "natural" && baseAc !== ac.flat) {
-    // some kind o bonus in play, set to natural
-    ac.calc = "natural";
-    flatAC = false;
-  } else if (this.useItemAC && ac.calc !== "natural" && !badACMonster) {
+  let useDefaultCalcs = false;
+  if (spellCastingAC && acItems.length === 0 && !natural) {
+    // The published AC already includes Mage Armor. Keep the actor's base AC
+    // unarmored so disabling the generated effect removes the mage calc.
     ac.flat = null;
-    ac.calc = "default";
-    ac.formula = "";
+    useDefaultCalcs = true;
     flatAC = false;
-  } else if ((!this.useItemAC && ac.calc !== "natural") || adjustedItems.length === 0) {
+  } else if (acItems.length === 0 && !natural && baseAc !== ac.flat) {
+    // some kind o bonus in play, set to natural
+    natural = true;
+    flatAC = false;
+  } else if (this.useItemAC && !natural && !badACMonster) {
+    ac.flat = null;
+    useDefaultCalcs = true;
+    flatAC = false;
+  } else if ((!this.useItemAC && !natural) || adjustedItems.length === 0) {
     // default monsters with no ac equipment to natural
-    ac.calc = "natural";
+    natural = true;
     flatAC = false;
+  }
+
+  // badACMonster with matched items: DDB's total cannot be reconciled with the
+  // item ACs, so hard-override rather than letting shield/bonus stack on top
+  if (natural) {
+    ac.calcs = ["natural"];
+  } else if (useDefaultCalcs) {
+    ac.calcs = ["unarmored", "armored"];
+  } else {
+    ac.calcs = ["unarmored", "armored"];
+    ac.override = ac.flat ?? originalAc;
+    ac.flat = null;
   }
 
   this.npc.effects ??= [];

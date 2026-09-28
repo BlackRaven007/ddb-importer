@@ -86,10 +86,6 @@ global {
 
   interface FlagConfig {
     ActiveEffect: {
-      ActiveAuras?: {
-        isAura?: boolean;
-        ignoreSelf?: boolean;
-      };
       dnd5e?: {
         exhaustionLevel?: number;
         dependents?: {
@@ -260,10 +256,31 @@ global {
         anchorToToken?: boolean; // Whether cone/ray template origin is anchored to caster's token border
       };
     };
+    /** Regions placed from activities (dnd5e 6.0 templates are Regions). */
+    Region: {
+      ddbimporter?: {
+        /** The region display choice (hooks/canvas/regionDisplay.ts); absent = the Foundry look. */
+        display?: IRegionDisplayFlag;
+      };
+      dnd5e?: {
+        activity?: string;
+        item?: string;
+        origin?: string;
+        spellLevel?: number;
+        dimensions?: {
+          size?: number;
+          width?: number | null;
+          height?: number | null;
+          units?: string;
+        };
+      };
+    };
     MeasuredTemplateDocument: {
       dnd5e?: {
         origin?: string;
-        dependentOn?: ActiveEffect.Implementation | null;
+        // uuid string; a document type here puts ActiveEffect.Implementation inside FlagConfig,
+        // which closes a flags -> document -> flags cycle that tsserver's cold check cannot resolve
+        dependentOn?: string | null;
       };
       "midi-qol"?: {
         dependentOn?: string; // UUID of parent document (Actor/Item) for midi-qol dependent tracking

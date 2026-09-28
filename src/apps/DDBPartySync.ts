@@ -81,7 +81,7 @@ export default class DDBPartySync extends DDBAppV2 {
   }
 
   /** @override */
-  static DEFAULT_OPTIONS = {
+  static override DEFAULT_OPTIONS = {
     id: "ddb-party-sync",
     classes: ["standard-form", "dnd5e2", "ddb-party-sync"],
     window: {
@@ -105,7 +105,7 @@ export default class DDBPartySync extends DDBAppV2 {
   };
 
   /** @inheritDoc */
-  static PARTS = {
+  static override PARTS = {
     ...super.PARTS,
     content: {
       template: "modules/ddb-importer/handlebars/party-sync/ddb-party-sync.hbs",
@@ -118,7 +118,7 @@ export default class DDBPartySync extends DDBAppV2 {
 
   _delegationBound = false;
 
-  async _onRender(context: any, options: any) {
+  override async _onRender(context: any, options: any) {
     await super._onRender(context, options);
     this._attachCheckboxListeners();
   }
@@ -157,7 +157,7 @@ export default class DDBPartySync extends DDBAppV2 {
     logger.debug("DDBPartySync: bound delegated checkbox listeners on element", this.element);
   }
 
-  get title() {
+  override get title() {
     const campaignName = this.partyState.campaignName
       ?? (this.actor
         ? (foundry.utils.getProperty(this.actor, `flags.${FLAG_SCOPE}.${FLAG_CAMPAIGN_NAME}`) as string | undefined)
@@ -174,7 +174,7 @@ export default class DDBPartySync extends DDBAppV2 {
   /*  Context preparation                         */
   /* -------------------------------------------- */
 
-  async _prepareContext(_options: any): Promise<any> {
+  override async _prepareContext(_options: any): Promise<any> {
     if (!this.partyState.campaignsLoaded && !this.partyState.campaignsLoading) {
       this.partyState.campaignsLoading = true;
       this._loadAvailableCampaigns().catch((err) => logger.error("DDBPartySync campaigns load error", err));
@@ -296,7 +296,7 @@ export default class DDBPartySync extends DDBAppV2 {
       const info = await DDBPartyInventory.fetchCampaignInfo({ campaignId: this.campaignId });
       const characters = info?.characters ?? [];
       const partyMemberIds = this.isPartyActor
-        ? new Set<string>((this.actor.system?.members ?? []).map((m: any) => m.actor).filter((id: string) => !!id))
+        ? new Set<string>(((this.actor.system as unknown as { members?: { actor?: string }[] } | undefined)?.members ?? []).map((m: any) => m.actor).filter((id: string) => !!id))
         : new Set<string>();
       const enriched: ICampaignCharacterRow[] = characters.map((c) => {
         const owner = DDBPartySync._findOwnerActor(c.characterId);
@@ -363,7 +363,7 @@ export default class DDBPartySync extends DDBAppV2 {
 
   static _isPatreonSupporter(): boolean {
     const tier = `${PatreonHelper.getPatreonTier() ?? ""}`.toUpperCase();
-    return ["GOD", "UNDYING", "POWER", "CUSTOM"].includes(tier);
+    return ["GOD", "UNDYING", "POWER"].includes(tier);
   }
 
   /* -------------------------------------------- */
@@ -395,7 +395,7 @@ export default class DDBPartySync extends DDBAppV2 {
       try {
         await this.actor.update({
           [`flags.ddbimporter.${FLAG_CAMPAIGN_KEY}`]: value,
-          [`flags.ddbimporter.-=${FLAG_CAMPAIGN_NAME}`]: null,
+          [`flags.ddbimporter.${FLAG_CAMPAIGN_NAME}`]: _del,
         } as unknown as Actor.UpdateData);
       } catch (err) {
         logger.warn("Could not persist party campaign flags", err);

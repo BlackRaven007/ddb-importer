@@ -2,7 +2,7 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class AssistedAim extends DDBEnricherData {
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Assisted Aim",
@@ -10,7 +10,7 @@ export default class AssistedAim extends DDBEnricherData {
           durationSeconds: 60,
         },
         changes: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "system.bonuses.rwak.attack"),
+          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "system.rolls.attack.rwak.bonus"),
         ],
       },
     ];

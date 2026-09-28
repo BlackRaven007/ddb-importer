@@ -2,15 +2,15 @@ import DDBEnricherData from "../data/DDBEnricherData";
 
 export default class ShadowPuppets extends DDBEnricherData {
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get addToDefaultAdditionalActivities() {
+  override get addToDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get activity(): IDDBActivityData | null {
+  override get activity(): IDDBActivityData | null {
     if (!["save", "attack"].includes(this.ddbEnricher?._originalActivity?.type ?? "")) return null;
     return {
       name: this.ddbEnricher?._originalActivity?.type === "save" ? "Save vs Incapacitation" : "Bonus Attack",
@@ -19,11 +19,14 @@ export default class ShadowPuppets extends DDBEnricherData {
       activationType: this.ddbEnricher?._originalActivity?.type === "save" ? "special" : "bonus",
       data: {
         sort: this.ddbEnricher?._originalActivity?.type === "save" ? 2 : 3,
+        // used on later turns while concentrating, so it must not start (and replace) the
+        // concentration; the Incapacitated the save applies lasts as long as the spell
+        duration: this.followUpDuration,
       },
     };
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     return [
       {
         init: {
@@ -45,11 +48,11 @@ export default class ShadowPuppets extends DDBEnricherData {
     ];
   }
 
-  get clearAutoEffects() {
+  override get clearAutoEffects(): boolean {
     return true;
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         activityMatch: "Cast",

@@ -3,26 +3,26 @@ import DDBEnricherData from "../../data/DDBEnricherData";
 
 export default class ZealousPresence extends DDBEnricherData {
 
-  get type() {
+  override get type(): IDDBActivityType | null {
     return DDBEnricherData.ACTIVITY_TYPES.UTILITY;
   }
 
-  get activity(): IDDBActivityData {
+  override get activity(): IDDBActivityData {
     return {
       targetType: "ally",
       targetCount: 10,
     };
   }
 
-  get useDefaultAdditionalActivities() {
+  override get useDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get addToDefaultAdditionalActivities() {
+  override get addToDefaultAdditionalActivities(): boolean {
     return true;
   }
 
-  get additionalActivities(): IDDBAdditionalActivity[] {
+  override get additionalActivities(): IDDBAdditionalActivity[] {
     if (this.isAction || this.is2014) return [];
     return [
       {
@@ -62,23 +62,22 @@ export default class ZealousPresence extends DDBEnricherData {
     ];
   }
 
-  get effects(): IDDBEffectHint[] {
+  override get effects(): IDDBEffectHint[] {
     return [
       {
         name: "Zealous Presence",
-        changes: DICTIONARY.actor.abilities.map((ability) => DDBEnricherData.ChangeHelper.addChange(`${CONFIG.Dice.D20Roll.ADV_MODE.ADVANTAGE}`, 20, `system.abilities.${ability.value}.save.roll.mode`)),
-        options: {
-          durationTurns: 1,
-        },
-        daeSpecialDurations: ["turnStartSource"],
-        midiChanges: [
-          DDBEnricherData.ChangeHelper.unsignedAddChange("1", 20, "flags.midi-qol.advantage.attack.all"),
+        changes: [
+          ...DICTIONARY.actor.abilities.map((ability) => DDBEnricherData.ChangeHelper.advantageAbilitySaveChange(ability.value)),
+          DDBEnricherData.ChangeHelper.ruleAdvantageChange("attack"),
         ],
+        options: {
+          expiry: "sourceStart",
+        },
       },
     ];
   }
 
-  get override(): IDDBOverrideData {
+  override get override(): IDDBOverrideData {
     return {
       replaceActivityUses: true,
     };

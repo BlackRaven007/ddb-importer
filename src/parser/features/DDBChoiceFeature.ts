@@ -1,5 +1,5 @@
 import DDBFeature from "./DDBFeature";
-import { utils, logger } from "../../lib/_module";
+import { utils, logger, DDBEffectImporter } from "../../lib/_module";
 import { DICTIONARY } from "../../config/_module";
 import { DDBDataUtils } from "../lib/_module";
 import DDBFeatureMixin from "./DDBFeatureMixin";
@@ -13,6 +13,8 @@ export default class DDBChoiceFeature extends DDBFeature {
   static KEEP_CHOICE_FEATURE_NAME_STARTSWITH = DICTIONARY.parsing.choiceFeatures.KEEP_CHOICE_FEATURE_NAME_STARTSWITH;
 
   static NO_FEATURE_PREFIX_NAME = DICTIONARY.parsing.choiceFeatures.NO_FEATURE_PREFIX_NAME;
+
+  static CHOICE_FEATURE_PREFIX_RENAME = DICTIONARY.parsing.choiceFeatures.CHOICE_FEATURE_PREFIX_RENAME;
 
   static NO_CHOICE_BUILD = DICTIONARY.parsing.choiceFeatures.NO_CHOICE_BUILD;
 
@@ -34,7 +36,7 @@ export default class DDBChoiceFeature extends DDBFeature {
 
   declare _classFeatureComponent: IDDBClassFeature | IDDBRacialTrait | undefined;
 
-  _prepare() {
+  override _prepare() {
     this._levelScale = null;
     this._levelScales = null;
     this._limitedUse = null;
@@ -67,7 +69,7 @@ export default class DDBChoiceFeature extends DDBFeature {
 
   }
 
-  _generateSystemSubType() {
+  override _generateSystemSubType() {
     super._generateSystemSubType();
 
     const classFeatureName = foundry.utils.getProperty(this, "_classFeatureComponent.definition.name") as string;
@@ -78,7 +80,7 @@ export default class DDBChoiceFeature extends DDBFeature {
   }
 
 
-  async build(choice: IDDBChoiceResult) {
+  override async build(choice: IDDBChoiceResult) {
     try {
       this._currentChoice = choice;
       this._generateSystemType();
@@ -104,13 +106,21 @@ export default class DDBChoiceFeature extends DDBFeature {
         this.data.name = `${this.data.name}`.replace(replace2Regex, "");
       }
 
+      const renamedPrefix = DDBChoiceFeature.CHOICE_FEATURE_PREFIX_RENAME[this.ddbDefinition.name];
+      if (renamedPrefix) {
+        const replace3Regex = new RegExp(`^${utils.escapeRegExp(this.ddbDefinition.name)}(?:\\s*[:-]\\s*)`);
+        this.data.name = `${this.data.name}`.replace(replace3Regex, `${renamedPrefix}: `);
+      }
+
       this.data.name = utils.nameString(this.data.name);
       const intMatch = /^(\d+: )(.*)$/;
       const intNameMatch = intMatch.exec(this.data.name);
       if (intNameMatch) {
         this.data.name = intNameMatch[2].trim();
       }
-      const namePointRegex = /(.*) \((\d) points?\)/i;
+      // "(5 points)", but also "(2 or 6 points)" and "(2 or more points)";
+      // the first number is the minimum spend
+      const namePointRegex = /(.*) \((\d+)(?: or (?:more|\d+))? points?\)/i;
       const nameMatch = this.data.name.match(namePointRegex);
       if (nameMatch) {
         this.data.name = nameMatch[1];
@@ -131,8 +141,9 @@ export default class DDBChoiceFeature extends DDBFeature {
       this._checkSummons();
       await this._generateSummons();
       await this._generateCompanions();
-      if (!this.enricher.stopDefaultActivity)
+      if (!this.enricher.stopDefaultActivity) {
         await this._generateActivity();
+      }
       await this.enricher.addAdditionalActivities(this);
 
       this._generateLimitedUse();
@@ -149,7 +160,7 @@ export default class DDBChoiceFeature extends DDBFeature {
         wasOption: choice.wasOption,
         entityTypeId: choice.entityTypeId,
         type: choice.type,
-        optionId: String(choice.optionId),
+        optionId: choice.optionId,
         optionComponentId: choice.optionComponentId,
       });
 
@@ -167,25 +178,11 @@ export default class DDBChoiceFeature extends DDBFeature {
         `Unable to Generate Choice Action: ${this.name}, please log a bug report. Err: ${utils.errorMessage(err)}`,
         "extension",
       );
-      logger.error("Error", err);
+      logger.error(`Unable to Generate Choice Action: ${this.name}`, err);
     }
   }
 
-  static NEVER_CHOICES = [
-    "Strength",
-    "Dexterity",
-    "Constitution",
-    "Intelligence",
-    "Wisdom",
-    "Charisma",
-    "Strength Score",
-    "Dexterity Score",
-    "Constitution Score",
-    "Intelligence Score",
-    "Wisdom Score",
-    "Charisma Score",
-    "Fighting Style feat",
-  ];
+  static NEVER_CHOICES = DICTIONARY.parsing.nonItemChoiceLabels;
 
   static _copyFlags = [
     "class",
@@ -200,9 +197,41 @@ export default class DDBChoiceFeature extends DDBFeature {
   ];
 
 
+  /**
+   * Folds the summon activities of a second document (a choice child, or a duplicate copy of the
+   * feature) into the first document's summon activity: the other document parsed the stat block,
+   * so its bonuses, match rules and actor profiles belong on the surviving summon. A profile whose
+   * actor is already linked is not added twice.
+   */
+  static foldChoiceSummons(
+    parentActivities: I5eFeatSystemData["activities"],
+    choiceActivities: I5eFeatSystemData["activities"],
+  ): boolean {
+    let folded = false;
+    for (const activity of Object.values(parentActivities)) {
+      if (activity.type !== "summon") continue;
+      for (const cActivity of Object.values(choiceActivities)) {
+        if (cActivity.type !== "summon") continue;
+        activity.bonuses = cActivity.bonuses;
+        activity.match = cActivity.match;
+        if (!activity.profiles) activity.profiles = [];
+        const linked = new Set(activity.profiles.map((profile) => profile.uuid).filter(Boolean));
+        for (const profile of cActivity.profiles ?? []) {
+          if (profile.uuid && linked.has(profile.uuid)) continue;
+          activity.profiles.push(profile);
+        }
+        folded = true;
+      }
+    }
+    return folded;
+  }
+
   static async buildChoiceFeatures(ddbFeature: DDBFeature, allFeatures = false): Promise<T5eFeatureMixinDataTypes[]> {
     const features: T5eFeatureMixinDataTypes[] = [];
-    if (DDBChoiceFeature.NO_CHOICE_BUILD.includes(ddbFeature.originalName)) return features;
+    if (ddbFeature.suppressesChoiceBuild) {
+      logger.debug(`Skipping choice build for ${ddbFeature.originalName}`);
+      return features;
+    }
     if (ddbFeature.type === "feat" && !DDBChoiceFeature.FORCE_FEAT_CHOICES.includes(ddbFeature.ddbDefinition.name)) return features;
     const parseAllFeatures = ddbFeature.enricher.parseAllChoiceFeatures || allFeatures;
     const choices = (parseAllFeatures ? ddbFeature._parentOnlyChoices : ddbFeature._parentOnlyChosen)
@@ -256,6 +285,7 @@ export default class DDBChoiceFeature extends DDBFeature {
         ddbFeature,
         choices,
       });
+      // console.warn(`Choice generation ${choiceFeature.data.name}`, {
       //   data: deepClone(choiceFeature.data),
       // });
       if (DDBChoiceFeature.DISCARD_CHOICE_FEATURE.includes(ddbFeature.originalName)) {
@@ -275,6 +305,17 @@ export default class DDBChoiceFeature extends DDBFeature {
           || DDBChoiceFeature.OVERRIDE_CHOICE_FEATURE.includes(ddbFeature.originalName)
         ) {
           featureSystem.activities = choiceSystem.activities;
+        } else if (ddbFeature.enricher.mergeChoiceActivities) {
+          // the parent's enricher built the primary activity; keep the option's own actions
+          // beside it, letting a same-named parent activity win over DDB's copy. A companion
+          // option's summon folds into the parent's summon rather than sitting beside it.
+          const summonsFolded = DDBChoiceFeature.foldChoiceSummons(featureSystem.activities, choiceSystem.activities);
+          const parentNames = new Set(Object.values(featureSystem.activities).map((a) => a.name));
+          for (const [id, activity] of Object.entries(choiceSystem.activities)) {
+            if (summonsFolded && activity.type === "summon") continue;
+            if (activity.name && parentNames.has(activity.name)) continue;
+            featureSystem.activities[id] = activity;
+          }
         }
         if ((ddbFeature.data.effects?.length ?? 0) === 0
           || DDBChoiceFeature.OVERRIDE_CHOICE_FEATURE.includes(ddbFeature.originalName)
@@ -286,6 +327,7 @@ export default class DDBChoiceFeature extends DDBFeature {
         ) {
           featureSystem.uses = choiceSystem.uses;
         }
+        DDBEffectImporter.mergeStandaloneEffects(ddbFeature.data, choiceFeature.data);
         if (foundry.utils.hasProperty(choiceFeature.data, "flags.ddbimporter.dndbeyond.choice")) {
           foundry.utils.setProperty(
             ddbFeature.data,
@@ -295,19 +337,10 @@ export default class DDBChoiceFeature extends DDBFeature {
         }
       } else if (ddbFeature.isCompanionFeatureOption || ddbFeature.isCompanionFeature) {
         logger.debug(`Merging Choice Feature ${choiceFeature.data.name} into companion parent feature ${ddbFeature.originalName}`);
-
-        for (const [_key, activity] of Object.entries((ddbFeature.data.system as I5eFeatSystemData).activities)) {
-          if (activity.type !== "summon") continue;
-
-          for (const [_cKey, cActivity] of Object.entries((choiceFeature.data.system as I5eFeatSystemData).activities)) {
-
-            if (cActivity.type !== "summon") continue;
-            activity.bonuses = cActivity.bonuses;
-            activity.match = cActivity.match;
-            if (!activity.profiles) activity.profiles = [];
-            activity.profiles.push(...(cActivity.profiles ?? []));
-          }
-        }
+        DDBChoiceFeature.foldChoiceSummons(
+          (ddbFeature.data.system as I5eFeatSystemData).activities,
+          (choiceFeature.data.system as I5eFeatSystemData).activities,
+        );
       } else {
         logger.debug(`Adding Choice Feature ${choiceFeature.data.name} as a separate feature for ${ddbFeature.originalName}`);
         features.push(choiceFeature.data);
