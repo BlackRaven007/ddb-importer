@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { muncherRenderMock, cookieRenderMock, setupIsSetupCompleteMock, secretsCheckCobaltMock, secretsGetCobaltMock, patreonIsValidKeyMock, getSettingMock } = vi.hoisted(() => ({
   muncherRenderMock: vi.fn(),
+  muncherOpenMock: vi.fn(async () => {
+    muncherRenderMock({ force: true });
+    return undefined;
+  }),
   cookieRenderMock: vi.fn(),
   setupIsSetupCompleteMock: vi.fn(),
   secretsCheckCobaltMock: vi.fn(),
@@ -15,6 +19,8 @@ const { muncherRenderMock, cookieRenderMock, setupIsSetupCompleteMock, secretsCh
 vi.mock("../../src/apps/DDBMuncher", () => ({
   default: class {
     render = muncherRenderMock;
+
+    static open = muncherOpenMock;
   },
 }));
 
