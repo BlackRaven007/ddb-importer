@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { muncherRenderMock, cookieRenderMock, setupIsSetupCompleteMock, secretsCheckCobaltMock, secretsGetCobaltMock, patreonIsValidKeyMock, getSettingMock } = vi.hoisted(() => ({
+const { muncherRenderMock, muncherOpenMock, cookieRenderMock, setupIsSetupCompleteMock, secretsCheckCobaltMock, secretsGetCobaltMock, patreonIsValidKeyMock, getSettingMock } = vi.hoisted(() => ({
   muncherRenderMock: vi.fn(),
   muncherOpenMock: vi.fn(async () => {
     muncherRenderMock({ force: true });
