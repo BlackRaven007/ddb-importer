@@ -561,7 +561,7 @@ export default class DDBMonsterFactory {
 
     const isAuthFailure = (err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
-      return /auth|unauthor|forbidden|token|cobalt|beta key/i.test(message);
+      return (/auth|unauthor|forbidden|token|cobalt|beta key/i).test(message);
     };
 
     const postMonsters = async (requestBody: IDDBMonsterFetchBody): Promise<IDDBMonsterSourceData[]> => {
