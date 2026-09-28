@@ -479,6 +479,10 @@ export default class DDBMonsterFactory {
     const cobaltCookie = Secrets.getCobalt(keyPostfix);
     const betaKey = PatreonHelper.getPatreonKey(useLocal);
     const parsingApi = DDBProxy.getProxy();
+    if (typeof parsingApi !== "string" || !/^https?:\/\//i.test(parsingApi.trim())) {
+      logger.warn(`[monsters] invalid proxy endpoint "${parsingApi}" while fetching monster data; returning no results`);
+      return [];
+    }
 
     const body: IDDBMonsterFetchBody = {
       cobalt: cobaltCookie,
