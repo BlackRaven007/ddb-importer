@@ -17,10 +17,8 @@ const { muncherRenderMock, muncherOpenMock, cookieRenderMock, setupIsSetupComple
 }));
 
 vi.mock("../../src/apps/DDBMuncher", () => ({
-  default: class {
-    render = muncherRenderMock;
-
-    static open = muncherOpenMock;
+  default: {
+    open: muncherOpenMock,
   },
 }));
 

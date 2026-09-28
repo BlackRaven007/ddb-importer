@@ -604,9 +604,11 @@ export default class Iconizer {
 
 
   static async preFetchDDBIconImages() {
-    await Iconizer.getDDBGenericItemImages();
-    await Iconizer.getDDBGenericLootImages();
-    await Iconizer.getDDBSchoolSpellImages();
+    await Promise.allSettled([
+      Iconizer.getDDBGenericItemImages(),
+      Iconizer.getDDBGenericLootImages(),
+      Iconizer.getDDBSchoolSpellImages(),
+    ]);
   }
 
 

@@ -26,8 +26,8 @@ async function attemptRemoval(targetToken, condition, item) {
             const type = removalCheck ? "check" : "save";
             const flavor = `${condition} (via ${item.name}) : ${CONFIG.DND5E.abilities[ability].label} ${type} vs DC${saveDc}`;
             const rollResult = removalCheck
-              ? (await targetToken.actor.rollAbilityTest(ability, { flavor })).total
-              : (await targetToken.actor.rollAbilitySave(ability, { flavor })).total;
+              ? ((await targetToken.actor.rollAbilityCheck({ ability }, {}, { data: { speaker, flavor } }) ?? [])[0])?.total
+              : ((await targetToken.actor.rollSavingThrow({ ability }, {}, { data: { speaker, flavor } }) ?? [])[0])?.total;
 
             if (rollResult >= saveDc) {
               await DDBImporter.EffectHelper.adjustCondition({ remove: true, conditionName: targetTokenTracker.condition, actor: targetToken.actor });

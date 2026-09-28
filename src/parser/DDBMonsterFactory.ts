@@ -559,18 +559,31 @@ export default class DDBMonsterFactory {
     });
     const idScope = { cobalt: cobaltCookie, endpoint: cacheEndpoint };
 
+    const isAuthFailure = (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      return /auth|unauthor|forbidden|token|cobalt|beta key/i.test(message);
+    };
+
     const postMonsters = async (requestBody: IDDBMonsterFetchBody): Promise<IDDBMonsterSourceData[]> => {
-      const result = await postJson(url, requestBody, { mode: "cors" }) as {
-        success: boolean;
-        message?: string;
-        data: IDDBMonsterSourceData[];
-      };
-      if (!result.success) {
-        this.notifier(`API Failure: ${result.message}`);
-        logger.error(`API Failure:`, result.message);
-        throw new Error(String(result.message));
+      try {
+        const result = await postJson(url, requestBody, { mode: "cors" }) as {
+          success: boolean;
+          message?: string;
+          data: IDDBMonsterSourceData[];
+        };
+        if (!result.success) {
+          this.notifier(`API Failure: ${result.message}`);
+          logger.error(`API Failure:`, result.message);
+          throw new Error(String(result.message));
+        }
+        return result.data;
+      } catch (err) {
+        if (isAuthFailure(err)) {
+          logger.warn("[monsters] missing auth while fetching monster data; returning no results");
+          return [];
+        }
+        throw err;
       }
-      return result.data;
     };
 
     const finishBulk = (raw: IDDBMonsterSourceData[]) => {

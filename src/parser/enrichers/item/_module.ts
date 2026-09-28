@@ -12,6 +12,7 @@ export { default as ArcaneOil } from "./ArcaneOil";
 export { default as ArmorOfInvulnerability } from "./ArmorOfInvulnerability";
 export { default as ArrowCatchingShield } from "./ArrowCatchingShield";
 export { default as AssassinsBlood } from "./AssassinsBlood";
+export { default as BracersOfArchery } from "./BracersOfArchery";
 export { default as AstralCaltrops } from "./AstralCaltrops";
 export { default as AstralSeaPiercer } from "./AstralSeaPiercer";
 export { default as AstromancyArchive } from "./AstromancyArchive";

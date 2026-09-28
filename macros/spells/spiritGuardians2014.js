@@ -45,7 +45,7 @@ async function addOvertimeEffect({ name , actorUuid, damageType, damageRoll, abi
         changes: scope.effect.changes.concat([
           {
             key: "flags.midi-qol.OverTime",
-            mode: CONST.ACTIVE_EFFECT_MODES.OVERRIDE,
+            type: "override",
             priority: 20,
             value: overtimeOptions.join(","),
           }
