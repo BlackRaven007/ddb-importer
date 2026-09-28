@@ -33,7 +33,7 @@ function getSafeName(name: string) {
 }
 
 export async function setBasicCombatFlag(actor: Actor | Actor.Implementation, flagName: string, origin?: string) {
-  await DDBEffectHelper.setFlag(actor, flagName, {
+  await DDBEffectHelper.setFlag(actor as unknown as Actor, flagName, {
     id: game.combat?.id ?? null,
     round: game.combat?.round ?? null,
     turn: game.combat?.turn ?? null,
@@ -100,6 +100,7 @@ async function rollDocumentActivityMidiQol({
   activityIds?: string[];
   nameSuffix?: string;
 }) {
+  const itemLevel = Number((originDocument.system as { level?: number }).level ?? 0);
 
   const workflowItemData = DDBEffectHelper.documentWithFilteredActivities({
     document: originDocument,
@@ -117,7 +118,7 @@ async function rollDocumentActivityMidiQol({
   await DDBEffectHelper.rollMidiItemUse(workflowItemData, {
     targets: [targetToken.document.uuid],
     slotLevel: level,
-    scaling: (level ?? 0) - originDocument.system.level,
+    scaling: (level ?? 0) - itemLevel,
   });
 }
 
@@ -138,7 +139,9 @@ async function applyConditionVsSave({
   nameSuffix?: string;
 }) {
   logger.debug(`Running ${item.name}, applyConditionVsSave`);
-  if (condition && DDBEffectHelper.isConditionEffectAppliedAndActive(condition, targetToken.actor)) return true;
+  const targetActor = targetToken.actor;
+  if (!targetActor) return false;
+  if (condition && DDBEffectHelper.isConditionEffectAppliedAndActive(condition, targetActor)) return true;
 
   const targetTokenId = targetToken.id;
   if (!targetTokenId) {
@@ -164,17 +167,18 @@ async function applyConditionVsSave({
     .map((t) => t.id)
     .filter((id): id is string => id !== null);
   (game.user as TTokenTargetUser).updateTokenTargets([targetTokenId]);
+  const itemLevelValue = Number((item.system as { level?: number }).level ?? 0);
   const [config, options] = DDBEffectHelper.syntheticItemWorkflowOptions({
     slotLevel: itemLevel,
-    scaling: (itemLevel ?? 0) - item.system.level,
+    scaling: (itemLevel ?? 0) - itemLevelValue,
   } as unknown as TSyntheticWorkflowOptions);
   const result = await MidiQOL.completeItemUse(workflowItemData, config, options);
 
   (game.user as TTokenTargetUser).updateTokenTargets(saveTargets);
   const failedSaves = Array.from<Token.Implementation>(result.failedSaves);
-  const statusOnWorkflow = workflowItemData.effects.some((e: any) =>
+  const statusOnWorkflow = workflowItemData.effects?.some((e: any) =>
     e.statuses.some((s: any) => s.name.toLowerCase() === condition),
-  );
+  ) ?? false;
   if (failedSaves.length > 0 && !statusOnWorkflow) {
     await DDBEffectHelper.adjustCondition({
       add: true,
@@ -198,11 +202,14 @@ export async function checkAuraAndUseActivity({
   nameSuffix?: string;
 }) {
   const safeName = getSafeName(originDocument.name);
-  const targetItemTracker = DDBEffectHelper.getFlag(originDocument.parent, `${safeName}Tracker`) as IAuraTracker | undefined;
+  const originParent = originDocument.parent;
+  const targetItemTracker = originParent ? DDBEffectHelper.getFlag(originParent, `${safeName}Tracker`) as IAuraTracker | undefined : undefined;
   if (!targetItemTracker) {
     logger.warn(`checkAuraAndUseActivity: no ${safeName}Tracker flag found for ${originDocument.name}`);
     return;
   }
+  const combat = game.combat;
+  if (!combat) return;
   const originalTarget = (targetItemTracker.targetUuids ?? []).includes(tokenUuid);
   const tokenId = tokenUuid.split(".").pop();
   const target = tokenId ? canvas.tokens.get(tokenId) : undefined;
@@ -210,7 +217,9 @@ export async function checkAuraAndUseActivity({
     logger.warn(`checkAuraAndUseActivity: token ${tokenUuid} not found on canvas`);
     return;
   }
-  const targetTokenTrackerFlag = DDBEffectHelper.getFlag(target.actor, `${safeName}Tracker`) as IAuraTracker | undefined;
+  const targetActor = target.actor;
+  if (!targetActor) return;
+  const targetTokenTrackerFlag = DDBEffectHelper.getFlag(targetActor, `${safeName}Tracker`) as IAuraTracker | undefined;
   const targetedThisCombat = targetTokenTrackerFlag && targetItemTracker.randomId === targetTokenTrackerFlag.randomId;
   const targetTokenTracker = targetedThisCombat
     ? targetTokenTrackerFlag
@@ -221,11 +230,11 @@ export async function checkAuraAndUseActivity({
       spellLevel: targetItemTracker.spellLevel,
     });
 
-  const castTurn = targetItemTracker.startRound === game.combat.round
-    && targetItemTracker.startTurn === game.combat.turn;
+  const castTurn = targetItemTracker.startRound === combat.round
+    && targetItemTracker.startTurn === combat.turn;
   // round/turn are only set on the tracker once a token has left the aura
-  const isLaterTurn = (targetTokenTracker.round !== undefined && game.combat.round > targetTokenTracker.round)
-    || (targetTokenTracker.turn !== undefined && game.combat.turn > targetTokenTracker.turn);
+  const isLaterTurn = (targetTokenTracker.round !== undefined && combat.round > targetTokenTracker.round)
+    || (targetTokenTracker.turn !== undefined && combat.turn > targetTokenTracker.turn);
 
   // if:
   // not cast turn, and not part of the original target
@@ -245,7 +254,7 @@ export async function checkAuraAndUseActivity({
       nameSuffix,
     });
   }
-  await DDBEffectHelper.setFlag(target.actor as unknown as Actor, `${safeName}Tracker`, targetTokenTracker);
+  await DDBEffectHelper.setFlag(targetActor as unknown as Actor, `${safeName}Tracker`, targetTokenTracker);
 }
 
 export async function checkAuraAndApplyCondition({
@@ -269,13 +278,15 @@ export async function checkAuraAndApplyCondition({
 }) {
   logger.debug(`Running ${originDocument.name}, checkAuraAndApplyCondition`);
 
-  const combatRound = game.combat?.round ?? 0;
-  const combatTurn = game.combat?.turn ?? 0;
+  const combat = game.combat;
+  const combatRound = combat?.round ?? 0;
+  const combatTurn = combat?.turn ?? 0;
 
   const safeName = getSafeName(originDocument.name);
   // sometimes the round info has not updated, so we pause a bit
   if (wait) await DDBEffectHelper.wait(500);
-  const targetItemTracker = DDBEffectHelper.getFlag(originDocument.parent, `${safeName}Tracker`) as IAuraTracker | undefined;
+  const originParent = originDocument.parent;
+  const targetItemTracker = originParent ? DDBEffectHelper.getFlag(originParent, `${safeName}Tracker`) as IAuraTracker | undefined : undefined;
   if (!targetItemTracker) {
     logger.warn(`checkAuraAndApplyCondition: no ${safeName}Tracker flag found for ${originDocument.name}`);
     return;
@@ -287,7 +298,9 @@ export async function checkAuraAndApplyCondition({
     logger.warn(`checkAuraAndApplyCondition: token ${tokenUuid} not found on canvas`);
     return;
   }
-  const targetTokenTrackerFlag = DDBEffectHelper.getFlag(target.actor, `${safeName}Tracker`) as IAuraTracker | undefined;
+  const targetActor = target.actor;
+  if (!targetActor) return;
+  const targetTokenTrackerFlag = DDBEffectHelper.getFlag(targetActor, `${safeName}Tracker`) as IAuraTracker | undefined;
   const targetedThisCombat = targetTokenTrackerFlag
     && targetItemTracker.randomId === targetTokenTrackerFlag.randomId;
   const targetTokenTracker = targetedThisCombat
@@ -331,7 +344,7 @@ export async function checkAuraAndApplyCondition({
   const effectApplied = targetTokenTracker.condition
     ? DDBEffectHelper.isConditionEffectAppliedAndActive(targetTokenTracker.condition, target.actor)
     : false;
-  const currentTokenCombatTurn = game.combat.current.tokenId === tokenId;
+  const currentTokenCombatTurn = combat?.current?.tokenId === tokenId;
   if (currentTokenCombatTurn && allowVsRemoveCondition && effectApplied) {
     logger.log(`Removing ${condition}`);
     await DDBEffectHelper.attemptConditionRemovalDialog(target, condition, {
@@ -361,7 +374,9 @@ export async function removeAuraFromToken({
     effectOrigin,
     originDocument,
   });
-  const targetTokenTracker = await DDBEffectHelper.getFlag(targetToken.actor, `${safeName}Tracker`) as IAuraTracker;
+  const targetActor = targetToken.actor;
+  if (!targetActor) return;
+  const targetTokenTracker = await DDBEffectHelper.getFlag(targetActor, `${safeName}Tracker`) as IAuraTracker;
   logger.debug("targetTokenTracker", { targetTokenTracker });
 
   if (!targetTokenTracker) {
@@ -370,13 +385,13 @@ export async function removeAuraFromToken({
   }
 
   if (targetTokenTracker.condition && removeOnOff
-    && DDBEffectHelper.isConditionEffectAppliedAndActive(targetTokenTracker.condition, targetToken.actor)
+    && DDBEffectHelper.isConditionEffectAppliedAndActive(targetTokenTracker.condition, targetActor)
   ) {
     logger.debug(`Removing ${targetTokenTracker.condition} from ${targetToken.name}`);
     await DDBEffectHelper.adjustCondition({
       remove: true,
       conditionName: targetTokenTracker.condition,
-      actor: targetToken.actor,
+      actor: targetActor,
     } as TAdjustConditionOptions);
   }
 

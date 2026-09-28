@@ -89,7 +89,7 @@ export default class ImportRunTracker {
       ...store,
       runs: [...store.runs].slice(-STORE_LIMIT),
     };
-    await game.settings.set(SETTINGS.MODULE_ID, ImportRunTracker.SETTING_KEY as any, trimmed);
+    await game.settings.set(SETTINGS.MODULE_ID, ImportRunTracker.SETTING_KEY as any, trimmed as any);
   }
 
   static makeKeySignature(keys: string[]): string {
