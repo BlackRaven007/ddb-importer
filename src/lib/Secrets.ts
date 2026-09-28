@@ -13,8 +13,13 @@ function isJSON(str: string): boolean {
   }
 }
 
+function hasLocalStorage(): boolean {
+  return typeof globalThis !== "undefined" && "localStorage" in globalThis && globalThis.localStorage !== undefined;
+}
+
 export function isLocalCobalt(keyPostfix: string | null): boolean {
-  return Boolean(keyPostfix && keyPostfix !== "" && localStorage.getItem(`ddb-cobalt-cookie-${keyPostfix}`) !== null);
+  if (!keyPostfix || keyPostfix === "" || !hasLocalStorage()) return false;
+  return localStorage.getItem(`ddb-cobalt-cookie-${keyPostfix}`) !== null;
 }
 
 export function getCobalt(keyPostfix = ""): string {
@@ -23,9 +28,9 @@ export function getCobalt(keyPostfix = ""): string {
   const characterCookie = isLocalCobalt(keyPostfix);
 
   logger.debug(`Getting Cookie: Key postfix? "${keyPostfix}" -  Local? ${localCookie} - Character? ${characterCookie}`);
-  if (characterCookie) {
+  if (characterCookie && hasLocalStorage()) {
     cobalt = localStorage.getItem(`ddb-cobalt-cookie-${keyPostfix}`) ?? "";
-  } else if (localCookie) {
+  } else if (localCookie && hasLocalStorage()) {
     cobalt = localStorage.getItem("ddb-cobalt-cookie") ?? "";
   } else {
     cobalt = utils.getSetting<string>("cobalt-cookie");
@@ -44,9 +49,9 @@ export async function setCobalt(value: string, keyPostfix = "") {
   }
 
   logger.debug(`Setting Cookie: Key postfix? "${keyPostfix}" -  Local? ${localCookie} - Character? ${characterCookie}`);
-  if (characterCookie) {
+  if (characterCookie && hasLocalStorage()) {
     localStorage.setItem(`ddb-cobalt-cookie-${keyPostfix}`, cobaltValue);
-  } else if (localCookie) {
+  } else if (localCookie && hasLocalStorage()) {
     localStorage.setItem("ddb-cobalt-cookie", cobaltValue);
   } else {
     await game.settings.set(SETTINGS.MODULE_ID, "cobalt-cookie", cobaltValue);
@@ -56,19 +61,23 @@ export async function setCobalt(value: string, keyPostfix = "") {
 export function deleteLocalCobalt(keyPostfix: string | null) {
   const localCookie = isLocalCobalt(keyPostfix);
 
-  if (localCookie) {
+  if (localCookie && hasLocalStorage()) {
     localStorage.removeItem(`ddb-cobalt-cookie-${keyPostfix}`);
   }
 }
 
 export async function moveCobaltToLocal() {
-  localStorage.setItem("ddb-cobalt-cookie", utils.getSetting<string>("cobalt-cookie"));
+  if (hasLocalStorage()) {
+    localStorage.setItem("ddb-cobalt-cookie", utils.getSetting<string>("cobalt-cookie"));
+  }
   await game.settings.set(SETTINGS.MODULE_ID, "cobalt-cookie", "");
   game.settings.set(SETTINGS.MODULE_ID, "cobalt-cookie-local", true);
 }
 
 export async function moveCobaltToSettings() {
-  game.settings.set(SETTINGS.MODULE_ID, "cobalt-cookie", localStorage.getItem("ddb-cobalt-cookie") ?? "");
+  if (hasLocalStorage()) {
+    game.settings.set(SETTINGS.MODULE_ID, "cobalt-cookie", localStorage.getItem("ddb-cobalt-cookie") ?? "");
+  }
   game.settings.set(SETTINGS.MODULE_ID, "cobalt-cookie-local", false);
 }
 
