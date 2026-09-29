@@ -342,7 +342,7 @@ export async function checkAuraAndApplyCondition({
       nameSuffix,
     });
   }
-  await DDBEffectHelper.setFlag(target.actor as unknown as Actor, `${safeName}Tracker`, targetTokenTracker);
+  await DDBEffectHelper.setFlag(targetActor, `${safeName}Tracker`, targetTokenTracker);
   const effectApplied = targetTokenTracker.condition
     ? DDBEffectHelper.isConditionEffectAppliedAndActive(targetTokenTracker.condition, target.actor)
     : false;
