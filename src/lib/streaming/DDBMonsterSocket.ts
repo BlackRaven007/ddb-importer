@@ -10,6 +10,7 @@ export interface DDBMonsterStartParams {
   ids?: number[];
   searchTerm?: string;
   search?: string;
+  campaignId?: string | number | null;
   sources?: number[];
   excludedCategories?: number[];
   monsterTypes?: number[];

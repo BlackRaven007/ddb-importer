@@ -119,7 +119,15 @@ const BookData = {
     const key = await BookData.fetchKey(bookId, cobalt, betaKey);
     const { url, bookCode } = await BookData.fetchBookUrl(bookId, cobalt, betaKey);
     logger.info(`BookData: downloading ${bookCode} zip`);
-    const zipBlob = await FileHelper.downloadImage(BookData.corsUrl(url));
+    let zipBlob: Blob;
+    try {
+      zipBlob = await FileHelper.downloadImage(BookData.corsUrl(url));
+    } catch (error) {
+      // Some custom proxies may still strip signed query parameters from S3 URLs.
+      // Retry directly against the signed URL before failing the import.
+      logger.warn(`BookData: proxy zip download failed, retrying direct signed URL for ${bookCode}: ${(error as Error).message}`);
+      zipBlob = await FileHelper.downloadImage(url);
+    }
     const { db3Bytes, zip } = await BookData.openZip(zipBlob, bookCode);
     logger.info(`BookData: extracted ${bookCode}.db3 (${db3Bytes.length} bytes), ${zip.listEntries().length} zip entries`);
 

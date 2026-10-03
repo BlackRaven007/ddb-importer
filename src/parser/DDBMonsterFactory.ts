@@ -14,6 +14,7 @@ import {
   DDBRunContext,
   MunchProgressTracker,
   DDBProxyCache,
+  DDBCampaigns,
 } from "../lib/_module";
 import DDBMonster from "./DDBMonster";
 import { setMonsterBatch } from "./monster/batch";
@@ -161,6 +162,7 @@ function _ensureSessionCacheRegistered(): void {
 interface IPersistedIdScope {
   cobalt: string;
   endpoint?: string;
+  campaignId?: string | null;
 }
 
 // an id the proxy returned nothing for is remembered briefly, not for the full TTL, so a transient
@@ -171,12 +173,12 @@ const NULL_ID_TTL_MS = 3600000;
  * Persisted by-id records for the requested ids. The map only holds ids the cache knows about; a
  * null value is a remembered "the proxy has no such monster".
  */
-export async function _readPersistedIds(ids: number[], { cobalt, endpoint }: IPersistedIdScope): Promise<Map<number, IProxyCacheHit<IDDBMonsterSourceData | null>>> {
+export async function _readPersistedIds(ids: number[], { cobalt, endpoint, campaignId }: IPersistedIdScope): Promise<Map<number, IProxyCacheHit<IDDBMonsterSourceData | null>>> {
   const found = new Map<number, IProxyCacheHit<IDDBMonsterSourceData | null>>();
   if (ids.length === 0 || !DDBProxyCache.isEnabled() || DDBProxyCache.isRefreshing()) return found;
   const hits = await DDBProxyCache.getManyHits<IDDBMonsterSourceData | null>(
     "monster-id",
-    ids.map((id) => ({ id, cobalt, endpoint })),
+    ids.map((id) => ({ id, cobalt, endpoint, campaignId })),
   );
   ids.forEach((id, index) => {
     const hit = hits[index];
@@ -194,7 +196,7 @@ export async function _readPersistedIds(ids: number[], { cobalt, endpoint }: IPe
 export async function _writePersistedIds(
   requested: number[],
   raw: IDDBMonsterSourceData[],
-  { cobalt, endpoint, generation }: IPersistedIdScope & { generation?: number },
+  { cobalt, endpoint, campaignId, generation }: IPersistedIdScope & { generation?: number },
 ): Promise<void> {
   if (requested.length === 0 || raw.length === 0 || !DDBProxyCache.isEnabled()) return;
   const byId = new Map<number, IDDBMonsterSourceData>();
@@ -205,8 +207,8 @@ export async function _writePersistedIds(
   await DDBProxyCache.setMany<IDDBMonsterSourceData | null>(
     "monster-id",
     requested.map((id) => (byId.has(id)
-      ? { params: { id, cobalt, endpoint }, data: byId.get(id) ?? null }
-      : { params: { id, cobalt, endpoint }, data: null, ttlMs: NULL_ID_TTL_MS })),
+      ? { params: { id, cobalt, endpoint, campaignId }, data: byId.get(id) ?? null }
+      : { params: { id, cobalt, endpoint, campaignId }, data: null, ttlMs: NULL_ID_TTL_MS })),
     { generation },
   );
 }
@@ -308,6 +310,7 @@ interface IDDBMonsterFactory {
 interface IDDBMonsterFetchBody {
   cobalt: string;
   betaKey: string;
+  campaignId?: string | null;
   sources: number[];
   search?: string;
   searchTerm?: string;
@@ -507,6 +510,8 @@ export default class DDBMonsterFactory {
     }
 
     const debugJson = utils.getSetting<boolean>("debug-json");
+    const configuredCampaignId = DDBCampaigns.getCampaignId();
+    const campaignId = configuredCampaignId === "" ? null : configuredCampaignId;
 
     const defaultUrl = ids && Array.isArray(ids) && ids.length > 0
       ? `${parsingApi}/proxy/monsters/ids`
@@ -516,15 +521,18 @@ export default class DDBMonsterFactory {
     // override and skip streaming. Same logic applies to both bulk and by-id.
     const customMonsterUrl = url !== defaultUrl;
 
+    if (campaignId) body.campaignId = campaignId;
+
     const isIdLookup = !!(ids && Array.isArray(ids) && ids.length > 0);
     const streamElement = isIdLookup ? "monsters-by-id" : "all-monsters";
     const buildStartParams = () => {
       if (isIdLookup) {
-        return { ids: body.ids ?? [], cobalt: cobaltCookie };
+        return { ids: body.ids ?? [], cobalt: cobaltCookie, campaignId };
       }
       return {
         searchTerm: body.searchTerm ?? "",
         search: body.search ?? "",
+        campaignId,
         sources: body.sources ?? [],
         excludedCategories: body.excludedCategories ?? [],
         monsterTypes: body.monsterTypes ?? [],
@@ -561,7 +569,7 @@ export default class DDBMonsterFactory {
       domain: "monsters" as const,
       params: { ...buildStartParams(), endpoint: cacheEndpoint },
     });
-    const idScope = { cobalt: cobaltCookie, endpoint: cacheEndpoint };
+    const idScope = { cobalt: cobaltCookie, endpoint: cacheEndpoint, campaignId };
 
     const isAuthFailure = (err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
