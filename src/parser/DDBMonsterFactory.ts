@@ -521,6 +521,18 @@ export default class DDBMonsterFactory {
     // override and skip streaming. Same logic applies to both bulk and by-id.
     const customMonsterUrl = url !== defaultUrl;
 
+    const logMonsterDebug = (message: string, details: Record<string, unknown> = {}) => {
+      const payload = {
+        ...details,
+        requestType: isIdLookup ? "by-id" : "bulk",
+        streamDisabled: _monsterSocketDisabled,
+        customMonsterUrl,
+        url,
+      };
+      logger.info(`[monsters-debug] ${message}`, payload);
+      console.info("[ddb-importer][monsters]", message, payload);
+    };
+
     if (campaignId) body.campaignId = campaignId;
 
     const isIdLookup = !!(ids && Array.isArray(ids) && ids.length > 0);
@@ -543,6 +555,20 @@ export default class DDBMonsterFactory {
         cobalt: cobaltCookie,
       };
     };
+
+    logMonsterDebug("Prepared monster fetch", {
+      campaignId,
+      idsRequested: (body.ids ?? []).length,
+      searchTerm: body.searchTerm ?? "",
+      search: body.search ?? "",
+      sources: body.sources ?? [],
+      excludedCategories: body.excludedCategories ?? [],
+      monsterTypes: body.monsterTypes ?? [],
+      homebrew: !!body.homebrew,
+      homebrewOnly: !!body.homebrewOnly,
+      exactMatch: !!body.exactMatch,
+      excludeLegacy: !!body.excludeLegacy,
+    });
 
     const applyCategoryFilter = (data: IDDBMonsterSourceData[]) => {
       if (isIdLookup) return data;
@@ -607,10 +633,18 @@ export default class DDBMonsterFactory {
       logger.info(`Retrieved ${raw.length} monsters from DDB`);
       this.source = applyCategoryFilter(raw);
       logger.info(`[monsters] ${this.source.length} of ${raw.length} monsters in the included source categories`);
+      logMonsterDebug("Monster results received", {
+        rawCount: raw.length,
+        filteredCount: this.source.length,
+        filteredOut: Math.max(raw.length - this.source.length, 0),
+      });
       return this.source;
     };
 
     const fetchOverHttp = async () => {
+      logMonsterDebug("Using HTTP monster fetch", {
+        cacheDomain: isIdLookup ? "monster-id" : "monsters",
+      });
       if (!isIdLookup) {
         const raw = await DDBProxyCache.wrap<IDDBMonsterSourceData[]>(bulkCacheRequest(), () => postMonsters(body));
         return finishBulk(raw);
@@ -619,20 +653,41 @@ export default class DDBMonsterFactory {
       const requestedIds = (body.ids ?? []).map(Number);
       const persisted = await _readPersistedIds(requestedIds, idScope);
       const missing = requestedIds.filter((id) => !persisted.has(id));
+      logMonsterDebug("HTTP by-id cache state", {
+        requestedIds: requestedIds.length,
+        persistedHits: persisted.size,
+        missingIds: missing.length,
+      });
       const fetched = new Map<number, IDDBMonsterSourceData>();
       if (missing.length > 0) {
         const generation = DDBProxyCache.generation;
         const raw = await postMonsters({ ...body, ids: missing });
         for (const monster of raw) fetched.set(Number(monster?.id), monster);
         await _writePersistedIds(missing, raw, { ...idScope, generation });
+        const returnedIds = new Set<number>(raw.map((monster) => Number(monster?.id)).filter((id) => Number.isFinite(id)));
+        const unresolved = missing.filter((id) => !returnedIds.has(id));
+        if (unresolved.length > 0) {
+          logMonsterDebug("HTTP by-id unresolved monster ids", {
+            unresolvedCount: unresolved.length,
+            unresolvedIds: unresolved,
+          });
+        }
       }
       const combined = combineByIdResults(requestedIds, fetched, persisted);
       logger.debug(`[monsters] by-id HTTP: ${requestedIds.length} requested, ${missing.length} fetched, ${combined.length} returned`);
+      logMonsterDebug("HTTP by-id result summary", {
+        requestedIds: requestedIds.length,
+        fetchedIds: missing.length,
+        returnedMonsters: combined.length,
+      });
       return finishBulk(combined);
     };
 
     const bulkJob = { degraded: false };
     const streamBulk = async (): Promise<IDDBMonsterSourceData[]> => {
+      logMonsterDebug("Using stream monster fetch", {
+        streamElement,
+      });
       const socket = new DDBMonsterSocket(parsingApi);
       socket.connect();
       try {
@@ -664,6 +719,11 @@ export default class DDBMonsterFactory {
       const requestedIds: number[] = (body.ids ?? []).map(Number);
       let missing = requestedIds.filter((id) => _idCacheGet(id) === undefined);
       let _lastByIdRawCount = 0;
+
+      logMonsterDebug("Stream by-id cache state", {
+        requestedIds: requestedIds.length,
+        missingInMemoryCache: missing.length,
+      });
 
       // the persistent cache is the second layer behind the in-memory id cache
       if (missing.length > 0) {
@@ -716,6 +776,15 @@ export default class DDBMonsterFactory {
           _bumpSharedIdle();
           const recorded = degraded ? missing.filter((id) => returnedIds.has(Number(id))) : missing;
           await _writePersistedIds(recorded, raw, { ...idScope, generation });
+
+          const unresolved = missing.filter((id) => !returnedIds.has(Number(id)));
+          if (unresolved.length > 0) {
+            logMonsterDebug("Stream by-id unresolved monster ids", {
+              unresolvedCount: unresolved.length,
+              unresolvedIds: unresolved,
+              degraded,
+            });
+          }
         });
       }
       byIdRawCount = _lastByIdRawCount;
@@ -728,6 +797,13 @@ export default class DDBMonsterFactory {
       }
       this.notifier(`Retrieved ${this.source.length} monsters from DDB`, { nameField: true, monsterNote: false });
       logger.info(`Retrieved ${this.source.length} monsters from DDB (by id; ${missing.length} requested, raw=${_lastByIdRawCount}, source=${this.source.length}, ${requestedIds.length - missing.length} cached)`);
+      logMonsterDebug("Stream by-id result summary", {
+        requestedIds: requestedIds.length,
+        fetchedIds: missing.length,
+        rawReturned: _lastByIdRawCount,
+        returnedMonsters: this.source.length,
+        cachedIds: requestedIds.length - missing.length,
+      });
       return this.source;
     };
 
@@ -739,6 +815,11 @@ export default class DDBMonsterFactory {
         // A by-id stream that fetched ids and got nothing back is treated as a failure: use fallback.
         if (shouldFallbackAfterByIdStream(byIdFetchedCount, byIdRawCount)) {
           logger.warn(`[monsters] by-id streaming returned 0 for ${byIdFetchedCount} id(s); falling back to HTTP`);
+          logMonsterDebug("Stream by-id fallback triggered", {
+            byIdFetchedCount,
+            byIdRawCount,
+            reason: "stream returned no monsters for fetched ids",
+          });
           _closeSharedMonsterSocket();
           return fetchOverHttp();
         }
@@ -748,6 +829,9 @@ export default class DDBMonsterFactory {
     } catch (err) {
       const msg = (err as Error)?.message ?? String(err);
       logger.warn(`[monsters] streaming failed, falling back to HTTP: ${msg}`);
+      logMonsterDebug("Stream monster fetch failed; falling back to HTTP", {
+        error: msg,
+      });
       // only an unusable endpoint latches streaming off; a stream that ended badly retries next time
       if (err instanceof StreamUnavailableError) _monsterSocketDisabled = true;
       if (isIdLookup) _closeSharedMonsterSocket();
