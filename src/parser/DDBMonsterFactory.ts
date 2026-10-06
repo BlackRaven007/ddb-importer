@@ -530,7 +530,6 @@ export default class DDBMonsterFactory {
         url,
       };
       logger.info(`[monsters-debug] ${message}`, payload);
-      console.info("[ddb-importer][monsters]", message, payload);
     };
 
     if (campaignId) body.campaignId = campaignId;
