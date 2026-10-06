@@ -632,6 +632,26 @@ export default class DDBMonsterFactory {
       logger.info(`Retrieved ${raw.length} monsters from DDB`);
       this.source = applyCategoryFilter(raw);
       logger.info(`[monsters] ${this.source.length} of ${raw.length} monsters in the included source categories`);
+
+      const requestedName = String(body.search ?? body.searchTerm ?? "").trim().toLowerCase();
+      if (!isIdLookup && requestedName) {
+        const rawMatch = raw.find((monster) => monster.name?.toLowerCase?.() === requestedName);
+        const filteredMatch = this.source.find((monster) => monster.name?.toLowerCase?.() === requestedName);
+        if (rawMatch && !filteredMatch) {
+          logMonsterDebug("Exact-name match was filtered out after importer category/source filtering", {
+            requestedName,
+            rawMonsterId: rawMatch.id,
+            rawMonsterName: rawMatch.name,
+            rawMonsterSources: (rawMatch.sources ?? []).map((source) => ({
+              sourceId: source.sourceId,
+              sourceType: source.sourceType,
+              pageNumber: source.pageNumber,
+            })),
+            excludedCategories: body.excludedCategories ?? [],
+          });
+        }
+      }
+
       logMonsterDebug("Monster results received", {
         rawCount: raw.length,
         filteredCount: this.source.length,
