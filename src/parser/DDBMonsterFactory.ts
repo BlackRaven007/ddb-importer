@@ -605,11 +605,34 @@ export default class DDBMonsterFactory {
 
     const postMonsters = async (requestBody: IDDBMonsterFetchBody): Promise<IDDBMonsterSourceData[]> => {
       try {
+        logMonsterDebug("Sending monster request to proxy", {
+          requestBody: {
+            ...requestBody,
+            cobalt: requestBody.cobalt ? "[redacted]" : "",
+            betaKey: requestBody.betaKey ? "[redacted]" : "",
+          },
+        });
         const result = await postJson(url, requestBody, { mode: "cors" }) as {
           success: boolean;
           message?: string;
           data: IDDBMonsterSourceData[];
         };
+        logMonsterDebug("Proxy returned monster response", {
+          success: !!result?.success,
+          message: result?.message ?? "",
+          rawCount: Array.isArray(result?.data) ? result.data.length : 0,
+          sample: Array.isArray(result?.data) ? result.data.slice(0, 3).map((monster) => ({
+            id: monster?.id,
+            name: monster?.name,
+            isHomebrew: monster?.isHomebrew,
+            isReleased: monster?.isReleased,
+            sources: (monster?.sources ?? []).slice(0, 5).map((source) => ({
+              sourceId: source?.sourceId,
+              sourceType: source?.sourceType,
+              pageNumber: source?.pageNumber,
+            })),
+          })) : [],
+        });
         if (!result.success) {
           this.notifier(`API Failure: ${result.message}`);
           logger.error(`API Failure:`, result.message);
