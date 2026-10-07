@@ -574,11 +574,13 @@ export default class DDBMonsterFactory {
       logger.debug("Processing categories");
       return data
         .map((monster) => {
-          monster.sources = (monster.sources ?? []).filter((source) =>
+          // Create a shallow copy to avoid mutating cached objects
+          const filtered = { ...monster };
+          filtered.sources = (monster.sources ?? []).filter((source) =>
             source.sourceType === 1
             && DDBSources.isSourceInAllowedCategory(source),
           );
-          return monster;
+          return filtered;
         })
         .filter((monster) => {
           if (monster.isHomebrew) return true;
