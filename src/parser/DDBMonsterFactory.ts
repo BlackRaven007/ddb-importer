@@ -335,6 +335,63 @@ interface IDDBMonsterFactoryFetchOptions {
   monsterTypes?: number[];
 }
 
+function getMonsterActionItemCount(npc: I5eMonsterData): number {
+  const items = npc.items ?? [];
+  return items.filter((item) => {
+    const legacyActivation = item.system?.activation?.type;
+    if (["action", "bonus", "reaction", "legendary", "lair", "special", "mythic"].includes(legacyActivation ?? "")) {
+      return true;
+    }
+    const activities = Object.values(item.system?.activities ?? {});
+    return activities.some((activity: any) => {
+      const type = activity?.activation?.type ?? activity?.type;
+      return ["action", "bonus", "reaction", "legendary", "lair", "special", "mythic", "attack", "save", "heal", "utility"].includes(type ?? "");
+    });
+  }).length;
+}
+
+function getMonsterDiagnostics(npc: I5eMonsterData, source: IDDBMonsterSourceData) {
+  const abilities = npc.system?.abilities ?? {};
+  const abilityKeys = ["str", "dex", "con", "int", "wis", "cha"] as const;
+  const missingAbilities = abilityKeys.filter((key) => {
+    const value = (abilities as Record<string, { value?: number }>)[key]?.value;
+    return !Number.isFinite(value);
+  });
+
+  const actionItems = getMonsterActionItemCount(npc);
+  const totalItems = npc.items?.length ?? 0;
+  const sourceActionHtmlLength = (source.actionsDescription ?? "").trim().length;
+  const sourceTraitsHtmlLength = (source.specialTraitsDescription ?? "").trim().length;
+  const sourceLegendaryHtmlLength = (source.legendaryActionsDescription ?? "").trim().length;
+  const sourceReactionHtmlLength = (source.reactionsDescription ?? "").trim().length;
+
+  const likelyIncomplete = missingAbilities.length > 0
+    || totalItems === 0
+    || actionItems === 0
+    || !Number.isFinite(npc.system?.attributes?.hp?.max)
+    || !Number.isFinite(npc.system?.attributes?.ac?.value);
+
+  return {
+    likelyIncomplete,
+    missingAbilities,
+    totalItems,
+    actionItems,
+    hpMax: npc.system?.attributes?.hp?.max,
+    ac: npc.system?.attributes?.ac?.value,
+    cr: npc.system?.details?.cr,
+    sourceId: source.id,
+    sourceName: source.name,
+    sourceHasActionsHtml: sourceActionHtmlLength > 0,
+    sourceHasTraitsHtml: sourceTraitsHtmlLength > 0,
+    sourceHasLegendaryHtml: sourceLegendaryHtmlLength > 0,
+    sourceHasReactionHtml: sourceReactionHtmlLength > 0,
+    sourceActionHtmlLength,
+    sourceTraitsHtmlLength,
+    sourceLegendaryHtmlLength,
+    sourceReactionHtmlLength,
+  };
+}
+
 export default class DDBMonsterFactory {
 
   /**
@@ -897,6 +954,7 @@ export default class DDBMonsterFactory {
   async parse(monsters: IDDBMonsterSourceData[] = []): Promise<{ actors: I5eMonsterData[]; failedMonsterNames: string[] }> {
     const foundryActors: I5eMonsterData[] = [];
     const failedMonsterNames: string[] = [];
+    const debugJson = utils.getSetting<boolean>("debug-json");
 
     const monsterSource = monsters.length > 0 ? monsters : this.source;
     // parse() is called a slice at a time; the whole munch is what a summoner may need to find
@@ -930,6 +988,12 @@ export default class DDBMonsterFactory {
           use2024Spells: this.use2024Spells,
         });
         await ddbMonster.parse();
+        const diagnostics = getMonsterDiagnostics(ddbMonster.npc as I5eMonsterData, monster);
+        if (diagnostics.likelyIncomplete) {
+          logger.warn(`[monsters-debug] Parsed monster appears incomplete`, diagnostics);
+        } else if (debugJson) {
+          logger.info(`[monsters-debug] Parsed monster diagnostics`, diagnostics);
+        }
         foundryActors.push(foundry.utils.duplicate(ddbMonster.npc) as unknown as I5eMonsterData);
         logger.timeEnd(`Monster Parse ${name}`);
       } catch (err) {
