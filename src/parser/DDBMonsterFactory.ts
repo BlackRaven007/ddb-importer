@@ -338,11 +338,12 @@ interface IDDBMonsterFactoryFetchOptions {
 function getMonsterActionItemCount(npc: I5eMonsterData): number {
   const items = npc.items ?? [];
   return items.filter((item) => {
-    const legacyActivation = item.system?.activation?.type;
+    const legacyActivation = foundry.utils.getProperty(item, "system.activation.type") as string | undefined;
     if (["action", "bonus", "reaction", "legendary", "lair", "special", "mythic"].includes(legacyActivation ?? "")) {
       return true;
     }
-    const activities = Object.values(item.system?.activities ?? {});
+    const activitiesObject = foundry.utils.getProperty(item, "system.activities") as Record<string, unknown> | undefined;
+    const activities = Object.values(activitiesObject ?? {});
     return activities.some((activity: any) => {
       const type = activity?.activation?.type ?? activity?.type;
       return ["action", "bonus", "reaction", "legendary", "lair", "special", "mythic", "attack", "save", "heal", "utility"].includes(type ?? "");
@@ -364,20 +365,24 @@ function getMonsterDiagnostics(npc: I5eMonsterData, source: IDDBMonsterSourceDat
   const sourceTraitsHtmlLength = (source.specialTraitsDescription ?? "").trim().length;
   const sourceLegendaryHtmlLength = (source.legendaryActionsDescription ?? "").trim().length;
   const sourceReactionHtmlLength = (source.reactionsDescription ?? "").trim().length;
+  const hpMax = foundry.utils.getProperty(npc, "system.attributes.hp.max") as number | undefined;
+  const acValue = foundry.utils.getProperty(npc, "system.attributes.ac.value") as number | undefined;
+  const acFlat = foundry.utils.getProperty(npc, "system.attributes.ac.flat") as number | undefined;
+  const ac = Number.isFinite(acValue) ? acValue : acFlat;
 
   const likelyIncomplete = missingAbilities.length > 0
     || totalItems === 0
     || actionItems === 0
-    || !Number.isFinite(npc.system?.attributes?.hp?.max)
-    || !Number.isFinite(npc.system?.attributes?.ac?.value);
+    || !Number.isFinite(hpMax)
+    || !Number.isFinite(ac);
 
   return {
     likelyIncomplete,
     missingAbilities,
     totalItems,
     actionItems,
-    hpMax: npc.system?.attributes?.hp?.max,
-    ac: npc.system?.attributes?.ac?.value,
+    hpMax,
+    ac,
     cr: npc.system?.details?.cr,
     sourceId: source.id,
     sourceName: source.name,
