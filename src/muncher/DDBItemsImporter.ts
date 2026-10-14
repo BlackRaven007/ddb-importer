@@ -68,6 +68,18 @@ interface IItemFetchResult {
   counts: SourceFilters.ISourceFilterCounts;
 }
 
+function coercePayloadArray<T>(value: unknown, fieldName: string): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (value === null || value === undefined) return [];
+  if (typeof value === "object") {
+    const coerced = Object.values(value as Record<string, T>);
+    logger.warn(`[items] Proxy returned non-array '${fieldName}', coercing object values (${coerced.length})`);
+    return coerced;
+  }
+  logger.warn(`[items] Proxy returned invalid '${fieldName}' type (${typeof value}), ignoring field`);
+  return [];
+}
+
 /**
  * Fold a streamed `items` event into the payload gathered so far. Custom proxies
  * send a bare item array, the official proxy an { items, spells, extra } object,
@@ -84,9 +96,9 @@ function mergeItemPayloads(accumulated: TDDBItemsPayload | null, incoming: unkno
   }
 
   const chunk = incoming as IDDBItemsResponseData;
-  const items = chunk.items ?? [];
-  const spells = chunk.spells ?? [];
-  const extra = chunk.extra ?? [];
+  const items = coercePayloadArray<IDDBItemDefinition>(chunk.items, "data.items");
+  const spells = coercePayloadArray<IDDBItemsResponseSpell>(chunk.spells, "data.spells");
+  const extra = coercePayloadArray<IDDBItemsResponseExtra>(chunk.extra, "data.extra");
   if (items.length === 0 && spells.length === 0 && extra.length === 0) return accumulated;
 
   const previous = accumulated !== null && !Array.isArray(accumulated)
@@ -111,14 +123,22 @@ export function registerEvolvedProperties(evolved: Record<string, string> | unde
 function normaliseItemPayload(payload: IDDBItemsResponseData | IDDBItemDefinition[]): IDDBItemsSource {
   // Official proxy returns { items, spells, extra }; custom proxies return a raw array.
   if (DDBProxy.isCustom(true)) {
-    return { items: payload as IDDBItemDefinition[], spells: [], extra: [] };
+    return { items: coercePayloadArray<IDDBItemDefinition>(payload, "data"), spells: [], extra: [] };
   }
   const raw = payload as IDDBItemsResponseData;
   registerEvolvedProperties(raw.evolved);
+  const rawSpells = coercePayloadArray<IDDBItemsResponseSpell | IDDBSpellEntry>(raw.spells, "data.spells");
   return {
-    items: raw.items,
-    spells: (raw.spells ?? []).map((s) => s.data),
-    extra: raw.extra ?? [],
+    items: coercePayloadArray<IDDBItemDefinition>(raw.items, "data.items"),
+    spells: rawSpells
+      .map((spell) => {
+        if (spell && typeof spell === "object" && "data" in spell) {
+          return (spell as IDDBItemsResponseSpell).data;
+        }
+        return spell as IDDBSpellEntry;
+      })
+      .filter((spell): spell is IDDBSpellEntry => Boolean(spell)),
+    extra: coercePayloadArray<IDDBItemsResponseExtra>(raw.extra, "data.extra"),
     ...(raw.evolved ? { evolved: raw.evolved } : {}),
   };
 }
